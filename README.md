@@ -1,1 +1,3 @@
 # LOFAR-LIM
+
+This is a set of scripts used to analyze the data for the LOFAR-LIM (LOFAR for Lightning IMaging) project. At the moment it is poorly documented...

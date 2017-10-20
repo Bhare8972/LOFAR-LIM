@@ -177,7 +177,7 @@ def invert_2X2_matrix_list( matrices ):
     out[:, 0,0] = matrices[:, 1,1]
     out[:, 0,1] = -matrices[:, 0,1]
     out[:, 1,0] = -matrices[:, 1,0]
-    out[:, 1,0] = matrices[:, 1,1]
+    out[:, 1,1] = matrices[:, 0,0]
     
     determinants = matrices[:, 0,0]*matrices[:, 1,1] - matrices[:, 0,1]*matrices[:, 1,0]
     

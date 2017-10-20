@@ -14,6 +14,8 @@ from scipy.interpolate import RegularGridInterpolator
 ##mine
 from utilities import processed_data_dir
 
+antenna_responce_data_location =  "/home/brian/lightning_scripts/" ##NOTE: need to fix this so that this variable isn't needed somehow...
+
 #### This module is for un-raveling the antenna responce function and applying the galaxy calibration curve
 ## see Schellart et al. Detecting cosmic rays with the LOFAR radio telescope,  and Nelles et al. Calibrating the absolute amplitude scale for air showers measured at LOFAR
 
@@ -64,13 +66,13 @@ from utilities import processed_data_dir
 #        jones_matrix = cr.hArray(complex, dimensions=(2, 2) )
 #        cr.hGetJonesMatrix(jones_matrix, frequency, azimuth_FromNorth, elivation, self.cvt, self.cvp, self.fstart, self.fstep, self.fn, self.tstart, self.tstep, self.tn, self.pstart, self.pstep, self.pn)
 #        return jones_matrix.toNumpy()
-    
+
 class antenna_model:
     """a class encapsulating the antenna model."""
     
     def __init__(self):
-        voltage_theta = np.loadtxt("./antenna_response_model/LBA_Vout_theta.txt", skiprows=1)
-        voltage_phi  = np.loadtxt("./antenna_response_model/LBA_Vout_phi.txt", skiprows=1)
+        voltage_theta = np.loadtxt(antenna_responce_data_location+"antenna_response_model/LBA_Vout_theta.txt", skiprows=1)
+        voltage_phi  = np.loadtxt(antenna_responce_data_location+"antenna_response_model/LBA_Vout_phi.txt", skiprows=1)
 
         voltage_theta_responce = voltage_theta[:, 3] + 1j*voltage_theta[:, 4]
         voltage_phi_responce = voltage_phi[:, 3] + 1j*voltage_phi[:, 4]
@@ -138,7 +140,7 @@ class antenna_model:
         num_freqs = np.sum( good_frequencies )
         
         points = np.zeros( (num_freqs, 3) )
-        points[:, 0] = frequencies
+        points[:, 0] = frequencies[ good_frequencies ]
         points[:, 1] = zenith
         
         ## calculate for X dipole
@@ -170,7 +172,7 @@ class antenna_model:
 def invert_2X2_matrix_list( matrices ):
     """ if matrices is an array of 2x2 matrices, then return the array of inverse matrices """
     num = len(matrices)
-    out = np.zeros( (num, 2,2))
+    out = np.zeros( (num, 2,2), dtype=matrices.dtype)
     
     out[:, 0,0] = matrices[:, 1,1]
     out[:, 0,1] = -matrices[:, 0,1]
@@ -179,7 +181,7 @@ def invert_2X2_matrix_list( matrices ):
     
     determinants = matrices[:, 0,0]*matrices[:, 1,1] - matrices[:, 0,1]*matrices[:, 1,0]
     
-    out[...] /= determinants[...]
+    out /= determinants[:, np.newaxis, np.newaxis]
     
     return out
 
@@ -196,14 +198,13 @@ class ant_calibrator:
         for fpath in galcal_fpaths:
             with open(fpath, 'rb') as fin:
                 data = np.load(fin)
-                ant_names = data["arr_0"]
+                ant_names = data["arr_0"].astype(str, copy=False)
                 factors = data["arr_1"]
             ant_i = 0
             while ant_i<len(ant_names):
-                self.calibration_factors[ant_names[ant_i]] = [factors[ant_i], factors[ant_i+1]]
+                self.calibration_factors[ ant_names[ant_i] ] = [factors[ant_i], factors[ant_i+1]]
                 ant_i += 2
-            
-            
+                
         self.antenna_model = antenna_model()
         
     def FFT_prep(self, even_ant_name, even_pol_data, odd_pol_data):

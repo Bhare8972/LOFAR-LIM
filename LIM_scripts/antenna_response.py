@@ -22,7 +22,7 @@ from utilities import processed_data_dir
 ## psuedo-code example use of calibrator
 # AC = ant_calibrator( "D20160712T173455.100Z" )
 #
-# AC.FFT_prep( even_antenna_data,  odd_antnna_data ) ## note that ant_calibrator can be re-used for multiple data sets
+# AC.FFT_prep( antenna_name, even_antenna_data,  odd_antnna_data ) ## note that ant_calibrator can be re-used for multiple data sets
 # AC.apply_GalaxyCal()  ## this applies the relative callibration, and corrects for defficencies in the antenna model
 # AC.unravelAntennaResponce(azimuth_degrees, elivation_degrees) # apply antenna model. Is better to NOT do this, and to apply anntenna model to E-field model instead
 # out_1, out_2 = AC.get_result() ## out_1 is zenith component, out_2 is azimuthal component (if unravelAntennaResponce was called,  else is still even and odd antennas)
@@ -287,10 +287,10 @@ class ant_calibrator:
 
         return [PolE_factor, PolO_factor]
         
-    def unravelAntennaResponce(self, azimuth, zenith):
+    def unravelAntennaResponce(self, zenith, azimuth):
         """given a direction to source (azimuth off X and zenith from Z, in degrees ), if call this function, then apply_GalaxyCal MUST also be applied to the data"""
         
-        jones_matrices = self.antenna_model.JonesMatrix_MultiFreq(self.frequencies, azimuth, zenith)
+        jones_matrices = self.antenna_model.JonesMatrix_MultiFreq(self.frequencies, zenith, azimuth)
         
         inverse_jones_matrix = invert_2X2_matrix_list( jones_matrices )
         

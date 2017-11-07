@@ -14,7 +14,7 @@ from scipy.interpolate import RegularGridInterpolator
 ##mine
 from utilities import processed_data_dir
 
-antenna_responce_data_location =  "/home/brian/lightning_scripts/" ##NOTE: need to fix this so that this variable isn't needed somehow...
+antenna_responce_data_location =  os.path.dirname(os.path.abspath(__file__)) ## change this if antenna_responce_model is in a folder different from this module
 
 #### This module is for un-raveling the antenna responce function and applying the galaxy calibration curve
 ## see Schellart et al. Detecting cosmic rays with the LOFAR radio telescope,  and Nelles et al. Calibrating the absolute amplitude scale for air showers measured at LOFAR

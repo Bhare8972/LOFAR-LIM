@@ -957,10 +957,12 @@ if __name__=="__main__":
 #    data = read_PSE_timeID("D20160712T173455.100Z", "subEvents", data_loc="/home/brian/processed_files")
 #    PSE_list = data["sub_PSE_list"]
     
+     
+    data = read_PSE_timeID("D20160712T173455.100Z", "allPSE_new3") ## we read PSE from analysis "allPSE_new3" of flash that has timeID of "D20160712T173455.100Z"
+    PSE_list = data["PSE_list"] ## this is a list of point source event (PSE) objects
+    ant_locs = data["ant_locations"] ## this is a diction of XYZ antenna locations
     
-    data = read_PSE_timeID("D20160712T173455.100Z", "allPSE_new3")
-    PSE_list = data["PSE_list"]
-    ant_locs = data["ant_locations"]
+    ## see the class plot_data_analysis, above, for an example of extracting source locations and plotting the pulse timeseries data.
     
     print( "opening data:", len(PSE_list))
     

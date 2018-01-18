@@ -1,7 +1,14 @@
 #!/usr/bin/env python
 
+""" A set of tools for modelling the antenna reponse and for callibrating the amplitude vs frequency of the antennas
+based on pyCRtools. see Schellart et al. Detecting cosmic rays with the LOFAR radio telescope,  and Nelles et al. Calibrating the absolute amplitude scale for air showers measured at LOFAR
+
+Note: LBA_ant_calibrator still needs some work.
+
+author: Brian hare
+"""
+
 ##internal
-import os
 import glob
 
 ##external 
@@ -12,12 +19,7 @@ from scipy.interpolate import RegularGridInterpolator
 
 
 ##mine
-from utilities import processed_data_dir
-
-antenna_responce_data_location =  os.path.dirname(os.path.abspath(__file__)) ## change this if antenna_responce_model is in a folder different from this module
-
-#### This module is for un-raveling the antenna responce function and applying the galaxy calibration curve
-## see Schellart et al. Detecting cosmic rays with the LOFAR radio telescope,  and Nelles et al. Calibrating the absolute amplitude scale for air showers measured at LOFAR
+from utilities import processed_data_dir, MetaData_directory
 
 
 
@@ -33,46 +35,12 @@ antenna_responce_data_location =  os.path.dirname(os.path.abspath(__file__)) ## 
 
 
 
-#import pycrtools as cr
-#class pycrtools_antenna_model:
-#    """a class encapsulating the antenna model. Uses the pycrtools interpolation function"""
-#    
-#    def __init__(self):
-#        ### antenna responce data ###
-#        self.vt = np.loadtxt(os.environ["LOFARSOFT"] + "/data/lofar/antenna_response_model/LBA_Vout_theta.txt", skiprows=1)
-#        self.vp = np.loadtxt(os.environ["LOFARSOFT"] + "/data/lofar/antenna_response_model/LBA_Vout_phi.txt", skiprows=1)
-#        
-#        self.cvt = cr.hArray(self.vt[:, 3] + 1j * self.vt[:, 4])
-#        self.cvp = cr.hArray(self.vp[:, 3] + 1j * self.vp[:, 4])
-#    
-#        self.fstart = 10.0 * 1.e6
-#        self.fstep = 1.0 * 1.e6
-#        self.fn = 101
-#        self.tstart = 0.0
-#        self.tstep = 5.0
-#        self.tn = 19
-#        self.pstart = 0.0
-#        self.pstep = 10.0
-#        self.pn = 37
-#        
-#    def JonesMatrix(self, frequency, zenith, azimuth):
-#        """return the Jones Matrix for a single frequency (in Hz), for a wave with a zenith and azimuth angle in degrees. Dot the jones matrix with the electric field vector, first component of vector is Zenith component of 
-#        electric field and second component is azimuthal electric field, then the first component of the resulting vector will be voltage on odd antenna and second component will be voltage on even antenna"""
-#        
-#        ## need azimuth from north (positive going EAST!), and inclination, in degrees
-#        azimuth_FromNorth  = ( 90.0 - azimuth)
-#        elivation = ( 90.0 - zenith)
-#        
-#        jones_matrix = cr.hArray(complex, dimensions=(2, 2) )
-#        cr.hGetJonesMatrix(jones_matrix, frequency, azimuth_FromNorth, elivation, self.cvt, self.cvp, self.fstart, self.fstep, self.fn, self.tstart, self.tstep, self.tn, self.pstart, self.pstep, self.pn)
-#        return jones_matrix.toNumpy()
-
-class antenna_model:
-    """a class encapsulating the antenna model."""
+class LBA_antenna_model:
+    """a class encapsulating the antenna model for the Low Band Antennas."""
     
     def __init__(self):
-        voltage_theta = np.loadtxt(antenna_responce_data_location+"antenna_response_model/LBA_Vout_theta.txt", skiprows=1)
-        voltage_phi  = np.loadtxt(antenna_responce_data_location+"antenna_response_model/LBA_Vout_phi.txt", skiprows=1)
+        voltage_theta = np.loadtxt(MetaData_directory+"/lofar/antenna_response_model/LBA_Vout_theta.txt", skiprows=1)
+        voltage_phi   = np.loadtxt(MetaData_directory+"/lofar/antenna_response_model/LBA_Vout_phi.txt", skiprows=1)
 
         voltage_theta_responce = voltage_theta[:, 3] + 1j*voltage_theta[:, 4]
         voltage_phi_responce = voltage_phi[:, 3] + 1j*voltage_phi[:, 4]
@@ -185,8 +153,8 @@ def invert_2X2_matrix_list( matrices ):
     
     return out
 
-class ant_calibrator:
-    """ This is a class for callibrating the antennas and removing the antenna responce function. Only valid between 30 to 80 MHz. NOTE: removing the antenna responce function is -ll-conditioned. A better approach is to callibrate the data, 
+class LBA_ant_calibrator:
+    """ This is a class for callibrating the LBA antennas and removing the antenna responce function. Only valid between 30 to 80 MHz. NOTE: removing the antenna responce function is ill-conditioned. A better approach is to callibrate the data, 
     then filter a model using the antenna responce. Using this class will inherently do a hilbert transform (negative frequencies will be set to zero)"""
     
     def __init__(self, timeID):
@@ -205,7 +173,7 @@ class ant_calibrator:
                 self.calibration_factors[ ant_names[ant_i] ] = [factors[ant_i], factors[ant_i+1]]
                 ant_i += 2
                 
-        self.antenna_model = antenna_model()
+        self.antenna_model = LBA_antenna_model()
         
     def FFT_prep(self, even_ant_name, even_pol_data, odd_pol_data):
         """ prepare to apply callibrations to a pair of dipoles. Essentually just takes FFT. Assume a han window is not needed."""
@@ -289,7 +257,8 @@ class ant_calibrator:
         return [PolE_factor, PolO_factor]
         
     def unravelAntennaResponce(self, zenith, azimuth):
-        """given a direction to source (azimuth off X and zenith from Z, in degrees ), if call this function, then apply_GalaxyCal MUST also be applied to the data"""
+        """given a direction to source (azimuth off X and zenith from Z, in degrees ), if call this function, then apply_GalaxyCal MUST also be applied to the data
+        Note that this function assumes the data is LBA_outer, which has flipped polarizations compared to LBA inner"""
         
         jones_matrices = self.antenna_model.JonesMatrix_MultiFreq(self.frequencies, zenith, azimuth)
         
@@ -321,7 +290,7 @@ def plot_responce():
     azimuths = np.linspace( 0, 360, N_azimuth )
     
     resulting_grid = np.zeros((N_zenith, N_azimuth))
-    AM = antenna_model()
+    AM = LBA_antenna_model()
 #    AM = pycrtools_antenna_model()
     
     for ze_i in range(N_zenith):

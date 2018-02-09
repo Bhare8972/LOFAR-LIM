@@ -22,7 +22,7 @@ import matplotlib.colors as colors
 
 ## mine
 from utilities import v_air
-from read_PSE import read_PSE_timeID
+from LoLIM.read_PSE import read_PSE_timeID
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
     cmap = plt.get_cmap(cmap_name)
@@ -58,8 +58,8 @@ class typical_transform(coordinate_transform):
         
         self.space_center = space_center
         self.time_center = time_center
-        self.x_label = "distance East/West (km)"
-        self.y_label = "distance North/South (km)"
+        self.x_label = "distance east-west (km)"
+        self.y_label = "distance north-south (km)"
         self.z_label = "altitude (km)"
         self.t_label = "time (ms)"
         
@@ -107,7 +107,7 @@ class DataSet_Type:
     def set_min_numAntennas(self, min_numAntennas):
         pass
     
-    def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes):
+    def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes, ancillary_axes):
         pass
     
     def get_viewed_events(self):
@@ -118,6 +118,9 @@ class DataSet_Type:
     
     def search(self, index):
         return DataSet_Type(self.name+"_search", self.coordinate_system)
+    
+    def use_ancillary_axes(self):
+        return False
     
 class DataSet_simplePointSources(DataSet_Type):
     """This represents a set of simple dual-polarized point sources"""
@@ -244,7 +247,7 @@ class DataSet_simplePointSources(DataSet_Type):
         self.PolE_mask_on_min_numAntennas = self.PolE_masked_numAntennas>min_numAntennas
         self.PolO_mask_on_min_numAntennas = self.PolO_masked_numAntennas>min_numAntennas
     
-    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes):
+    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes):
         ## set total mask ##
         self.PolE_total_mask[:,0] = self.PolE_mask_on_alt
         np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_X, out=self.PolE_total_mask[:,0])
@@ -271,19 +274,22 @@ class DataSet_simplePointSources(DataSet_Type):
         self.clear()
             
         if self.color_mode == "time":
-            color = self.PolE_masked_loc_data[:,3]
-        elif self.color_mode[0] == '*':
-            color = self.color_mode[1:]
+            polE_color = self.PolE_masked_loc_data[:,3]
+            polO_color = self.PolO_masked_loc_data[:,3]
             
-        self.PolE_AltVsT_paths = AltVsT_axes.scatter(x=self.PolE_masked_loc_data[:,3], y=self.PolE_masked_loc_data[:,2], c=color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-        self.PolE_AltVsEw_paths = AltVsEw_axes.scatter(x=self.PolE_masked_loc_data[:,0], y=self.PolE_masked_loc_data[:,2], c=color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-        self.PolE_NsVsEw_paths = NsVsEw_axes.scatter(x=self.PolE_masked_loc_data[:,0], y=self.PolE_masked_loc_data[:,1], c=color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-        self.PolE_NsVsAlt_paths = NsVsAlt_axes.scatter(x=self.PolE_masked_loc_data[:,2], y=self.PolE_masked_loc_data[:,1], c=color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+        elif self.color_mode[0] == '*':
+            polE_color = self.color_mode[1:]
+            polO_color = self.color_mode[1:]
+            
+        self.PolE_AltVsT_paths = AltVsT_axes.scatter(x=self.PolE_masked_loc_data[:,3], y=self.PolE_masked_loc_data[:,2], c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+        self.PolE_AltVsEw_paths = AltVsEw_axes.scatter(x=self.PolE_masked_loc_data[:,0], y=self.PolE_masked_loc_data[:,2], c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+        self.PolE_NsVsEw_paths = NsVsEw_axes.scatter(x=self.PolE_masked_loc_data[:,0], y=self.PolE_masked_loc_data[:,1], c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+        self.PolE_NsVsAlt_paths = NsVsAlt_axes.scatter(x=self.PolE_masked_loc_data[:,2], y=self.PolE_masked_loc_data[:,1], c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
         
-        self.PolO_AltVsT_paths = AltVsT_axes.scatter(x=self.PolO_masked_loc_data[:,3], y=self.PolO_masked_loc_data[:,2], c=color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-        self.PolO_AltVsEw_paths = AltVsEw_axes.scatter(x=self.PolO_masked_loc_data[:,0], y=self.PolO_masked_loc_data[:,2], c=color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-        self.PolO_NsVsEw_paths = NsVsEw_axes.scatter(x=self.PolO_masked_loc_data[:,0], y=self.PolO_masked_loc_data[:,1], c=color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-        self.PolO_NsVsAlt_paths = NsVsAlt_axes.scatter(x=self.PolO_masked_loc_data[:,2], y=self.PolO_masked_loc_data[:,1], c=color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+        self.PolO_AltVsT_paths = AltVsT_axes.scatter(x=self.PolO_masked_loc_data[:,3], y=self.PolO_masked_loc_data[:,2], c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+        self.PolO_AltVsEw_paths = AltVsEw_axes.scatter(x=self.PolO_masked_loc_data[:,0], y=self.PolO_masked_loc_data[:,2], c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+        self.PolO_NsVsEw_paths = NsVsEw_axes.scatter(x=self.PolO_masked_loc_data[:,0], y=self.PolO_masked_loc_data[:,1], c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+        self.PolO_NsVsAlt_paths = NsVsAlt_axes.scatter(x=self.PolO_masked_loc_data[:,2], y=self.PolO_masked_loc_data[:,1], c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
         
         print("  data set:", self.name, "plotting", len(self.PolE_total_mask[:,0])-np.sum(self.PolE_total_mask[:,0]),  "even source and", len(self.PolO_total_mask[:,0])-np.sum(self.PolO_total_mask[:,0]), "odd sources")
 
@@ -321,6 +327,84 @@ class DataSet_simplePointSources(DataSet_Type):
     def search(self, index, marker, marker_size, color_mode, cmap=None):
         searched_PSE = [PSE for PSE in self.PSE_list if PSE.unique_index==index]
         return DataSet_simplePointSources( searched_PSE, [marker,marker], marker_size, color_mode, self.name+"_search", self.coordinate_system, cmap)
+
+    def use_ancillary_axes(self):
+        return False
+
+
+class DataSet_temperature:
+    """All data plotted will be part of a data set. There can be different types of data sets, this class is a wrapper over all data sets"""
+    
+    def __init__(self, name, input_fname, lower_lim, upper_lim, color='b', width=10):
+        self.name = name
+        self.display = True
+        self.color = color
+        self.width = width
+        self.lower_lim = lower_lim
+        self.upper_lim = upper_lim
+        
+        self.input_fname = input_fname
+        alt = []
+        T = []
+        with open(input_fname, 'r') as fin:
+            for line in fin:
+                A,B = line.split()
+                alt.append( float(A) )
+                T.append( float(B) )
+                
+        self.altitude = np.array( alt )
+        self.temperature = np.array( T )
+        self.path = None
+        
+    def set_coordinate_system(self, coordinate_system):
+        self.coordinate_system = coordinate_system
+        self.transform_alt = np.array([ coordinate_system.transform(0.0,0.0,Z,0.0)[2] for Z in self.altitude ])
+    
+    def getSpaceBounds(self):
+        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
+        return [[np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan]]
+    
+    def getFilterBounds(self):
+        """return max_RMS, min_antennas"""
+        return [np.nan, np.nan]
+    
+    def set_T_lims(self, min, max):
+        pass
+    
+    def set_X_lims(self, min, max):
+        pass
+    
+    def set_Y_lims(self, min, max):
+        pass
+    
+    def set_alt_lims(self, min, max):
+        pass
+    
+    def set_max_RMS(self, max_RMS):
+        pass
+    
+    def set_min_numAntennas(self, min_numAntennas):
+        pass
+    
+    def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes, ancillary_axes):
+        self.path = ancillary_axes.plot(self.temperature, self.transform_alt, self.color+'o-', linewidth=self.width)
+        ancillary_axes.set_xlim( [self.lower_lim, self.upper_lim] )
+    
+    def get_viewed_events(self):
+        return []
+    
+    def clear(self):
+        if self.path is not None:
+            self.path.remove()
+    
+    def search(self, index):
+        return DataSet_Type(self.name+"_search", self.coordinate_system)
+    
+    def use_ancillary_axes(self):
+        return True
+    
+    def ancillary_label(self):
+        return "temperature (C)"
 
 class FigureArea(FigureCanvas):
     """This is a widget that contains the central figure"""
@@ -366,7 +450,7 @@ class FigureArea(FigureCanvas):
         ## data sets
         self.simple_pointSource_DataSets = [] ## this is a list of all Data Sets that are simple point sources
         self.event_searches = [] ##data sets that represent events that were searched for
-        
+        self.ancillary_data_sets = []
         
         #### setup figure and canvas
         self.fig = Figure(figsize=(width, height), dpi = dpi)
@@ -384,14 +468,17 @@ class FigureArea(FigureCanvas):
         self.fig.subplots_adjust(top=0.97, bottom=0.07)
         
         #### setup axes. We need TWO grid specs to control heights properly
-        self.outer_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.3)
-        self.lower_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(3, 3, subplot_spec =self.outer_gs[1:])
+        self.top_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.3)
+        self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.top_gs[1], hspace=0.3, wspace=0.05)
+        self.bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec =self.top_gs[2:], wspace=0.05)
         
-        self.AltVsT_axes = self.fig.add_subplot(self.outer_gs[0])
-        self.AltVsEw_axes= self.fig.add_subplot(self.lower_gs[0,:2])
-        self.NsVsEw_axes = self.fig.add_subplot(self.lower_gs[1:,:2])
-#        self.histogram_axes   = self.fig.add_subplot(self.lower_gs[0,2])
-        self.NsVsAlt_axes = self.fig.add_subplot(self.lower_gs[1:,2])
+        self.AltVsT_axes = self.fig.add_subplot(self.top_gs[0])
+        
+        self.AltVsEw_axes= self.fig.add_subplot(self.middle_gs[0,:2])
+        self.ancillary_axes = self.fig.add_subplot(self.middle_gs[0,2])
+        
+        self.NsVsEw_axes = self.fig.add_subplot(self.bottom_gs[0:,:2])
+        self.NsVsAlt_axes = self.fig.add_subplot(self.bottom_gs[0:,2])
         
         self.AltVsT_axes.set_xlabel(self.coordinate_system.t_label, fontsize=self.axis_label_size)
         self.AltVsT_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
@@ -411,6 +498,12 @@ class FigureArea(FigureCanvas):
         self.NsVsAlt_axes.set_xlabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
         self.NsVsAlt_axes.tick_params(labelsize = self.axis_tick_size)
         self.NsVsAlt_axes.get_yaxis().set_visible(False)
+        
+        
+        self.ancillary_axes.get_yaxis().set_visible(False)
+        self.ancillary_axes.tick_params(labelsize = self.axis_tick_size)
+        self.ancillary_axes.set_axis_off()
+            
         
         self.set_alt_lims(self.alt_limits[0], self.alt_limits[1])
         self.set_T_lims(self.T_limits[0], self.T_limits[1])
@@ -474,8 +567,16 @@ class FigureArea(FigureCanvas):
         self.replot_data()
         
         return name
-
-
+    
+    def add_ancillaryData(self, dataset):
+        self.ancillary_data_sets.append( dataset )
+        dataset.set_coordinate_system( self.coordinate_system )
+        
+        if dataset.use_ancillary_axes():
+            self.ancillary_axes.set_xlabel(dataset.ancillary_label(), fontsize=self.axis_label_size)
+            self.ancillary_axes.set_axis_on()
+            
+            
     def show_all_PSE(self):
         min_X = np.nan
         max_X = np.nan
@@ -599,6 +700,7 @@ class FigureArea(FigureCanvas):
         self.AltVsT_axes.set_ylim(self.alt_limits)
         self.AltVsEw_axes.set_ylim(self.alt_limits)
         self.NsVsAlt_axes.set_xlim(self.alt_limits)
+        self.ancillary_axes.set_ylim( self.alt_limits )
         
         for DS in self.simple_pointSource_DataSets:
             DS.set_alt_lims( *self.alt_limits )
@@ -673,7 +775,11 @@ class FigureArea(FigureCanvas):
                 self.set_X_lims( middle_X-new_width/2.0, middle_X+new_width/2.0 )
                 
         for DS in self.simple_pointSource_DataSets:
-            DS.plot( self.AltVsT_axes, self.AltVsEw_axes, self.NsVsEw_axes, self.NsVsAlt_axes )
+            DS.plot( self.AltVsT_axes, self.AltVsEw_axes, self.NsVsEw_axes, self.NsVsAlt_axes, self.ancillary_axes )
+            
+        for DS in self.ancillary_data_sets:
+            DS.plot( self.AltVsT_axes, self.AltVsEw_axes, self.NsVsEw_axes, self.NsVsAlt_axes, self.ancillary_axes )
+            
         
     #### calbacks for various events
     def T_selector(self, minT, maxT):
@@ -968,8 +1074,13 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     def closeEvent(self, ce):
         self.fileQuit()
         
+        
+    #### add data sets ####
     def add_simplePSE(self, PSE_list, name=None):
         return self.figure_space.add_simplePSE(PSE_list, name=name)
+    
+    def add_ancillaryData(self, dataset):
+        self.figure_space.add_ancillaryData( dataset )
         
     
     #### button callbacks ####
@@ -1424,6 +1535,7 @@ if __name__=="__main__":
     
     plotter.show()
     plotter.add_simplePSE( PSE_list, name="PSE" )
+    plotter.add_ancillaryData(  DataSet_temperature("temp", "../GDAS_temp_out.txt", -30.0, 8.0, 'b', 2) )
     
     qApp.exec_()
     

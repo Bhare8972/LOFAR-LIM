@@ -11,10 +11,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 ##import own tools
-from binary_IO import read_string, read_double, read_long, read_double_array, write_long, write_double, write_string
-from porta_code import code_logger
+from LoLIM.IO.binary_IO import read_string, read_double, read_long, read_double_array, write_long, write_double, write_string
+from LoLIM.porta_code import code_logger
 
-from utilities import Fname_data, processed_data_dir
+from LoLIM.utilities import Fname_data, processed_data_dir
 
 class station_metadata(object):
     """object used to store info about a single station"""

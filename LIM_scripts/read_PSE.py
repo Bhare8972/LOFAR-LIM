@@ -13,9 +13,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 ##mine 
-from read_pulse_data import readBin_modData
-from binary_IO import write_long, write_double_array, write_string, write_double, read_long, read_double_array, read_string, read_double, skip_double_array, at_eof
-from utilities import processed_data_dir, v_air
+from LoLIM.read_pulse_data import readBin_modData
+from LoLIM.IO.binary_IO import write_long, write_double_array, write_string, write_double, read_long, read_double_array, read_string, read_double, skip_double_array, at_eof
+from LoLIM.utilities import processed_data_dir, v_air
 
 def writeBin_modData_T2(fout, station_delay_dict, ant_delay_dict, bad_ant_list, flipped_pol_list):
     """write mod data to a binary file using format 2. Format 1 is defined in read_pulse_data"""
@@ -273,6 +273,7 @@ class PointSourceEvent:
             self.unique_index = read_long(fin) ## pulse unique index
             self.starting_index = read_long(fin) ##pulse starting index
             self.antenna_status = read_long(fin) ##pulse antenna status
+            # 0 means both are good. 1 means even is bad. 2 means odd is bad, 3 means both are bad
             
             self.PolE_peak_time = read_double(fin) ##polE peak time
             self.PolE_estimated_timing_error = read_double(fin) ##PolE est timing error

@@ -19,7 +19,7 @@ from scipy.interpolate import RegularGridInterpolator
 
 
 ##mine
-from utilities import processed_data_dir, MetaData_directory
+from LoLIM.utilities import processed_data_dir, MetaData_directory
 
 
 

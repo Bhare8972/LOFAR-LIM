@@ -5,8 +5,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utilities import processed_data_dir
-from raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+from LoLIM.utilities import processed_data_dir
+from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 
 from os import mkdir
 from os.path import isdir

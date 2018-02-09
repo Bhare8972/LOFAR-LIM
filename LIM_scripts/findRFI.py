@@ -8,7 +8,9 @@ However, it has been heavily modified for use with LOFAR-LIM by Brian Hare
 
 import numpy as np
 from matplotlib import pyplot as plt
-from utilities import half_hann_window, num_double_zeros
+from scipy.signal import gaussian
+
+from LoLIM.utilities import half_hann_window, num_double_zeros
 
 
 def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None, verbose=False, figure_location=None, lower_frequency=10E6, upper_frequency=90E6):
@@ -190,6 +192,55 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     output_dict["ave_spectrum_phase"] = np.angle(phase_mean, deg=False)
     output_dict["phase_variance"] = phase_stability
     output_dict["dirty_channels"] = dirty_channels + lower_frequency_index
+    output_dict["blocksize"] = block_size
    
     return output_dict
 
+class window_and_filter:
+    def __init__(self, blocksize, find_RFI=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6):
+        self.lower_filter = lower_filter
+        self.upper_filter = upper_filter
+        self.RFI_data = find_RFI
+        
+        if self.RFI_data is not None:
+            if self.RFI_data['blocksize'] != blocksize:
+                print("blocksize and findRFI blocksize must match")
+                quit()
+                
+        self.half_hann_window = half_hann_window(blocksize, half_window_percent)
+
+        FFT_frequencies = np.fft.fftfreq(blocksize, d=time_per_sample)
+        self.bandpass_filter = np.zeros( len(FFT_frequencies), dtype=complex)
+        self.bandpass_filter[ np.logical_and( FFT_frequencies>=lower_filter, FFT_frequencies<=upper_filter  ) ] = 1.0
+        gaussian_weights = gaussian(len(FFT_frequencies), int( round(filter_roll_width/(FFT_frequencies[1]-FFT_frequencies[0]) ) ) ) 
+        self.bandpass_filter = np.convolve(self.bandpass_filter, gaussian_weights, mode='same' )
+        self.bandpass_filter /= np.max(self.bandpass_filter) ##convolution changes the peak value
+        
+        
+    def filter(self, data):
+        
+        data[...,:] *= self.half_hann_window
+        FFT_data = np.fft.fft( data, axis=-1 )
+        
+        FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
+        # Reject DC component
+        FFT_data[..., 0] = 0.0
+        # Also reject 1st harmonic (gives a lot of spurious power with Hanning window)
+        FFT_data[..., 1] = 0.0
+        
+#       remove RFI
+        if self.RFI_data is not None:
+            FFT_data[..., self.RFI_data["dirty_channels"]] = 0
+            
+
+        return np.fft.ifft(FFT_data, axis=-1)
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

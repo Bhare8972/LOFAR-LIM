@@ -431,17 +431,18 @@ if __name__ == "__main__":
     antenna_id = 0
     
     block_size = 2**16
-    block_number = 3900
+    block_number = 30#3900
     
     raw_fpaths = filePaths_by_stationName(timeID)
     
-    infile = MultiFile_Dal1(raw_fpaths[station])
+#    infile = MultiFile_Dal1(raw_fpaths[station])
+    infile = MultiFile_Dal1(["./new_file.h5"])
     
     data = infile.get_data(block_number*block_size, block_size, antenna_index=antenna_id)
     
     plt.plot(data)
     plt.show()
-        
+#        
         
         
         

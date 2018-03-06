@@ -37,8 +37,6 @@ if __name__ == "__main__":
         
         plt.figure()
         for antenna_i in range(num_antennas):
-            if antenna_i == 1:
-                break
             print("  antenna:", antenna_i, "/", num_antennas)
             
             data = np.zeros(num_blocks, dtype=float)
@@ -58,6 +56,5 @@ if __name__ == "__main__":
             plt.plot(data)
         
         print("saving figure:", output_fpath+'/'+station+'.png')
-#        plt.savefig(output_fpath+'/'+station+'.png')
-        plt.show()
+        plt.savefig(output_fpath+'/'+station+'.png')
         plt.close()

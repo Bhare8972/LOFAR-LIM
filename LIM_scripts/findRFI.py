@@ -228,12 +228,9 @@ class window_and_filter:
         return self.bandpass_filter
         
         
-    def filter(self, data, additional_filter=None, whiten=False):
+    def filter(self, data, additional_filter=None):
         data[...,:] *= self.half_hann_window
         FFT_data = np.fft.fft( data, axis=-1 )
-        
-        if whiten:
-            FFT_data /= np.abs(FFT_data)
         
         FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
         if additional_filter:

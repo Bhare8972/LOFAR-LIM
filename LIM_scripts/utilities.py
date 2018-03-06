@@ -12,8 +12,8 @@ import weakref
 from scipy import fftpack
 import numpy as np
 
-default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
-default_processed_data_loc = "/home/brian/processed_files"
+default_raw_data_loc = "/vol/astro7/lofar/TBBdata/lightning/raw_data"
+default_processed_data_loc = "/vol/astro7/lofar/TBBdata/lightning/processed_data"
 
 MetaData_directory =  dirname(abspath(__file__)) + '/data' ## change this if antenna_response_model is in a folder different from this module
 
@@ -71,7 +71,8 @@ class logger(object):
             self.old_stdout.write("\n")
             
         self.out_file.flush()
-        self.old_stdout.flush()
+        if self.to_screen:
+            self.old_stdout.flush()
         
     def set_to_screen(self, to_screen=True):
         self.to_screen = to_screen
@@ -101,11 +102,10 @@ class logger(object):
     def flush(self):
         self.out_file.flush()
             
-    def __del__(self):
-        self.restore_stderr()
-        self.restore_stdout()
-        
-#log = logger()
+#    def __del__(self):
+#        self.restore_stderr()
+#        self.restore_stdout()
+log = logger()
         
 def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
     """returns an iterator that loops over all pairs of the two lists"""
@@ -207,13 +207,6 @@ def upsample_N_envelope(timeseries_data, upsample_factor):
     new_data += y.imag**2
 
     return np.sqrt(y.real**2 + y.imag**2)
-    
-def num_double_zeros(data):
-    """if data is a numpy array, give number of points that have  zero preceded by a zero"""
-    is_zero =  data==0
-    
-    bad = np.logical_and( is_zero[:-1], is_zero[1:] )
-    return np.sum(bad)
     
 ## a python list where the keys are the number of a station and the values are the station name
 SId_to_Sname = [None]*209 #just to pre-initilize list, so syntax below is possible

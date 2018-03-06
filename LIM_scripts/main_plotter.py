@@ -21,7 +21,7 @@ from matplotlib.widgets import SpanSelector, RectangleSelector
 import matplotlib.colors as colors
 
 ## mine
-from utilities import v_air
+from LoLIM.utilities import v_air
 from LoLIM.read_PSE import read_PSE_timeID
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
@@ -1512,7 +1512,7 @@ if __name__=="__main__":
      
     data = read_PSE_timeID("D20160712T173455.100Z", "allPSE_new3") ## we read PSE from analysis "allPSE_new3" of flash that has timeID of "D20160712T173455.100Z"
     PSE_list = data["PSE_list"] ## this is a list of point source event (PSE) objects
-    ant_locs = data["ant_locations"] ## this is a diction of XYZ antenna locations
+    ant_locs = data["ant_locations"] ## this is a dictionary of XYZ antenna locations
     
     ## see the class plot_data_analysis, above, for an example of extracting source locations and plotting the pulse timeseries data.
     

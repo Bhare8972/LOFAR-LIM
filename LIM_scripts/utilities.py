@@ -10,7 +10,6 @@ from os.path import isdir, dirname, abspath
 import weakref
 
 from scipy import fftpack
-from scipy.signal import hann
 import numpy as np
 
 default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
@@ -105,7 +104,8 @@ class logger(object):
     def __del__(self):
         self.restore_stderr()
         self.restore_stdout()
-log = logger()
+        
+#log = logger()
         
 def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
     """returns an iterator that loops over all pairs of the two lists"""
@@ -207,88 +207,12 @@ def upsample_N_envelope(timeseries_data, upsample_factor):
     new_data += y.imag**2
 
     return np.sqrt(y.real**2 + y.imag**2)
-
-
-class parabolic_fit:
-    def __init__(self, data, index, n_points):
-        
-        self.index = index
-        self.n_points = n_points
-        
-        self.matrix, self.error_ratio_A, self.error_ratio_B, self.error_ratio_C = self.get_fitting_matrix(n_points)
-        
-        half_n_points = int( (n_points-1)/2 )
-        points = data[ index-half_n_points :  index+1+half_n_points ]
-        
-        self.A, self.B, self.C = np.dot( self.matrix, points )
-        
-        self.peak_relative_index = -self.B/(2.0*self.A)
-        self.peak_index = self.peak_relative_index + (index-half_n_points)
-        
-        self.peak_index_error_ratio = self.peak_relative_index*np.sqrt( (self.error_ratio_A/self.A)**2 + (self.error_ratio_B/self.B)**2 )
-        
-        X = np.arange(n_points)
-        residuals = (self.A*(X*X) + self.B*X * C) - points
-        self.RMS_fit = np.sqrt( np.sum(residuals*residuals)/n_points )
-        
-        self.amplitude = self.C - (self.B**2)/(4.0*self.A)
-         
-    def get_fitting_matrix(self, n_points):
-        if "fit_matrix" not in parabolic_fit.__dict__:
-            parabolic_fit.fit_matrix = {}
-            
-        if n_points not in parabolic_fit.fit_matrix:
-        
-            tmp_matrix = np.zeros((n_points,3), dtype=np.double)
-            for n_i in range(n_points):
-                tmp_matrix[n_i, 0] = n_i**2
-                tmp_matrix[n_i, 1] = n_i
-                tmp_matrix[n_i, 2] = 1.0
-            peak_time_matrix = np.linalg.pinv( tmp_matrix ) #### this matrix, when multilied by vector of data points, will give a parabolic fit(A,B,C): A*x*x + B*x + C (with x in units of index)
-                           
-            hessian = np.zeros((3,3))
-            for n_i in range(n_points):
-                hessian[0,0] += n_i**4
-                hessian[0,1] += n_i**3
-                hessian[0,2] += n_i**2
-                
-                hessian[1,1] += n_i**2
-                hessian[1,2] += n_i
-                
-                hessian[2,2] +=1
-                        
-            hessian[1,0] = hessian[0,1]
-            hessian[2,0] = hessian[0,2]
-            hessian[2,1] = hessian[1,2]
-                
-            inverse = np.linalg.inv(hessian)
-            #### these error ratios, for each value in the parabolic fit, give teh std of the error in that paramter when mupltipled by the std of the noise of the data ####
-            error_ratio_A = np.sqrt(inverse[0,0])
-            error_ratio_B = np.sqrt(inverse[1,1])
-            error_ratio_C = np.sqrt(inverse[2,2])
-    
-            parabolic_fit.fit_matrix[n_points] = [peak_time_matrix, error_ratio_A, error_ratio_B, error_ratio_C]
-        
-        
-        return parabolic_fit.fit_matrix[n_points]
-    
-def half_hann_window(length, half_percent):
-    """produce a half-hann window. Note that this is different than a Hamming window."""
-    hann_window_length = int(length*half_percent)
-    hann_window = hann(2*hann_window_length)
-    
-    half_hann_widow = np.ones(length, dtype=np.double)
-    half_hann_widow[:hann_window_length] = hann_window[:hann_window_length]
-    half_hann_widow[-hann_window_length:] = hann_window[hann_window_length:]
-    
-    return half_hann_widow
     
 def num_double_zeros(data):
     """if data is a numpy array, give number of points that have  zero preceded by a zero"""
-    is_zero = (data[1:]==0)
-    preceded_by_zero = (data[:-1]==0)
+    is_zero =  data==0
     
-    bad = np.logical_and( is_zero, preceded_by_zero )
+    bad = np.logical_and( is_zero[:-1], is_zero[1:] )
     return np.sum(bad)
     
 ## a python list where the keys are the number of a station and the values are the station name

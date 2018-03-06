@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.signal import gaussian
 
-from LoLIM.utilities import half_hann_window, num_double_zeros
+from LoLIM.signal_processing import half_hann_window, num_double_zeros
 
 
 def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None, verbose=False, figure_location=None, lower_frequency=10E6, upper_frequency=90E6):
@@ -216,24 +216,59 @@ class window_and_filter:
         self.bandpass_filter = np.convolve(self.bandpass_filter, gaussian_weights, mode='same' )
         self.bandpass_filter /= np.max(self.bandpass_filter) ##convolution changes the peak value
         
+        ## completly reject low-frequency bits
+        self.bandpass_filter[0] = 0.0
+        self.bandpass_filter[1] = 0.0
         
-    def filter(self, data):
+        ##reject RFI 
+        if self.RFI_data is not None:
+            self.bandpass_filter[ self.RFI_data["dirty_channels"] ] = 0.0
         
+    def get_frequency_response(self):
+        return self.bandpass_filter
+        
+        
+    def filter(self, data, additional_filter=None, whiten=False):
+        data[...,:] *= self.half_hann_window
+        FFT_data = np.fft.fft( data, axis=-1 )
+        
+        if whiten:
+            FFT_data /= np.abs(FFT_data)
+        
+        FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
+        if additional_filter:
+            FFT_data[...,:] *= additional_filter
+            
+        return np.fft.ifft(FFT_data, axis=-1)
+
+    def filter_FFT(self, data, additional_filter=None):
         data[...,:] *= self.half_hann_window
         FFT_data = np.fft.fft( data, axis=-1 )
         
         FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
-        # Reject DC component
-        FFT_data[..., 0] = 0.0
-        # Also reject 1st harmonic (gives a lot of spurious power with Hanning window)
-        FFT_data[..., 1] = 0.0
-        
-#       remove RFI
-        if self.RFI_data is not None:
-            FFT_data[..., self.RFI_data["dirty_channels"]] = 0
+        if additional_filter:
+            FFT_data[...,:] *= additional_filter
             
+        return FFT_data
 
-        return np.fft.ifft(FFT_data, axis=-1)
+        
+#    def filter(self, data):
+#        
+#        data[...,:] *= self.half_hann_window
+#        FFT_data = np.fft.fft( data, axis=-1 )
+#        
+#        FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
+#        # Reject DC component
+#        FFT_data[..., 0] = 0.0
+#        # Also reject 1st harmonic (gives a lot of spurious power with Hanning window)
+#        FFT_data[..., 1] = 0.0
+#        
+##       remove RFI
+#        if self.RFI_data is not None:
+#            FFT_data[..., self.RFI_data["dirty_channels"]] = 0
+#            
+#
+#        return np.fft.ifft(FFT_data, axis=-1)
         
         
         

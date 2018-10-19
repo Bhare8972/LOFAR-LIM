@@ -5,24 +5,23 @@ import time
 from os import mkdir
 from os.path import isdir, isfile
 
-##external
+#external
 import numpy as np
 from matplotlib import pyplot as plt
 
-## mine
-from utilities import log, processed_data_dir
+#mine
+from utilities import log, processed_data_dir, v_air
 from read_PSE import read_PSE_timeID
-from porta_code import code_logger, pyplot_emulator
-
 
 if __name__=="__main__":
     ##opening data
-    timeID = "D20170929T202255.000Z"
-    output_folder = "plot_correlateSSPW_PSE_traces"
+    timeID = "D20160712T173455.100Z"
+    output_folder = "fitValue_dist_allPSE"
     
-    PSE_folder = "correlate_SSPW"
+    PSE_folder = "allPSE"
     
-        
+    
+    
     #### setup directory variables ####
     processed_data_dir = processed_data_dir(timeID)
     
@@ -51,20 +50,24 @@ if __name__=="__main__":
     PSE_info = read_PSE_timeID(timeID, PSE_folder)
     PSE_list = PSE_info["PSE_list"]
     ant_locs = PSE_info["ant_locations"]
+    old_ant_delays = PSE_info["ant_delays"]
     
+    PolE_RMS_sq = np.array( [PSE.PolE_RMS**2 for PSE in PSE_list] )
+    PolE_n_ant = np.array( [PSE.num_even_antennas for PSE in PSE_list] )
+    PolO_RMS_sq = np.array( [PSE.PolO_RMS**2 for PSE in PSE_list] )
+    PolO_n_ant = np.array( [PSE.num_odd_antennas for PSE in PSE_list] )
     
+    PolE_error_sq = np.average(PolE_RMS_sq)
+    PolO_error_sq = np.average(PolO_RMS_sq)
     
+    print("sqrt of ave of PolE_RMS sq:", np.sqrt(PolE_error_sq))
+    print("sqrt of ave of PolO_RMS sq:", np.sqrt(PolO_error_sq))
     
+    PolE_scaled_chi_squared = PolE_RMS_sq/PolE_error_sq
+    PolO_scaled_chi_squared = PolO_RMS_sq/PolO_error_sq
     
-    PSE_ID_to_plot = np.arange(24)
-    PSE_to_plot = [PSE for PSE in PSE_list if PSE.unique_index in PSE_ID_to_plot]
-    
-    for PSE in PSE_to_plot:
-        fname = data_dir + '/PSE_'+str(PSE.unique_index)
-        print(PSE.unique_index, fname)
-        PSE.plot_trace_data(ant_locs,  plotter=plt)
-                            #pyplot_emulator(code_logger(fname))   )
-    
+    plt.hist(PolE_scaled_chi_squared, bins=500)
+    plt.show()
     
     
     

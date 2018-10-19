@@ -6,10 +6,10 @@ from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 from LoLIM.utilities import processed_data_dir
 
 if __name__=="__main__":
-    timeID = "D20170929T202255.000Z"
+    timeID = "D20180809T141413.250Z"
     output_folder = "cal_tables/TxtAntDelay" ## we assume this exists 
     
-    stations_to_skip = ['RS407']
+    stations_to_skip = []
     
     
     output_dir = processed_data_dir( timeID )

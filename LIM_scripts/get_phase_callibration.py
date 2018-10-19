@@ -50,16 +50,16 @@ def download_phase_callibrations(station, history_folder, timestamp, folder):
     
 if __name__ == "__main__":
     #### a full working example of opening a file, checking if it needs metadata, and downloading if necisary
-    import utilities as utils
-    from raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+    import LoLIM.utilities as utils
+    from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
     
     from os import mkdir
     from os.path import isdir
     
-    timeID = "D20170929T202255.000Z"
+    timeID = "D20180809T141413.250Z"
     history_folder = "./svn_phase_cal_history"
     
-    skip = [] ##stations to skip
+    skip = []#['RS407'] ##stations to skip
     
     
     if not isdir(history_folder):

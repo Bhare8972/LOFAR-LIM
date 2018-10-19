@@ -12,8 +12,8 @@ import weakref
 from scipy import fftpack
 import numpy as np
 
-default_raw_data_loc = "/vol/astro7/lofar/TBBdata/lightning/raw_data"
-default_processed_data_loc = "/vol/astro7/lofar/TBBdata/lightning/processed_data"
+default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+default_processed_data_loc = "/home/brian/processed_files"
 
 MetaData_directory =  dirname(abspath(__file__)) + '/data' ## change this if antenna_response_model is in a folder different from this module
 
@@ -71,8 +71,7 @@ class logger(object):
             self.old_stdout.write("\n")
             
         self.out_file.flush()
-        if self.to_screen:
-            self.old_stdout.flush()
+        self.old_stdout.flush()
         
     def set_to_screen(self, to_screen=True):
         self.to_screen = to_screen
@@ -102,9 +101,10 @@ class logger(object):
     def flush(self):
         self.out_file.flush()
             
-#    def __del__(self):
-#        self.restore_stderr()
-#        self.restore_stdout()
+    def __del__(self):
+        self.restore_stderr()
+        self.restore_stdout()
+        
 log = logger()
         
 def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
@@ -128,7 +128,10 @@ def Fname_data(Fpath):
     timeID = data[1]
     station_name = data[2]
     
-    file_number = int(data[3][1:])
+    if len(data[3][1:])==0:
+        file_number = 0
+    else:
+        file_number = int(data[3][1:])
     
     return timeID, station_name, Fpath, file_number
 
@@ -265,7 +268,7 @@ SId_to_Sname[125] = "RS205"
 #SId_to_Sname[127] = "RS207"
 SId_to_Sname[128] = "RS208"
 #SId_to_Sname[129] = "RS209"
-#SId_to_Sname[130] = "RS230"
+SId_to_Sname[130] = "RS210"
 #SId_to_Sname[143] = "RS303"
 #SId_to_Sname[144] = "RS304"
 SId_to_Sname[145] = "RS305"
@@ -293,25 +296,49 @@ SId_to_Sname[208] = "UK608"
 ## this just "inverts" the previous list, discarding unused values
 Sname_to_SId_dict = {name:ID for ID,name in enumerate(SId_to_Sname) if name is not None}
 
+def even_antName_to_odd(even_ant_name):
+    even_num = int(even_ant_name)
+    odd_num = even_num + 1
+    return str( odd_num ).zfill( 9 )
 
+def antName_is_even(ant_name):
+    return not int(ant_name)%2
 
+def odd_antName_to_even(odd_ant_name):
+    odd_num = int(odd_ant_name)
+    even_num = odd_num + 1
+    return str( even_num ).zfill( 9 )
+    
 
-
-
-
-
-
-
-
-
-
-
-
-
+#### plotting utilities ####
+def set_axes_equal(ax):
+    '''Make axes of 3D plot have equal scale so that spheres appear as spheres,
+    cubes as cubes, etc..  This is one possible solution to Matplotlib's
+    ax.set_aspect('equal') and ax.axis('equal') not working for 3D.
     
     
-    
-    
-    
-    
+
+    Input
+      ax: a matplotlib axis, e.g., as output from plt.gca().
+    '''
+
+    x_limits = ax.get_xlim3d()
+    y_limits = ax.get_ylim3d()
+    z_limits = ax.get_zlim3d()
+
+    x_range = abs(x_limits[1] - x_limits[0])
+    x_middle = np.mean(x_limits)
+    y_range = abs(y_limits[1] - y_limits[0])
+    y_middle = np.mean(y_limits)
+    z_range = abs(z_limits[1] - z_limits[0])
+    z_middle = np.mean(z_limits)
+
+    # The plot bounding box is a sphere in the sense of the infinity
+    # norm, hence I call half the max range the plot radius.
+    plot_radius = 0.5*max([x_range, y_range, z_range])
+
+    ax.set_xlim3d([x_middle - plot_radius, x_middle + plot_radius])
+    ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
+    ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
+
     

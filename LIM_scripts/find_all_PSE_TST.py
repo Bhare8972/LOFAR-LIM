@@ -10,10 +10,10 @@ import numpy as np
 from scipy.optimize import least_squares, minimize
 
 ##my packages
-from utilities import log, processed_data_dir, v_air
-from read_pulse_data import read_station_info, refilter_pulses, curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, getNwriteBin_modData
-from porta_code import code_logger
-from binary_IO import write_long, write_double_array, write_string, write_double
+from LoLIM.utilities import log, processed_data_dir, v_air
+from LoLIM.read_pulse_data import read_station_info, refilter_pulses, curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, getNwriteBin_modData
+from LoLIM.porta_code import code_logger
+from LoLIM.IO.binary_IO import write_long, write_double_array, write_string, write_double
 
 PSE_next_unique_index = 0
 class PointSourceEvent:
@@ -436,26 +436,26 @@ def get_initial_RMS(XYZT, ant_locs, pulse_times):
 
 if __name__ == "__main__":
     
-    timeID = "D20160712T173455.100Z"
+    timeID = "D20170929T202255.000Z"
     output_folder = "allPSE_TST_BREAKS"
     
     plot_station_map = True
     
-    stations_to_exclude = []
+    stations_to_exclude =  ["CS028","RS106", "RS305", "RS205", "CS201", "RS407", "RS406"]
     
     num_blocks_per_step = 100
-    initial_block = 88000
-    num_steps = 110
+    initial_block = 3500
+    num_steps = 100
     
     ant_timing_calibrations = "cal_tables/TxtAntDelay"
     polarization_flips = "polarization_flips.txt"
     bad_antennas = "bad_antennas.txt"
-    station_delays = "station_delays_4.txt"
+    station_delays = "station_delays.txt"
     additional_antenna_delays = "ant_delays.txt"
     
     min_signal_SNR = 20
     
-    search_location = np.array( [3.30346726e+04,  2.89720980e+04,  3.17456732e+03] )
+    search_location = np.array( [-1.58423240e+04,   9.08114847e+03,   3.34469757e+03] )
     bin_half_width = 5000/v_air
     
     max_ant_time_residual = 1000.0E-9 #### if the residual of an antenna time is greater than this, the antenna is thrown out

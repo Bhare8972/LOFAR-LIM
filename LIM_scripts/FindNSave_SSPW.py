@@ -19,28 +19,31 @@ import numpy as np
 #from scipy.sparse.linalg import lsmr
 
 ##my packages
-from utilities import log, processed_data_dir
-from porta_code import code_logger
-from binary_IO import write_long, write_string, write_double_array
+from LoLIM.utilities import log, processed_data_dir
+from LoLIM.porta_code import code_logger
+from LoLIM.IO.binary_IO import write_long, write_string, write_double_array
 
-from read_pulse_data import curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, read_station_info, refilter_pulses, getNwriteBin_modData
-from planewave_functions import find_planewave_events, find_planewave_events_smallWindow
+from LoLIM.read_pulse_data import curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, read_station_info, refilter_pulses, getNwriteBin_modData
+from LoLIM.planewave_functions import find_planewave_events, find_planewave_events_OLD
 
 
 if __name__=="__main__":
     
     ##global vars
-    min_signal_SNR = 10
+    min_signal_SNR = 100 ##10? 15? 20?
     
     ##opening data
-    timeID = "D20160712T173455.100Z"
-    output_folder = "SSPW_data_testNewAlgorithm"
-    stations_to_find_SSPW = ["CS002"] ## leave at None for all stations, otherwise a list of station names
-    initial_block = 90800 #88000 
+    timeID = "D20180728T135703.246Z"
+    input_folder_name = "/pulse_data"
+    output_folder = "SSPWB"
+    stations_to_find_SSPW = None ## leave at None for all stations, otherwise a list of station names
+    stations_to_exclude = ["CS006", "CS101", "CS401", "RS305", "RS503", "CS007"]
+    initial_block = 5500
     num_blocks_per_step = 100
-    num_steps = 2
+    num_steps = 5
     
-    plot_station_map = False
+    locations_are_local = True ## is True if the antennas locations in the pulse data are in local coordinates. should be True unless error
+    plot_station_map = True
     
     #### additional data files
     ant_timing_calibrations = "cal_tables/TxtAntDelay"
@@ -68,25 +71,28 @@ if __name__=="__main__":
         mkdir(logging_folder)
 
     #Setup logger and open initial data set
+#    log = logger()
     log.set(logging_folder + "/log_out.txt") ## TODo: save all output to a specific output folder
     log.take_stderr()
-    log.take_stdout()
+#    log.take_stdout()
     
     
     log("Time ID:", timeID)
     log("output folder name:", data_dir)
+    log("input folder name:", input_folder_name)
     log("signal snr:", min_signal_SNR)
     log("date and time run:", time.strftime("%c") )
     log("max RMS for 1 sample shifts:", max_RMS)
     log("1 sample shift threshold:", shift_threshold)
     log("stations to find SSPW", stations_to_find_SSPW)
+    log("stations to exclude", stations_to_exclude)
     log("initial block:", initial_block)
     log("num blocks per step:", num_blocks_per_step)
-    print("num steps:", num_steps)
-    print("antenna timing calibrations:", ant_timing_calibrations)
-    print("antenna polarization flips file:", polarization_flips)
-    print("bad antennas file:", bad_antennas)
-    print("ant delays file:", additional_antenna_delays)
+    log("num steps:", num_steps)
+    log("antenna timing calibrations:", ant_timing_calibrations)
+    log("antenna polarization flips file:", polarization_flips)
+    log("bad antennas file:", bad_antennas)
+    log("ant delays file:", additional_antenna_delays)
     
     polarization_flips = processed_data_dir + '/' + polarization_flips
     bad_antennas = processed_data_dir + '/' + bad_antennas
@@ -97,8 +103,8 @@ if __name__=="__main__":
     
     
     #### open station info ####
-    StationInfo_dict = read_station_info(timeID, station_names=stations_to_find_SSPW, ant_delays_fname=additional_antenna_delays, 
-                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations)
+    StationInfo_dict = read_station_info(timeID, input_folder_name, station_names=stations_to_find_SSPW, stations_to_exclude=stations_to_exclude, ant_delays_fname=additional_antenna_delays, 
+                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations, locations_are_local=locations_are_local)
     
     if plot_station_map:
         CL = code_logger(logging_folder+ "/station_map")
@@ -106,6 +112,8 @@ if __name__=="__main__":
         CL.add_statement("import matplotlib.pyplot as plt")
         
         for sname,sdata in StationInfo_dict.items():
+            
+            
             ant_X = np.array([ ant.location[0] for ant in sdata.AntennaInfo_dict.values() ])
             ant_Y = np.array([ ant.location[1] for ant in sdata.AntennaInfo_dict.values() ])
             station_X = np.average(ant_X)
@@ -119,26 +127,29 @@ if __name__=="__main__":
         CL.save()
     
     
-    
-    
     ####process data ####
     antenna_shifts = []
     for sname, sdata in StationInfo_dict.items():
         
-        print("processing station:", sname )
+        log("processing station:", sname )
         
         
         antenna_diffs = {}
         for step_i in range(num_steps):
             first_block = initial_block + step_i*num_blocks_per_step
             final_block = first_block + num_blocks_per_step
-            print("   step", step_i, "block", first_block, "to", final_block)
+            log("   step", step_i, "block", first_block, "to", final_block)
         
             #### open data, filter pulses, find planewaves ####
             antennaPulse_dict = sdata.read_pulse_data(approx_min_block=first_block, approx_max_block=final_block )
             antennaPulse_dict = refilter_pulses(antennaPulse_dict, min_signal_SNR)
             
-            planewave_events = find_planewave_events_smallWindow(sdata, antennaPulse_dict)
+            for ant_name, pulses in antennaPulse_dict.items():
+                print(ant_name, len(pulses))
+            
+            planewave_events = find_planewave_events_OLD(sdata, antennaPulse_dict)
+            
+            print("found:", len(planewave_events), "SSPW")
             
             #### look for one-sample offsets ####
             log("Search antenna data for 5ns shifts")
@@ -192,16 +203,16 @@ if __name__=="__main__":
                 write_long(fout, len(planewave_events))
                 
                 for SSPW in planewave_events:
-                    ## plot 
-                    CL = code_logger(logging_folder+ "/SSPW_"+str(SSPW.unique_index))
-                    CL.add_statement("import numpy as np")
-                    CL.add_statement("import matplotlib.pyplot as plt")
-                            
-                    SSPW.data_CodeLogPlot(CL)
-                            
-                    CL.add_statement( "plt.tick_params(axis='both', which='major', labelsize=30)" )
-                    CL.add_statement( "plt.show()" )
-                    CL.save()
+#                    ## plot 
+#                    CL = code_logger(logging_folder+ "/SSPW_"+str(SSPW.unique_index))
+#                    CL.add_statement("import numpy as np")
+#                    CL.add_statement("import matplotlib.pyplot as plt")
+#                            
+#                    SSPW.data_CodeLogPlot(CL)
+#                            
+#                    CL.add_statement( "plt.tick_params(axis='both', which='major', labelsize=30)" )
+#                    CL.add_statement( "plt.show()" )
+#                    CL.save()
                         
                     ## save data
                     SSPW.save_binary(fout)

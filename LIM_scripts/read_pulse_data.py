@@ -9,9 +9,11 @@ import struct
 ##import external packages
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.transforms import blended_transform_factory
 
 ##import own tools
 from LoLIM.IO.binary_IO import read_string, read_double, read_long, read_double_array, write_long, write_double, write_string
+import LoLIM.IO.metadata as md
 from LoLIM.porta_code import code_logger
 
 from LoLIM.utilities import Fname_data, processed_data_dir
@@ -21,13 +23,20 @@ class station_metadata(object):
     
     class antenna_metadata(object):
         """ object used to store info about a pair of antennas"""
-        def __init__(self, fin):
+        def __init__(self, fin, locations_are_local=True):
             
             self.even_antenna_name = read_string(fin)
             self.odd_antenna_name = read_string(fin)
+            
             self.location = read_double_array(fin)
             
+            if not locations_are_local: ##remove this soon
+                self.location = md.convertITRFToLocal( np.array([ self.location ]) )[0]
+            
             self.even_index = int(self.even_antenna_name[-3:])
+            
+            if self.even_index==1:
+                print(self.even_antenna_name, self.odd_antenna_name)
             
             self.status = 0 ##0 means both operation. 1 means even is bad, 2 means odd is bad. 3 means both are bad
             #### antenna status is only set by external mod files ####
@@ -88,11 +97,14 @@ class station_metadata(object):
             return status
             
     
-    def __init__(self, header_fpath):
+    def __init__(self, header_fpath, locations_are_local=True):
         self.header_paths = []
         self.num_antenna_sets = 0
         self.AntennaInfo_dict = {} ##a dictionary of antenna set info
         self._station_location = None ##average of all antenna_locations
+        self.sorted_antenna_names = []
+        
+        self.locations_are_local = locations_are_local
         
         self.add_header( header_fpath )
         
@@ -116,14 +128,23 @@ class station_metadata(object):
             ##read antenna data##
             num_new_antennas = read_long(fin)
             self.num_antenna_sets += num_new_antennas
+            n=0
             for x in range(num_new_antennas):
-                new_antenna_info = station_metadata.antenna_metadata(fin)
+                new_antenna_info = station_metadata.antenna_metadata(fin, self.locations_are_local)
+                n+=1
+                if new_antenna_info.even_antenna_name in self.AntennaInfo_dict:
+                    print("ARG ERROR!")
 
                 self.AntennaInfo_dict[new_antenna_info.even_antenna_name] = new_antenna_info
                 
             self.sorted_antenna_names = list(self.AntennaInfo_dict.keys()) ### this will get remade every time a header is added
             self.sorted_antenna_names.sort(key=lambda ant: self.AntennaInfo_dict[ant].even_index)
                 
+            if len(self.sorted_antenna_names)!=self.num_antenna_sets:
+                print("error in station:", self.station_name)
+                print("end:", self.num_antenna_sets, len(self.sorted_antenna_names), n, self.sorted_antenna_names)
+                quit()
+        
         
         ## open section average files
         SAF_fpath = header_fpath[:-3] + "saf"
@@ -233,7 +254,7 @@ class station_metadata(object):
                 
             pulse_fnames = glob.glob(base_fname + '*.pls')
             pulse_fnames = [fname for fname in pulse_fnames if approx_min_block <= int(fname.split('_')[-1][:-4]) < approx_max_block  ]
-        
+            
             for fname in pulse_fnames:
                 with open(fname, 'rb') as fin:
                     while True:
@@ -306,7 +327,7 @@ class station_metadata(object):
                     
 #### global data for finding peak times ####
 
-##TODO: replace with code from utilities.py
+##TODO: replace with code from signal processing
 n_points = 5
 tmp_matrix = np.zeros((n_points,3), dtype=np.double)
 for n_i in range(n_points):
@@ -356,6 +377,8 @@ class pulse_data(object):
         
         self.even_data_STD = read_double(fin)
         self.odd_data_STD = read_double(fin)
+        self.even_data_STD = 1.0 ##BAD HACK
+        self.odd_data_STD = 1.0
         
         self.even_antenna_data = read_double_array(fin)
         self.even_antenna_hilbert_envelope = read_double_array(fin)
@@ -500,7 +523,7 @@ class pulse_data(object):
         elif pol_requirement == 2:
             return self.antenna_status==0 or self.antenna_status==1
         elif pol_requirement == 3:
-            return self.antennas_status==0
+            return self.antenna_status==0
                 
     
     
@@ -676,13 +699,19 @@ def readBin_modData(fin):
     
     
     
-def read_station_info(timeID, station_names=None, stations_to_exclude=[], data_directory=None, data_directory_append=None,  ant_delays_fname=None, bad_antennas_fname=None, pol_flips_fname=None, station_delays_fname=None, txt_cal_table_folder=None):
+def read_station_info(timeID, input_folder=None, station_names=None, stations_to_exclude=[], data_directory=None, data_directory_append=None,  ant_delays_fname=None, bad_antennas_fname=None, 
+                      pol_flips_fname=None, station_delays_fname=None, txt_cal_table_folder=None, locations_are_local=True):
     """opens all station info with a trigger (at a UTC time). Can filter by station names. 
     Returns a dictionary of station_metadata."""
     
+    #### locations_are_local is due to a code error, where locations were saved in ITRF and not local. This is fixed. Future code should not need it.
+    
+    if input_folder is None:
+        input_folder = '/pulse_data'
+    
     #### get list of header files
     if data_directory == None:
-        data_directory=processed_data_dir(timeID) + '/pulse_data'
+        data_directory=processed_data_dir(timeID) + input_folder
         
     if data_directory_append != None:
         data_directory += data_directory_append
@@ -700,7 +729,7 @@ def read_station_info(timeID, station_names=None, stations_to_exclude=[], data_d
             continue
         
         if station_name not in StationInfo_dict:
-            station_info = station_metadata(header_fpath)
+            station_info = station_metadata(header_fpath, locations_are_local=locations_are_local)
             StationInfo_dict[station_name] = station_info
         else:
             StationInfo_dict[station_name].add_header(header_fpath)
@@ -745,7 +774,7 @@ def read_station_info(timeID, station_names=None, stations_to_exclude=[], data_d
 class curtain_plot(object):
     def __init__(self, StationInfo_dict):
         self.StationInfo_dict = StationInfo_dict
-        self.sorted_station_names = self.StationInfo_dict.keys()
+        self.sorted_station_names = list(self.StationInfo_dict.keys())
         self.sorted_station_names.sort(key=lambda sn: int(sn[2:]))
         
         self.station_addedData = {sname:False for sname in self.sorted_station_names} ##true if we have data from a station, False otherwise
@@ -797,12 +826,20 @@ class curtain_plot(object):
                 
                 plt.annotate(str(annotation_list[event_i]), xy=(min_t,min_y), size=annotation_size)
     
-    def annotate_station_names(self, size=15, t_offset=-0.0005):
+    def annotate_station_names(self, size=15, t_offset=-0.0005, xt=0):
+        ax = plt.gca()
+        x_transform = ax.transData
+        y_transform = ax.transData
+        time_loc = self.min_time+t_offset
+        if xt==1:
+            x_transform = ax.transAxes
+            time_loc=t_offset
+        transform = blended_transform_factory(x_transform, y_transform)
         
         for stat_name,offsets in self.station_offsets.items():
             if self.station_addedData[stat_name]:
                 ave_offset=(offsets[0]+offsets[-1])/2.0
-                plt.annotate(str(stat_name), xy=(self.min_time+t_offset, ave_offset), size=size)
+                plt.annotate(str(stat_name), xy=(time_loc, ave_offset), size=size, textcoords=transform, xycoords=transform)
                 
     #### TODO: add func to annotate antenna names
     
@@ -868,13 +905,20 @@ class curtain_plot_CodeLog(object):
                 self.CL.add_function("plt.annotate", str(annotation_list[event_i]), xy=(min_t,min_y), size=annotation_size)
 #                plt.annotate(str(annotation_list[event_i]), xy=(min_t,min_y), size=annotation_size)
     
-    def annotate_station_names(self, size=15, t_offset=-0.0005):
+    def annotate_station_names(self, size=15, t_offset=-0.0005, xt=0):
+#        ax = plt.gca()
+#        x_transform = ax.transData
+#        y_transform = ax.transData
+        time_loc = self.min_time+t_offset
+#        if xt==1:
+#            x_transform = ax.transAxes
+#            time_loc=t_offset
+#        transform = blended_transform_factory(x_transform, y_transform)
         
         for stat_name,offsets in self.station_offsets.items():
             if self.station_addedData[stat_name]:
-                ave_offset = (offsets[0]+offsets[-1])/2.0
-                self.CL.add_function("plt.annotate", str(stat_name), xy=(self.min_time+t_offset, ave_offset), size=size)
-#                plt.annotate(str(stat_name), xy=(self.min_time+t_offset, ave_offset), size=size)
+                ave_offset=(offsets[0]+offsets[-1])/2.0
+                self.CL.add_function("plt.annotate", str(stat_name), xy=(time_loc, ave_offset), size=size)
 
     def save(self):
         self.CL.add_statement( "plt.tick_params(axis='both', which='major', labelsize=30)" )
@@ -899,21 +943,212 @@ def refilter_pulses(AntennaPulse_dict, new_num_std, bad_antennas=[], pol_require
     pol_requirement is good polarizations 0 (default) means either polarization can be good. 1 means even mus be good. 2 means odd must be good, 3 means both must be good"""
     return {ant_name:[pulse for pulse in pulse_list if pulse.above_thresh(new_num_std) and pulse.meets_pol_requirement(pol_requirement)] for ant_name, pulse_list in  AntennaPulse_dict.items() if ant_name not in bad_antennas}
 
-if __name__=="__main__":
+def plot_pulses():
+    ##opening data
+    timeID = "D20170929T202255.000Z"
+    input_folder_name = "/pulse_data"
+    station = "CS002"
     
-    station = "CS001"
-    StationInfo_dict = read_station_info("D20160712T173455.100Z", [station])
-    station_info = StationInfo_dict[station]
+    first_block = 3500
+    num_blocks = 100
     
-    antenna_pulse_dict = station_info.read_pulse_data(2**4, approx_min_block=90800, approx_max_block=90900)
-    ATD = AntennaPulse_dict__TO__AntennaTime_dict(antenna_pulse_dict, station_info)
-    
-    CP = curtain_plot_CodeLog(StationInfo_dict, "CS001_CP")
-    CP.add_AntennaTime_dict( station, ATD )
-    CP.save()
-    print( "DONE" )
+    #### additional data files
+    ant_timing_calibrations = "cal_tables/TxtAntDelay"
+    polarization_flips = "/polarization_flips.txt"
+    bad_antennas = "/bad_antennas.txt"
+    additional_antenna_delays = "/ant_delays.txt"
     
     
     
+    processed_dir = processed_data_dir(timeID)
+    
+    polarization_flips = processed_dir + '/' + polarization_flips
+    bad_antennas = processed_dir + '/' + bad_antennas
+    ant_timing_calibrations = processed_dir + '/' + ant_timing_calibrations
+    additional_antenna_delays = processed_dir + '/' + additional_antenna_delays
+    
+    print("A")
+    
+    StationInfo_dict = read_station_info(timeID, input_folder_name, station_names=[station], ant_delays_fname=additional_antenna_delays, 
+                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations)
+    
+    
+    print("B")
+    antennaPulse_dict = StationInfo_dict[station].read_pulse_data(approx_min_block=first_block, approx_max_block=first_block+num_blocks )
+    
+    print("C")
+    H = 0
+    for ant_name,pulses in antennaPulse_dict.items():
+        print(ant_name, len(pulses))
+        num_plotted = 0
+        for pulse in pulses:
+            
+            block = pulse.section_number/2
+            if block<first_block or block>(first_block+num_blocks):
+                continue
+            
+            even_HE = pulse.even_antenna_hilbert_envelope
+            odd_HE = pulse.odd_antenna_hilbert_envelope
+            
+            M = 2*max(np.max(even_HE), np.max(odd_HE))
+            
+            even_HE /= M
+            odd_HE /= M
+            
+            plt.plot( np.arange(len(even_HE))+pulse.starting_index,  even_HE+H)
+            plt.plot( np.arange(len(even_HE))+pulse.starting_index,  odd_HE+H)
+            num_plotted += 1
+            
+        print("  ",num_plotted)
+            
+        H += 1
+        
+    plt.show()
+    
+    print("D")
+    
+#    station = "CS001"
+#    StationInfo_dict = read_station_info("D20160712T173455.100Z", [station])
+#    station_info = StationInfo_dict[station]
+#    
+#    antenna_pulse_dict = station_info.read_pulse_data(2**4, approx_min_block=90800, approx_max_block=90900)
+#    ATD = AntennaPulse_dict__TO__AntennaTime_dict(antenna_pulse_dict, station_info)
+#    
+#    CP = curtain_plot_CodeLog(StationInfo_dict, "CS001_CP")
+#    CP.add_AntennaTime_dict( station, ATD )
+#    CP.save()
+#    print( "DONE" )
+    
+    
+def do_curtain_plot():
+    ##opening data
+    
+    station_offsets = {
+            }
+    
+    timeID = "D20180308T165753.250Z"
+    input_folder_name = "/pulse_data"
+    
+    first_block = 700
+    num_blocks = 60
+    
+    filter_fraction = 0.0
+    
+    stations_to_exclude = ["RS407", "CS028", "CS007", "CS101", "RS210",  "RS310", "CS401"]
+    
+    #### additional data files
+    ant_timing_calibrations = "cal_tables/TxtAntDelay"
+    polarization_flips = "/polarization_flips.txt"
+    bad_antennas = "/bad_antennas.txt"
+    additional_antenna_delays = "/ant_delays.txt"
+    
+    
+    
+    processed_dir = processed_data_dir(timeID)
+    
+    polarization_flips = processed_dir + '/' + polarization_flips
+    bad_antennas = processed_dir + '/' + bad_antennas
+    ant_timing_calibrations = processed_dir + '/' + ant_timing_calibrations
+    additional_antenna_delays = processed_dir + '/' + additional_antenna_delays
+    
+    
+    
+    print("A")
+    StationInfo_dict = read_station_info(timeID, input_folder_name, stations_to_exclude=stations_to_exclude, ant_delays_fname=additional_antenna_delays, 
+                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations)
+    
+    
+    
+    print("B")
+    CP = curtain_plot( StationInfo_dict )
+    for sname, sinfo in StationInfo_dict.items():
+        print(sname)
+        if sname in station_offsets:
+            sinfo.adjust_station_delay( station_offsets[sname] )
+            print("    ", station_offsets[sname] )
+        
+        antennaPulse_dict = sinfo.read_pulse_data(approx_min_block=first_block, approx_max_block=first_block+num_blocks )
+
+        
+        ## find maximum amplitude
+        max_amp = 0.0
+        for ant_name, pulse_list in antennaPulse_dict.items():
+            for pulse in pulse_list:
+                Even_amp = np.max( pulse.even_antenna_hilbert_envelope )
+                Odd_amp = np.max( pulse.odd_antenna_hilbert_envelope )
+                max_amp = max(max_amp, Even_amp, Odd_amp)
+                
+        ##filter the pulses
+        filtered_pulse_dict = {}
+        for ant_name, pulse_list in antennaPulse_dict.items():
+            
+            new_pulse_list = []
+            for pulse in pulse_list:
+                amp = max( np.max( pulse.even_antenna_hilbert_envelope ), np.max( pulse.odd_antenna_hilbert_envelope ) )
+                if amp > max_amp*filter_fraction:
+                    new_pulse_list.append( pulse )
+                    
+            filtered_pulse_dict[ant_name] = new_pulse_list
+                
+        
+        
+        
+        ant_time_dict = AntennaPulse_dict__TO__AntennaTime_dict(filtered_pulse_dict, sinfo, 0 )
+        
+        CP.add_AntennaTime_dict(sname, ant_time_dict)
+        
+    CP.annotate_station_names(t_offset=0.00007)
+    plt.axvline(x=1.15321885)
+    plt.show()
+    
+    
+def do_amplitude_histogram():
+    timeID = "D20170929T202255.000Z"
+    input_folder_name = "/pulse_data"
+    
+    first_block = 3500
+    num_blocks = 50
+    
+    stations_to_exclude = ["CS028"]
+    
+    #### additional data files
+    ant_timing_calibrations = "cal_tables/TxtAntDelay"
+    polarization_flips = "/polarization_flips.txt"
+    bad_antennas = "/bad_antennas.txt"
+    additional_antenna_delays = "/ant_delays.txt"
+    
+    
+    
+    processed_dir = processed_data_dir(timeID)
+    
+    polarization_flips = processed_dir + '/' + polarization_flips
+    bad_antennas = processed_dir + '/' + bad_antennas
+    ant_timing_calibrations = processed_dir + '/' + ant_timing_calibrations
+    additional_antenna_delays = processed_dir + '/' + additional_antenna_delays
+    
+   
+    StationInfo_dict = read_station_info(timeID, input_folder_name, stations_to_exclude=stations_to_exclude, ant_delays_fname=additional_antenna_delays, 
+                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations)
+    
+    for sname, sinfo in StationInfo_dict.items():
+        print(sname)
+        
+        antennaPulse_dict = sinfo.read_pulse_data(approx_min_block=first_block, approx_max_block=first_block+num_blocks )
+
+        
+        pulse_amplitudes = []
+        for ant_name, pulse_list in antennaPulse_dict.items():
+            for pulse in pulse_list:
+                Even_amp = np.max( pulse.even_antenna_hilbert_envelope )
+                if Even_amp >10:
+                    pulse_amplitudes.append( Even_amp )
+                    
+        plt.hist(pulse_amplitudes, bins=100)
+        plt.show()
+    
+    
+if __name__ == "__main__":
+    do_curtain_plot()
+#    do_amplitude_histogram()
     
     

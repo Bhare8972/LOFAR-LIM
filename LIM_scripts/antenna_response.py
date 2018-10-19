@@ -10,6 +10,8 @@ author: Brian hare
 
 ##internal
 import glob
+from pickle import load
+import datetime
 
 ##external 
 import numpy as np
@@ -18,8 +20,10 @@ from scipy.interpolate import interp1d
 from scipy.interpolate import RegularGridInterpolator
 
 
+
 ##mine
-from LoLIM.utilities import processed_data_dir, MetaData_directory
+from LoLIM.utilities import processed_data_dir, MetaData_directory, RTD
+import LoLIM.transmogrify as tmf
 
 
 
@@ -135,7 +139,55 @@ class LBA_antenna_model:
         out_JM[ np.logical_not(good_frequencies), 0, 0] = 1.0
         out_JM[ np.logical_not(good_frequencies), 1, 1] = 1.0
         
+        fi = np.argmin( np.abs(frequencies-60.0E6) )
+        
         return out_JM
+    
+def get_LBA_frequency_calibration(frequencies):
+    """ given a set of frequencies, in units of Hz, return the antenna callibration"""
+    
+    Calibration_curve = np.zeros(101)
+    
+#    Calibration_curve[29:82] = np.array([0,  1.09124663e-06,   1.11049910e-06,   1.11101995e-06,
+#                 1.14234774e-06,   1.15149299e-06,   1.17121699e-06,
+#                 1.18578121e-06,   1.19696124e-06,   1.20458122e-06,
+#                 1.24675978e-06,   1.27966600e-06,   1.32418333e-06,
+#                 1.32115453e-06,   1.33871075e-06,   1.34295545e-06,
+#                 1.34157430e-06,   1.37660390e-06,   1.39226359e-06,
+#                 1.39827006e-06,   1.51409426e-06,   1.61610247e-06,
+#                 1.74643510e-06,   1.74588169e-06,   1.73061463e-06,
+#                 1.69229172e-06,   1.64633321e-06,   1.60982965e-06,
+#                 1.59572009e-06,   1.64618678e-06,   1.81628916e-06,
+#                 2.09520281e-06,   2.17610590e-06,   2.20907337e-06,
+#                 2.12050148e-06,   2.04923844e-06,   2.06549879e-06,
+#                 2.24906987e-06,   2.40356459e-06,   2.52199062e-06,
+#                 2.48380048e-06,   2.40835417e-06,   2.38248922e-06,
+#                 2.48599834e-06,   2.60617662e-06,   2.66466169e-06,
+#                 2.78010597e-06,   2.90548503e-06,   3.08686745e-06,
+#                 3.26101312e-06,   3.50261561e-06,   3.74739666e-06, 0])  
+    
+    Calibration_curve[29:82] = np.array([0,  
+         5.17441583458e-07,  5.26112551988e-07,   5.54435685779e-07,
+         5.85016839251e-07,  6.10870583894e-07,   6.47309035485e-07,
+         6.5091456311e-07,   6.92446769829e-07,   7.24758841756e-07,
+         7.68263947385e-07,  7.91148165708e-07,   8.40734630391e-07,
+         8.43296509798e-07,  8.9313176062e-07,    9.2381731899e-07,
+         9.49238145305e-07,  9.75552986024e-07,   9.90712789075e-07,
+         1.05134677402e-06,  1.07555421962e-06,   1.09540733982e-06,
+         1.11101225721e-06,  1.13901998747e-06,   1.20840289547e-06,
+         1.25099501879e-06,  1.28820016316e-06,   1.42132795525e-06,
+         1.58730515709e-06,  1.69274022328e-06,   1.79771448679e-06,
+         1.69009894816e-06,  1.59916753151e-06,   1.52598688512e-06,
+         1.35488689628e-06,  1.25281147938e-06,   1.25843707081e-06,
+         1.28115364631e-06,  1.29327138907e-06,   1.30804348155e-06,
+         1.30108509354e-06,  1.30377069039e-06,   1.30654052835e-06,
+         1.30565358077e-06,  1.31712312807e-06,   1.31343342371e-06,
+         1.32267337872e-06,  1.33943924503e-06,   1.36389183621e-06,
+         1.4202852471e-06,   1.45672364953e-06,   1.5184892913e-06, 0])
+    
+    Calibration_curve_interp = interp1d(np.linspace(0.e6,100e6,101), Calibration_curve, kind='linear', bounds_error=False, fill_value=0.0)
+    return Calibration_curve_interp( frequencies )
+    
             
 def invert_2X2_matrix_list( matrices ):
     """ if matrices is an array of 2x2 matrices, then return the array of inverse matrices """
@@ -153,25 +205,106 @@ def invert_2X2_matrix_list( matrices ):
     
     return out
 
+def fourier_series( x, p):
+    """Evaluates a partial Fourier series
+
+        F(x) \\approx \\frac{a_{0}}{2} + \\sum_{n=1}^{\\mathrm{order}} a_{n} \\sin(nx) + b_{n} \\cos(nx)
+    """
+
+    r = p[0] / 2
+
+    order = int( (len(p) - 1) / 2 )
+
+    for i in range(order):
+
+        n = i + 1
+
+        r += p[2*i + 1] * np.sin(n * x) + p[2*i + 2] * np.cos(n * x)
+
+    return r
+
+def getGalaxyCalibrationData(antenna_noise_power, timestamp, channel_width):
+    """get the data, from galaxy-dominated noise, that is necisary to do a Galaxy calibration on data, at a later state"""
+    
+    longitude = 6.869837540/RTD
+    
+    
+    coefficients_lba = [ np.array([ 0.01489468, -0.00129305,  0.00089477, -0.00020722, -0.00046507]),
+                         np.array([ 0.01347391, -0.00088765,  0.00059822,  0.00011678, -0.00039787])  ]
+
+    
+    
+    # Convert timestamp to datetime object
+    t = datetime.datetime.utcfromtimestamp(timestamp)
+    # Calculate JD(UT1)
+    ut = tmf.gregorian2jd(t.year, t.month, float(t.day) + ((float(t.hour) + float(t.minute) / 60. + float(t.second) / 3600.) / 24.))
+    # Calculate JD(TT)
+    dtt = tmf.delta_tt_utc(tmf.date2jd(t.year, t.month, float(t.day) + ((float(t.hour) + float(t.minute) / 60. + float(t.second) / 3600.) / 24.)))
+    tt = tmf.gregorian2jd(t.year, t.month, float(t.day) + ((float(t.hour) + float(t.minute) / 60. + (float(t.second) + dtt / 3600.)) / 24.))
+    # Calculate Local Apparant Sidereal Time
+    last = tmf.rad2circle(tmf.last(ut, tt, longitude))
+
+
+    galactic_noise_power =[  fourier_series(last, coefficients_lba[0]),  fourier_series(last, coefficients_lba[1])  ]
+    
+    antenna_noise_power[ antenna_noise_power==0 ] = np.nan
+    
+    even_factors = antenna_noise_power[0::2]
+    odd_factors = antenna_noise_power[1::2]
+    
+    even_factors = galactic_noise_power[0] * channel_width /even_factors
+    odd_factors = galactic_noise_power[1] * channel_width /odd_factors
+    
+    np.sqrt(even_factors, out=even_factors)
+    np.sqrt(odd_factors, out=odd_factors)
+    
+    
+    return even_factors, odd_factors
+
+
 class LBA_ant_calibrator:
     """ This is a class for callibrating the LBA antennas and removing the antenna responce function. Only valid between 30 to 80 MHz. NOTE: removing the antenna responce function is ill-conditioned. A better approach is to callibrate the data, 
     then filter a model using the antenna responce. Using this class will inherently do a hilbert transform (negative frequencies will be set to zero)"""
     
-    def __init__(self, timeID):
+    def __init__(self, timeID=None, findRFI=None):
+        
+        if findRFI is None:
+            findRFI = "/findRFI/findRFI_results"
+            
+        if isinstance(findRFI, str): ## load findRFI data from file
+            galcal_data_loc = processed_data_dir(timeID) + findRFI
+            with open( galcal_data_loc, 'rb' ) as fin:
+                findRFI = load(fin)
+                
+        
+        self.calibration_factors = {}
+        for findRFI_info in findRFI.values():
+            antenna_names = findRFI_info["antenna_names"]
+            num_antennas = len( antenna_names )
+            cleaned_power = findRFI_info["cleaned_power"]
+            timestamp = findRFI_info["timestamp"]
+            analyzed_blocksize = findRFI_info["blocksize"]
+            
+            even_cal_factors, odd_cal_factors = getGalaxyCalibrationData(cleaned_power,  timestamp, 5.0E-9/analyzed_blocksize  )
+            
+            for ant_i in range(0, int(num_antennas/2)):
+                ant_name = antenna_names[ ant_i*2 ]
+                self.calibration_factors[ ant_name ] = (even_cal_factors[ant_i], odd_cal_factors[ant_i])
+            
         
         ### Galaxy callibration data ###
-        self.calibration_factors = {}
-        galcal_data_loc = processed_data_dir(timeID) + '/cal_tables/galaxy_cal'
-        galcal_fpaths = glob.glob(galcal_data_loc + '/*.gcal')
-        for fpath in galcal_fpaths:
-            with open(fpath, 'rb') as fin:
-                data = np.load(fin)
-                ant_names = data["arr_0"].astype(str, copy=False)
-                factors = data["arr_1"]
-            ant_i = 0
-            while ant_i<len(ant_names):
-                self.calibration_factors[ ant_names[ant_i] ] = [factors[ant_i], factors[ant_i+1]]
-                ant_i += 2
+#        self.calibration_factors = {}
+#        galcal_data_loc = processed_data_dir(timeID) + '/cal_tables/galaxy_cal'
+#        galcal_fpaths = glob.glob(galcal_data_loc + '/*.gcal')
+#        for fpath in galcal_fpaths:
+#            with open(fpath, 'rb') as fin:
+#                data = np.load(fin)
+#                ant_names = data["arr_0"].astype(str, copy=False)
+#                factors = data["arr_1"]
+#            ant_i = 0
+#            while ant_i<len(ant_names):
+#                self.calibration_factors[ ant_names[ant_i] ] = [factors[ant_i], factors[ant_i+1]]
+#                ant_i += 2
                 
         self.antenna_model = LBA_antenna_model()
         
@@ -191,7 +324,10 @@ class LBA_ant_calibrator:
         ##Frequencies
         self.frequencies = np.fft.fftfreq(self.N_points, 5.0E-9)
 #    
-
+    def apply_time_shift(self, even_time_shift, odd_time_shift):
+        """apply phase shifts to the data, corresponding to an amount of time (in seconds)"""
+        self.even_pol_FFT *= np.exp( self.frequencies*(-1j*2*np.pi*even_time_shift) )
+        self.odd_pol_FFT *= np.exp( self.frequencies*(-1j*2*np.pi*odd_time_shift) )
         
     def apply_GalaxyCal(self):
         """applies the galaxy calibration to this data. Can be applied independantly of unravelAntennaResponce"""
@@ -202,54 +338,8 @@ class LBA_ant_calibrator:
         self.even_pol_FFT *= PolE_factor
         self.odd_pol_FFT  *= PolO_factor
         
-        
-        #### now we apply a calibration curve
-        Calibration_curve = np.zeros(101)
-        ### OLD galaxy cal
-#        Calibration_curve[29:82] = np.array([0,  1.09124663e-06,   1.11049910e-06,   1.11101995e-06,
-#                 1.14234774e-06,   1.15149299e-06,   1.17121699e-06,
-#                 1.18578121e-06,   1.19696124e-06,   1.20458122e-06,
-#                 1.24675978e-06,   1.27966600e-06,   1.32418333e-06,
-#                 1.32115453e-06,   1.33871075e-06,   1.34295545e-06,
-#                 1.34157430e-06,   1.37660390e-06,   1.39226359e-06,
-#                 1.39827006e-06,   1.51409426e-06,   1.61610247e-06,
-#                 1.74643510e-06,   1.74588169e-06,   1.73061463e-06,
-#                 1.69229172e-06,   1.64633321e-06,   1.60982965e-06,
-#                 1.59572009e-06,   1.64618678e-06,   1.81628916e-06,
-#                 2.09520281e-06,   2.17610590e-06,   2.20907337e-06,
-#                 2.12050148e-06,   2.04923844e-06,   2.06549879e-06,
-#                 2.24906987e-06,   2.40356459e-06,   2.52199062e-06,
-#                 2.48380048e-06,   2.40835417e-06,   2.38248922e-06,
-#                 2.48599834e-06,   2.60617662e-06,   2.66466169e-06,
-#                 2.78010597e-06,   2.90548503e-06,   3.08686745e-06,
-#                 3.26101312e-06,   3.50261561e-06,   3.74739666e-06, 0])  
-#                ## 30 - 80 MHz, derived from average galaxy model + electronics
-        
-        ## newer gal cal
-        Calibration_curve[29:82] = np.array([0,  
-                 5.17441583458e-07,  5.26112551988e-07,   5.54435685779e-07,
-                 5.85016839251e-07,  6.10870583894e-07,   6.47309035485e-07,
-                 6.5091456311e-07,   6.92446769829e-07,   7.24758841756e-07,
-                 7.68263947385e-07,  7.91148165708e-07,   8.40734630391e-07,
-                 8.43296509798e-07,  8.9313176062e-07,    9.2381731899e-07,
-                 9.49238145305e-07,  9.75552986024e-07,   9.90712789075e-07,
-                 1.05134677402e-06,  1.07555421962e-06,   1.09540733982e-06,
-                 1.11101225721e-06,  1.13901998747e-06,   1.20840289547e-06,
-                 1.25099501879e-06,  1.28820016316e-06,   1.42132795525e-06,
-                 1.58730515709e-06,  1.69274022328e-06,   1.79771448679e-06,
-                 1.69009894816e-06,  1.59916753151e-06,   1.52598688512e-06,
-                 1.35488689628e-06,  1.25281147938e-06,   1.25843707081e-06,
-                 1.28115364631e-06,  1.29327138907e-06,   1.30804348155e-06,
-                 1.30108509354e-06,  1.30377069039e-06,   1.30654052835e-06,
-                 1.30565358077e-06,  1.31712312807e-06,   1.31343342371e-06,
-                 1.32267337872e-06,  1.33943924503e-06,   1.36389183621e-06,
-                 1.4202852471e-06,   1.45672364953e-06,   1.5184892913e-06, 0])  
-                ## 30 - 80 MHz, derived from average galaxy model + electronics
-        
-        ## new calibration
-
-        Calibration_curve_interp = interp1d(np.linspace(0.e6,100e6,101), Calibration_curve, kind='linear', bounds_error=False, fill_value=0.0)
-        Calibration_curve_interp = Calibration_curve_interp(self.frequencies)
+        ## callibration curve to correct for frequency dependent model defeciencies 
+        Calibration_curve_interp = get_LBA_frequency_calibration( self.frequencies )
         
         self.even_pol_FFT *= Calibration_curve_interp
         self.odd_pol_FFT  *= Calibration_curve_interp
@@ -304,6 +394,17 @@ def plot_responce():
     plt.show()
         
         
-        
+if __name__ == "__main__":
+    frequencies_MHz = np.linspace(0.0, 100.0, 10000)
+    
+    AM = LBA_antenna_model()
+    matrix = AM.JonesMatrix_MultiFreq(frequencies_MHz*1E6, 0.0, 0.0)
+    
+    plt.semilogy(frequencies_MHz, np.abs(matrix[:, 0,0]), linewidth=7 )
+    plt.show()
+    
+    
+    
+    
         
 

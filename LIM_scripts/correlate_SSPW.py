@@ -10,15 +10,15 @@ import numpy as np
 from scipy.optimize import brute, minimize, least_squares
 
 #mine
-from utilities import v_air, log, processed_data_dir, SNum_to_SName_dict
-from planewave_functions import read_SSPW_timeID, multi_planewave_intersections
-from binary_IO import write_long, write_double, write_double_array, write_string
-from read_PSE import writeBin_modData_T2
+from LoLIM.utilities import v_air, log, processed_data_dir, SId_to_Sname#SNum_to_SName_dict
+from LoLIM.planewave_functions import read_SSPW_timeID, multi_planewave_intersections
+from LoLIM.IO.binary_IO import write_long, write_double, write_double_array, write_string
+from LoLIM.read_PSE import writeBin_modData_T2
 
 
 PSE_next_unique_i = 0
 class pointsource_event(object):
-    def __init__(self, ant_loc_dict, SSPW_dict, referance_station, initial_guess):
+    def __init__(self, ant_loc_dict, SSPW_dict, referance_station, initial_guess, station_offsets_guess={}):
         self.ant_loc_dict = ant_loc_dict
         self.SSPW_dict = SSPW_dict
         self.referance_station = referance_station
@@ -49,6 +49,11 @@ class pointsource_event(object):
         
         for station_name, SSPW in self.SSPW_dict.items():
             station_slice_start = len(ant_locations)
+            
+            station_delay_guess = 0.0
+            if station_name in station_offsets_guess:
+                station_delay_guess = station_offsets_guess[station_name]
+                
         
             for ant_data in SSPW.ant_data.values():
                 if ant_data.antenna_status == 3:
@@ -58,8 +63,8 @@ class pointsource_event(object):
                 ant_locations.append( loc )
                 self.ant_info.append( ant_data )
                 
-                PolE_times.append( ant_data.PolE_peak_time ) ##note that peak time is infinity if something is wrong with antenna
-                PolO_times.append( ant_data.PolO_peak_time )
+                PolE_times.append( ant_data.PolE_peak_time-station_delay_guess ) ##note that peak time is infinity if something is wrong with antenna
+                PolO_times.append( ant_data.PolO_peak_time-station_delay_guess )
                  
                 if np.isfinite( ant_data.PolE_peak_time ):
                     self.num_even_ant += 1
@@ -74,7 +79,7 @@ class pointsource_event(object):
         self.antenna_locations = np.array(ant_locations)
         self.PolE_times = np.array(PolE_times)
         self.PolO_times = np.array(PolO_times)
-        
+
         self.PolE_amps = np.array( PolE_amps )
         self.PolO_amps = np.array( PolO_amps )
         
@@ -87,9 +92,9 @@ class pointsource_event(object):
         self.residual_workspace = np.zeros(2*self.num_antennas)
         self.jacobian_workspace = np.zeros((2*self.num_antennas, 8))
         
-        
         guess = np.append( self.source_location_guess, self.source_location_guess )
         IGuess_min = least_squares(self.objective_RES, guess, jac=self.objective_JAC, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=1000)
+    
         
         guess = np.append( self.source_location_guess_PWI, self.source_location_guess_PWI )
         PWIGuess_min = least_squares(self.objective_RES, guess, jac=self.objective_JAC, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=1000)
@@ -134,7 +139,7 @@ class pointsource_event(object):
         
         self.residual_workspace[ np.logical_not(np.isfinite(self.residual_workspace)) ] = 0.0
         
-        return self.residual_workspace
+        return np.array( self.residual_workspace )
     
     def objective_JAC(self, XYZT_2):
         self.jacobian_workspace[:self.num_antennas, 0:3] = XYZT_2[0:3]
@@ -142,9 +147,9 @@ class pointsource_event(object):
         self.jacobian_workspace[:self.num_antennas, 0:3] *= -2.0
         
         
-        self.jacobian_workspace[self.num_antennas:, 0:3] = XYZT_2[4:7]
-        self.jacobian_workspace[self.num_antennas:, 0:3] -= self.antenna_locations
-        self.jacobian_workspace[self.num_antennas:, 0:3] *= -2.0
+        self.jacobian_workspace[self.num_antennas:, 4:7] = XYZT_2[4:7]
+        self.jacobian_workspace[self.num_antennas:, 4:7] -= self.antenna_locations
+        self.jacobian_workspace[self.num_antennas:, 4:7] *= -2.0
         
         self.jacobian_workspace[:self.num_antennas, 3] = self.PolE_times
         self.jacobian_workspace[:self.num_antennas, 3] -= XYZT_2[3]
@@ -157,7 +162,10 @@ class pointsource_event(object):
         mask = np.logical_not(np.isfinite(self.jacobian_workspace[:, 3])) 
         self.jacobian_workspace[mask, :] = 0
         
-        return self.jacobian_workspace
+        mask = np.logical_not(np.isfinite(self.jacobian_workspace[:, 7])) 
+        self.jacobian_workspace[mask, :] = 0
+        
+        return np.array( self.jacobian_workspace )
     
     def SSqE(self, XYZT_2):
         E_R2 = self.antenna_locations - XYZT_2[0:3]
@@ -236,7 +244,7 @@ class pointsource_event(object):
             write_double_array(fout, ant_data.PolO_antenna_data)
 
 
-def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val, min_time_between_planewaves):
+def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val, min_time_between_planewaves, station_offsets_guess={}):
     #### algorithm:
         ## loop over each SSPW in ref. station, call it referance SSPW
         ##   for each ref. SSPW,  find  location on the SSPW ray that minimizes the spherical wave equations (choosing best fitting SSPW on all stations)
@@ -246,7 +254,7 @@ def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val
     #### first we get the physical center of each station
     station_locs = {}
     for ant, loc in ant_loc_dict.items():
-        sname = SNum_to_SName_dict[ ant[:3] ]
+        sname = SId_to_Sname[ int(ant[:3]) ]
         
         if sname not in station_locs:
             station_locs[sname] = []
@@ -254,9 +262,15 @@ def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val
         
     station_locs = {sname:np.average(all_locs, axis=0) for sname,all_locs in station_locs.items()}
     
-    for SSPW_list in SSPW_dict.values():
+    for sname,SSPW_list in SSPW_dict.items():
+        stat_delay_guess = 0.0
+        if sname in station_offsets_guess:
+            stat_delay_guess = station_offsets_guess[sname]
+        
         for SSPW in SSPW_list:
             SSPW.prep_fitting( station_locs[SSPW.sname], ant_loc_dict )
+            SSPW.ZAT[2] -= stat_delay_guess
+            SSPW.pulse_times -= stat_delay_guess
     
     
     #### next, we get the times of planewaves (and referance locations), so that we can pick the best planewaves 
@@ -411,7 +425,7 @@ def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val
         #### We will not filter out stations, becouse we want events with all stations
         if fit<final_fit_val and len(picked_planewave_dict)==len(planewave_time_dict):
             
-            new_PSE = pointsource_event(ant_loc_dict, picked_planewave_dict, referance_station=referance_station, initial_guess=XYZT)
+            new_PSE = pointsource_event(ant_loc_dict, picked_planewave_dict, referance_station=referance_station, initial_guess=XYZT, station_offsets_guess=station_offsets_guess)
             
 
             pointsource_events.append(new_PSE)
@@ -440,15 +454,52 @@ def correlate_stations(ant_loc_dict, SSPW_dict, referance_station, final_fit_val
 if __name__ == "__main__":
         
     ##opening data
-    timeID = "D20160712T173455.100Z"
+    timeID = "D20170929T202255.000Z"
     output_folder = "correlate_SSPW"
     
-    SSPW_folder = "SSPW_data"
+    SSPW_folder = "SSPW2_tmp"
     
-    stations_to_exclude = None#[ "RS106", "RS205", "RS208", "RS305", "RS306", "RS307", "RS406", "RS407", "RS503", "RS508", "RS509" ] 
-    initial_block = 88000
+    stations_to_exclude = ["CS028","RS106", "RS305", "RS205", "CS201", "RS407"]#["CS026",  "RS106", "RS205", "RS208", "RS305", "RS306", "RS307", "RS310", "RS406", "RS407", 
+                           #"RS409", "RS503", "RS508", "RS509" ] 
+    initial_block = 3500
     num_blocks_per_step = 100
-    num_steps = 110
+    num_steps = 100
+    
+    station_offsets_guess = {
+        "CS002":0.0,
+        "CS003":1.0E-6,
+        "CS004":0.0,
+        "CS005":0.0,
+        "CS006":0.0,
+        "CS007":0.0,
+        "CS011":0.0,
+        "CS013":-0.000003,
+        "CS017":-7.0E-6,
+        "CS021":-8E-7,
+        "CS026":-7E-6,
+        "CS030":-5.5E-6,
+        "CS032":-5.5E-6 + 2E-6 + 1E-7,
+        "CS101":-7E-6,
+        "CS103":-22.5E-6-20E-8,
+        "RS106":35E-6 +30E-8 +12E-7,
+        "CS201":-7.5E-6,
+        "RS205":25E-6,
+        "RS208":8E-5+3E-6,
+        "CS301":6.5E-7,
+        "CS302":-3.0E-6-35E-7,
+        "RS305":-6E-6,
+        "RS306":-7E-6,
+        "RS307":175E-7+8E-7,
+        "RS310":8E-5+6E-6,
+        "CS401":-3E-6,
+        "RS406":-25E-6,
+        "RS407":5E-6 -8E-6 -15E-7,
+        "RS409":8E-6,
+        "CS501":-12E-6,
+        "RS503":-30.0E-8-10E-7,
+        "RS508":6E-5+5E-7,
+        "RS509":10E-5+15E-7,
+        }
     
     ## sorting SSPW
     min_time_between_SSPW_events = 5.0E-5#1.0E-5#0.5E-3  
@@ -456,7 +507,7 @@ if __name__ == "__main__":
     
     ## correlation SSPW
     referance_station = "CS002"
-    min_initial_fitval = 4.0E-5#1.0E-7
+    min_initial_fitval = 6.0E-5#4.0E-5
     
 
     #### setup directory variables ####
@@ -558,13 +609,14 @@ if __name__ == "__main__":
             Strong_SSPW_Events_dict[sname] = strong_SSPW_events
         del SSPW_dict ## cleanup memory
 
-                #### now we correlate events to find plane waves
+        #### now we correlate events to find plane waves
         print()
         print()
         print("Now correlating SSPW")
-        new_pointsource_events = correlate_stations(ant_locs, Strong_SSPW_Events_dict, referance_station, min_initial_fitval, min_time_between_SSPW_events)
+        new_pointsource_events = correlate_stations(ant_locs, Strong_SSPW_Events_dict, referance_station, min_initial_fitval, min_time_between_SSPW_events, station_offsets_guess)
 
         #### save the PSE!
+        print("saving", len(new_pointsource_events), "PSE")
         with open(data_dir + '/point_sources_'+str(start_block), 'wb') as fout:
             
             write_long(fout, 5)

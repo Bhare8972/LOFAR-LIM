@@ -214,12 +214,12 @@ class PointSourceEvent:
         
         self.antenna_data_loc = fin.tell()
         
-        print( self.unique_index )
-        print( " even fitval:", self.PolE_RMS )
-        print( "   loc:", self.PolE_loc, "n ant:", self.num_even_antennas )
-        print( " odd fitval:", self.PolO_RMS, "n ant:", self.num_odd_antennas )
-        print( "   loc:", self.PolO_loc )
-        print()
+#        print( self.unique_index )
+#        print( " even fitval:", self.PolE_RMS )
+#        print( "   loc:", self.PolE_loc, "n ant:", self.num_even_antennas )
+#        print( " odd fitval:", self.PolO_RMS, "n ant:", self.num_odd_antennas )
+#        print( "   loc:", self.PolO_loc )
+#        print()
        
         
         num_particpating_ant = read_long(fin)

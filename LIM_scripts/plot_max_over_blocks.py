@@ -12,7 +12,7 @@ from os import mkdir
 from os.path import isdir
 
 if __name__ == "__main__":
-    timeID = "D20170929T202255.000Z"
+    timeID = "D20180809T141413.250Z"
     output_folder = "/max_over_blocks"
     block_size = 2**16
     
@@ -37,6 +37,8 @@ if __name__ == "__main__":
         
         plt.figure()
         for antenna_i in range(num_antennas):
+            if antenna_i == 1:
+                break
             print("  antenna:", antenna_i, "/", num_antennas)
             
             data = np.zeros(num_blocks, dtype=float)
@@ -54,7 +56,9 @@ if __name__ == "__main__":
                 data[block_i] = antenna_block_max
                 
             plt.plot(data)
+#            plt.show()
         
         print("saving figure:", output_fpath+'/'+station+'.png')
         plt.savefig(output_fpath+'/'+station+'.png')
+#        plt.show()
         plt.close()

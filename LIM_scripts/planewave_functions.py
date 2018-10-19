@@ -6,14 +6,15 @@ from os import listdir
 import numpy as np
 #from matplotlib import pyplot as plt
 from scipy.optimize import brute, minimize
+import bisect
 
-##my packages
-#from porta_code import code_logger
-from utilities import v_air, log, processed_data_dir
-from binary_IO import write_long, write_double_array, write_string, write_double, read_long, read_double_array, read_double, read_string, at_eof
+#my packages
+from LoLIM.porta_code import code_logger
+from LoLIM.utilities import v_air, log, processed_data_dir
+from LoLIM.IO.binary_IO import write_long, write_double_array, write_string, write_double, read_long, read_double_array, read_double, read_string, at_eof, skip_double_array
 
-from read_PSE import readBin_modData_T2
-from read_pulse_data import readBin_modData
+from LoLIM.read_PSE import readBin_modData_T2
+from LoLIM.read_pulse_data import readBin_modData
 
 singleStation_planewave_next_unique_i=0
 class SSPW_event(object):
@@ -49,7 +50,7 @@ class SSPW_event(object):
             PolE_pulse_times_list = []
             PolO_pulse_times_list = []
             for p in pulse_list:
-                PolE_peak_time = p.peak_time(0)
+                PolE_peak_time = p.peak_time(0) ## these can be infinity. Don't want to worry about it, as other pol may be fine
                 PolO_peak_time = p.peak_time(1)
                 
                 PolE_pulse_times_list.append( PolE_peak_time )
@@ -75,24 +76,25 @@ class SSPW_event(object):
             ant_Y.append(loc[1])
             ant_Z.append(loc[2])
             
-            if ant_status != 1:
-                polE_is_good = polE_is_good and (len(PolE_pulse_times_list)!=0)
+            if ant_status != 1 and len(PolE_pulse_times_list)!=0:
+#                polE_is_good = polE_is_good and (len(PolE_pulse_times_list)!=0)
                 PolE_pulse_times.append( np.array(PolE_pulse_times_list) )
                 num_good_E_antennas += 1
             else:
                 PolE_pulse_times.append( np.array([np.inf]) )
                 
-            if ant_status != 2:
-                polO_is_good = polO_is_good and (len(PolO_pulse_times_list)!=0)
+            if ant_status != 2 and len(PolO_pulse_times_list)!=0:
+#                polO_is_good = polO_is_good and (len(PolO_pulse_times_list)!=0)
                 PolO_pulse_times.append( np.array(PolO_pulse_times_list) )
                 num_good_O_antennas += 1
             else:
                 PolO_pulse_times.append( np.array([np.inf]) )
                 
-        polE_is_good = polE_is_good and num_good_E_antennas>=4
-        polO_is_good = polO_is_good and num_good_O_antennas>=4
+        polE_is_good = polE_is_good and num_good_E_antennas>=3
+        polO_is_good = polO_is_good and num_good_O_antennas>=3
         if (not polE_is_good) and (not polO_is_good):
             self.solved = False
+            print("num E. ant:", num_good_E_antennas, "num O. ant.", num_good_O_antennas)
             return
             
         PolE_pulse_times.append( np.array(  [0.0]*( len(PolE_pulse_times[0])+1 )  ) ) ## a very bad hack to make numpy behave consistantly
@@ -123,6 +125,11 @@ class SSPW_event(object):
                 pulse = self.AntennaPulse_dict[self.ant_names[i]][self.pulse_indeces_choosen[i]]
                 PolE_num_ant += 1
                 PolE_aveAmp += np.max( pulse.even_antenna_hilbert_envelope )
+                
+            if PolE_num_ant < 3:
+                self.solved = False
+                return
+                
             PolE_aveAmp /= PolE_num_ant
             
             ### check that we are within the window
@@ -148,6 +155,12 @@ class SSPW_event(object):
                 pulse = self.AntennaPulse_dict[self.ant_names[i]][self.pulse_indeces_choosen[i]]
                 PolO_num_ant += 1
                 PolO_aveAmp += np.max( pulse.odd_antenna_hilbert_envelope )
+                
+            if PolO_num_ant < 3:
+                print("W Error:", PolO_num_ant, num_good_O_antennas)
+                self.solved = False
+                return
+            
             PolO_aveAmp /= PolO_num_ant
             
             ### check that we are within the window
@@ -179,6 +192,9 @@ class SSPW_event(object):
         
         
         self.select_and_test( self.ZAT )##insure pulse indeces are set corectly
+        if self.solved == False:## figure out why this happens
+            return
+        
         pulse_times = np.array([ self.pulse_times[i][self.pulse_indeces_choosen[i]] for i in range(len(self.ant_names))  ])
         
         ## flag bad antennas
@@ -260,6 +276,11 @@ class SSPW_event(object):
             if np.isfinite(diff[index]):
                 N += 1
                 sum_dif_sq += diff[index]
+            
+        if N <3: ## WHY!?!?!
+            self.solved = False
+#            print("W. ERROR:", np.sum( np.isfinite(self.pulse_times[:-1]) ))
+            return 0.0
             
         return sum_dif_sq/N
     
@@ -484,7 +505,8 @@ class SSPW_event(object):
                 CL.add_function("plt.annotate", ant_name, xy=[max_X, offset+1.0/3.0], size=15)
         
         
-def read_SSPW_timeID(TimeID, analysis_folder, fname_prefix=None, data_loc=None, stations=None, stations_to_exclude=None, min_block=None, max_block=None):
+def read_SSPW_timeID(TimeID, analysis_folder, fname_prefix=None, data_loc=None, stations=None, stations_to_exclude=None, min_block=None, max_block=None,
+                     block_indeces=None, blocks_per_file=100, load_timeseries=True):
     ## assumes the data is in a particular directory structure:
         ## that the top folder is data_loc (default to "/home/brian/processed_files/")
         ## next folder has the name of TimeID
@@ -522,12 +544,23 @@ def read_SSPW_timeID(TimeID, analysis_folder, fname_prefix=None, data_loc=None, 
             if sname in stations_to_exclude:
                 continue
             
+        
+        block = int(fname.split('_')[-1])
+            
         if min_block is not None or max_block is not None:
-            block = int(fname.split('_')[-1])
             
             if min_block is not None and block<min_block:
                 continue
             if max_block is not None and block>=max_block:
+                continue
+            
+        if block_indeces is not None:
+            good = False
+            for block_to_open in block_indeces:
+                if (block_to_open-blocks_per_file) <= block <= block_to_open:
+                    good = True
+                    break
+            if not good:
                 continue
         
         with open(data_loc+fname, 'rb') as fin:
@@ -572,19 +605,24 @@ def read_SSPW_timeID(TimeID, analysis_folder, fname_prefix=None, data_loc=None, 
                     
                     num_SSPW = read_long(fin)
                     for x in range(num_SSPW):
-                        new_SSPW = SSPW_fromBinary(fin)
+                        new_SSPW = SSPW_fromBinary(fin, load_timeseries)
                         SSPW_list.append( new_SSPW )
             
             
     return out
 
-def read_SSPW_timeID_multiDir(TimeID, analysis_folders, fname_prefix=None, data_loc=None, stations=None, stations_to_exclude=None, min_block=None, max_block=None):
+def read_SSPW_timeID_multiDir(TimeID, analysis_folders, fname_prefix=None, data_loc=None, stations=None, stations_to_exclude=None, 
+                              min_block=None, max_block=None, block_indeces=None, blocks_per_file=100, load_timeseries=True):
     out = {}
     out['ant_locations'] = {}
     out["SSPW_multi_dicts"] = []
     
-    for folder in analysis_folders:
-        folder_out = read_SSPW_timeID(TimeID, folder, fname_prefix, data_loc, stations, stations_to_exclude, min_block, max_block)
+    if block_indeces is None:
+        block_indeces = [None]*len(analysis_folders)
+    
+    for folder, indeces in zip(analysis_folders, block_indeces):
+        folder_out = read_SSPW_timeID(TimeID, folder, fname_prefix, data_loc, stations, stations_to_exclude, min_block, max_block,
+                                      block_indeces=indeces, blocks_per_file=blocks_per_file, load_timeseries=load_timeseries)
         
         out["SSPW_multi_dicts"].append( folder_out["SSPW_dict"] )
         
@@ -601,7 +639,7 @@ def read_SSPW_timeID_multiDir(TimeID, analysis_folders, fname_prefix=None, data_
     ## also should have a flexible dictionary    
 class SSPW_fromBinary:
     class ant_info_obj:
-        def __init__(self, fin):
+        def __init__(self, fin, load_timeseries):
             self.ant_name = read_string(fin)
             self.PolE_peak_time = read_double(fin)
             self.PolO_peak_time = read_double(fin)
@@ -611,26 +649,80 @@ class SSPW_fromBinary:
             self.antenna_status = read_long(fin)
             self.PolE_std = read_double(fin)
             self.PolO_std = read_double(fin)
-            self.PolE_antenna_data = read_double_array(fin)
-            self.PolE_hilbert_envelope = read_double_array(fin)
-            self.PolO_antenna_data = read_double_array(fin)
-            self.PolO_hilbert_envelope = read_double_array(fin)
+            if load_timeseries:
+                self.PolE_antenna_data = read_double_array(fin)
+                self.PolE_hilbert_envelope = read_double_array(fin)
+                self.PolO_antenna_data = read_double_array(fin)
+                self.PolO_hilbert_envelope = read_double_array(fin)
+                self.timeseries_loaded= True
+            else:
+                skip_double_array( fin )
+                skip_double_array( fin )
+                skip_double_array( fin )
+                skip_double_array( fin )
+                self.timeseries_loaded= False
+                
             self.PolE_time_offset = read_double(fin)
             self.PolO_time_offset = read_double(fin)
+            
+        def pol_flip(self):
+            tmp = self.PolE_peak_time
+            self.PolE_peak_time = self.PolO_peak_time
+            self.PolO_peak_time = tmp
+            
+            tmp = self.PolE_std
+            self.PolE_std = self.PolO_std
+            self.PolO_std = tmp
+            
+            if self.timeseries_loaded:
+            
+                tmp = self.PolE_antenna_data
+                self.PolE_antenna_data = self.PolO_antenna_data
+                self.PolO_antenna_data = tmp
+            
+                tmp = self.PolE_hilbert_envelope
+                self.PolE_hilbert_envelope = self.PolO_hilbert_envelope
+                self.PolO_hilbert_envelope = tmp
+            
+            tmp = self.PolE_time_offset
+            self.PolE_time_offset = self.PolO_time_offset
+            self.PolO_time_offset = tmp
+            
+                
     
-    def __init__(self, fin):
+    def __init__(self, fin, load_timeseries=True):
+        self.timeseries_loaded = load_timeseries
+        
+        self.fname = fin.name
+        
         self.unique_index = read_long(fin)
         self.sname = read_string(fin)
         self.ZAT = read_double_array(fin)
         self.polarization = read_long(fin)
         self.fit = read_double(fin)
         
+        self.file_loc = fin.tell()
+        
         n_ant = read_long(fin)
         self.ant_data = {}
         for ant_i in range(n_ant):
-            new_ant_data = self.ant_info_obj(fin)
+            new_ant_data = self.ant_info_obj(fin, load_timeseries)
             self.ant_data[ new_ant_data.ant_name ] = new_ant_data
             
+    def reload_data(self, load_timeseries=True):
+        self.timeseries_loaded = load_timeseries
+        with open(self.fname, 'rb') as fin:
+            fin.seek(self.file_loc)
+            
+            n_ant = read_long(fin)
+            self.ant_data = {}
+            for ant_i in range(n_ant):
+                new_ant_data = self.ant_info_obj(fin, load_timeseries)
+                self.ant_data[ new_ant_data.ant_name ] = new_ant_data
+                
+    def add_pol_flip(self, ant_name):
+        if ant_name in self.ant_data:
+            self.ant_data[ ant_name ].pol_flip()
             
     def get_DataTime(self, ant_order):
         
@@ -643,7 +735,7 @@ class SSPW_fromBinary:
                 ant_data = self.ant_data[ant_name] 
                 T = ant_data.PolE_peak_time if self.polarization==1 else ant_data.PolO_peak_time
                 ret.append( T )
-        return ret
+        return np.array( ret )
     
     def best_ave_amp(self):
         PolE_tot = 0.0
@@ -661,7 +753,12 @@ class SSPW_fromBinary:
                 PolO_tot += np.max( ant_info.PolO_hilbert_envelope )
                 PolO_num_ant += 1
     
-        return np.max( [PolE_tot/PolE_num_ant, PolO_tot/PolO_num_ant] ) 
+        if PolE_num_ant==0:
+            return PolO_tot/PolO_num_ant
+        elif PolO_num_ant==0:
+            return PolE_tot/PolE_num_ant
+        else:
+            return np.max( [PolE_tot/PolE_num_ant, PolO_tot/PolO_num_ant] ) 
 
     def prep_fitting(self, ref_location, ant_locs):
         self.ref_location = ref_location
@@ -749,109 +846,109 @@ class SSPW_fromBinary:
         
 ## Old algorithm. One further down is now preferd. (simpler and slightly better)
 
-#def find_planewave_events(station_info, AntennaPulse_dict ):
-#    """ find potential SSPW events in one station, and fit them to a planewave solution"""
-#        
-##    num_antennas = len(AntennaPulse_dict)
-#    
-#    log( station_info.station_name )
-#
-#    ##first, find diameter of station, to find width of window
-#    station_center = station_info.get_station_location()
-#    radius=0
-#    for ant in station_info.AntennaInfo_dict.values():
-#        AD= np.linalg.norm( ant.location-station_center )
-#        if AD>radius:
-#            radius = AD
-#
-#    half_window_width = 2*radius/v_air
-#
-#    ##start and stop times
-#    start_time = np.inf
-#    end_time = -np.inf
-#    for pulse_list in AntennaPulse_dict.values():
-#        for pulse in pulse_list:
-#            T = pulse.peak_time()
-#            
-#            if T < start_time:
-#                start_time = T
-#                
-#            if T > end_time:
-#                end_time = T
-#                
-#    windowA_start_time = start_time - half_window_width
-#    windowA_end_time = windowA_start_time + 2*half_window_width
-#    
-#    AntIndex_dict={ant_name:0 for ant_name in station_info.sorted_antenna_names} ### the index is the index of the first pulse still in the window
-#    def count_antennas_window(start_time, stop_time):
-#        """count number of antennas that have pulses in a window"""
-#        count = 0
-#        resulting_pulse_dict = {}
-#        for ant_name, pulselist in AntennaPulse_dict.items():
-#            resulting_pulse_dict[ant_name] = []
-#            
-#            found = False
-#            for pulse_index in range( AntIndex_dict[ant_name],  len(pulselist) ):
-#                pulse = pulselist[pulse_index]
-#                pulse_T = pulse.peak_time()
-#
-#                if pulse_T < start_time:
-#                    AntIndex_dict[ant_name] = pulse_index
-#                elif (pulse_T < stop_time) and (pulse.event_data is None):
-#                    if not found:
-#                        found = True
-#                        count += 1
-#                    resulting_pulse_dict[ant_name].append( pulse )
-#                    
-#                elif pulse_T > stop_time:
-#                    break
-#
-#        return count, resulting_pulse_dict
-#
-#    windowA_count, windowA_pulse_dict = count_antennas_window(windowA_start_time, windowA_end_time)
-#
-#    ## count following windows
-#    SSPW_event_list=[]
-##    last_event = None
-#    while windowA_end_time-half_window_width < end_time:
-#
-#        
-#        windowB_start_time= windowA_start_time + half_window_width
-#        windowB_end_time  = windowA_end_time + half_window_width
-#        windowB_count, windowB_pulse_dict = count_antennas_window(windowB_start_time, windowB_end_time)
-#        
-##        if (windowA_count >= 10) and not (windowA_count >= num_antennas):
-#        
-#        while (windowA_count >= 4):# num_antennas): ##NOTE: the requirment of using all antennas in station
-#            
-#            if windowA_count >= windowB_count:
-#                new_event = SSPW_event(station_info, windowA_pulse_dict, windowA_start_time, windowA_end_time)
-#            else:
-#                new_event = SSPW_event(station_info, windowB_pulse_dict, windowB_start_time, windowB_end_time)
-#                
-#            if not new_event.solved:
-#                log("Internal throw")
-#                break
-#
-#            SSPW_event_list.append(new_event)
-#            
-#            windowA_count, windowA_pulse_dict = count_antennas_window(windowA_start_time, windowA_end_time)
-#            windowB_count, windowB_pulse_dict = count_antennas_window(windowB_start_time, windowB_end_time)
-#        
-#            #if next_unique_i>=1:
-#                #break
-#
-#        windowA_start_time = windowB_start_time
-#        windowA_end_time = windowB_end_time
-#        windowA_count = windowB_count
-#        windowA_pulse_dict = windowB_pulse_dict
-#       
-#    print(len(SSPW_event_list))
-#        
-#    return SSPW_event_list
+def find_planewave_events_OLD(station_info, AntennaPulse_dict ):
+    """ find potential SSPW events in one station, and fit them to a planewave solution"""
+        
+#    num_antennas = len(AntennaPulse_dict)
+    
+    log( station_info.station_name )
+
+    ##first, find diameter of station, to find width of window
+    station_center = station_info.get_station_location()
+    radius=0
+    for ant in station_info.AntennaInfo_dict.values():
+        AD= np.linalg.norm( ant.location-station_center )
+        if AD>radius:
+            radius = AD
+
+    half_window_width = 2*radius/v_air
+
+    ##start and stop times
+    start_time = np.inf
+    end_time = -np.inf
+    for pulse_list in AntennaPulse_dict.values():
+        for pulse in pulse_list:
+            T = pulse.peak_time()
+            
+            if T < start_time:
+                start_time = T
+                
+            if T > end_time:
+                end_time = T
+                
+    windowA_start_time = start_time - half_window_width
+    windowA_end_time = windowA_start_time + 2*half_window_width
+    
+    AntIndex_dict={ant_name:0 for ant_name in station_info.sorted_antenna_names} ### the index is the index of the first pulse still in the window
+    def count_antennas_window(start_time, stop_time):
+        """count number of antennas that have pulses in a window"""
+        count = 0
+        resulting_pulse_dict = {}
+        for ant_name, pulselist in AntennaPulse_dict.items():
+            resulting_pulse_dict[ant_name] = []
+            
+            found = False
+            for pulse_index in range( AntIndex_dict[ant_name],  len(pulselist) ):
+                pulse = pulselist[pulse_index]
+                pulse_T = pulse.peak_time()
+
+                if pulse_T < start_time:
+                    AntIndex_dict[ant_name] = pulse_index
+                elif (pulse_T < stop_time) and (pulse.event_data is None):
+                    if not found:
+                        found = True
+                        count += 1
+                    resulting_pulse_dict[ant_name].append( pulse )
+                    
+                elif pulse_T > stop_time:
+                    break
+
+        return count, resulting_pulse_dict
+
+    windowA_count, windowA_pulse_dict = count_antennas_window(windowA_start_time, windowA_end_time)
+
+    ## count following windows
+    SSPW_event_list=[]
+#    last_event = None
+    while windowA_end_time-half_window_width < end_time:
+
+        
+        windowB_start_time= windowA_start_time + half_window_width
+        windowB_end_time  = windowA_end_time + half_window_width
+        windowB_count, windowB_pulse_dict = count_antennas_window(windowB_start_time, windowB_end_time)
+        
+#        if (windowA_count >= 10) and not (windowA_count >= num_antennas):
+        
+        while (windowA_count >= 3):# num_antennas): ##NOTE: the requirment of using all antennas in station
+            
+            if windowA_count >= windowB_count:
+                new_event = SSPW_event(station_info, windowA_pulse_dict, windowA_start_time, windowA_end_time)
+            else:
+                new_event = SSPW_event(station_info, windowB_pulse_dict, windowB_start_time, windowB_end_time)
+                
+            if not new_event.solved:
+                log("Internal throw")
+                break
+
+            SSPW_event_list.append(new_event)
+            
+            windowA_count, windowA_pulse_dict = count_antennas_window(windowA_start_time, windowA_end_time)
+            windowB_count, windowB_pulse_dict = count_antennas_window(windowB_start_time, windowB_end_time)
+        
+            #if next_unique_i>=1:
+                #break
+
+        windowA_start_time = windowB_start_time
+        windowA_end_time = windowB_end_time
+        windowA_count = windowB_count
+        windowA_pulse_dict = windowB_pulse_dict
+       
+    print(len(SSPW_event_list))
+        
+    return SSPW_event_list
 
 
-def find_planewave_events_smallWindow(station_info, AntennaPulse_dict ):
+def find_planewave_events(station_info, AntennaPulse_dict ):
     """ find potential SSPW events in one station, and fit them to a planewave solution"""
     
     print( "finding PSE on ", station_info.station_name )
@@ -929,7 +1026,7 @@ def find_planewave_events_smallWindow(station_info, AntennaPulse_dict ):
         num_ant_with_pulses, pulse_dict = count_antennas_window(current_time, current_time+window_width)
         
         ## see if we have a planewave
-        if num_ant_with_pulses >= 4:
+        if num_ant_with_pulses >= 3:
             
             new_event = SSPW_event(station_info, pulse_dict, current_time, current_time+window_width)
             
@@ -1020,3 +1117,271 @@ def multi_planewave_intersections(planewave_dict, referance_station=None, do_sta
             
     return source_location, source_time, station_delays, referance_station
 
+
+#### some usefull plotting functions ####
+    
+def plot_planewaves():
+    
+    timeID = "D20180308T165753.250Z"
+    input_folder_name = "/SSPW"
+    
+    first_block = 700
+    num_blocks = 100
+    
+    filter_first_block = 700
+    actual_num_blocks = 50
+    
+    min_time_between_SSPW_events = 0.0#6*25E-7
+    
+    stations_to_exclude = ["RS407", "CS028", "CS007", "CS101", "RS210", "RS310", "CS401"]
+    
+    station_offsets = {
+        }
+    location_correct = None
+
+    print("A1")
+    SSPW_data = read_SSPW_timeID(timeID, input_folder_name, min_block=first_block, max_block=first_block+num_blocks, load_timeseries=False)
+    SSPW_dict = SSPW_data["SSPW_dict"]
+    
+    
+        #### additional data files
+    ant_timing_calibrations = "cal_tables/TxtAntDelay"
+    polarization_flips = "/polarization_flips.txt"
+    bad_antennas = "/bad_antennas.txt"
+    additional_antenna_delays = "/ant_delays.txt"
+    
+    
+    
+    processed_dir = processed_data_dir(timeID)
+    
+    polarization_flips = processed_dir + '/' + polarization_flips
+    bad_antennas = processed_dir + '/' + bad_antennas
+    ant_timing_calibrations = processed_dir + '/' + ant_timing_calibrations
+    additional_antenna_delays = processed_dir + '/' + additional_antenna_delays
+    
+    
+    
+    print("A")
+    StationInfo_dict = read_station_info(timeID, "/pulse_data", stations_to_exclude=stations_to_exclude, ant_delays_fname=additional_antenna_delays, 
+                                         bad_antennas_fname=bad_antennas, pol_flips_fname=polarization_flips, txt_cal_table_folder=ant_timing_calibrations)
+    print("B")
+    
+    
+    CP = curtain_plot(StationInfo_dict)
+    for i, (sname, SSPW_station_list) in enumerate(SSPW_dict.items()):
+        if sname in stations_to_exclude:
+            continue
+        
+        station_offset = 0.0
+        if sname in station_offsets:
+            station_offset = station_offsets[sname]
+            
+        sinfo = StationInfo_dict[sname]
+#        
+#        if location_correct is not None:
+#            sloc = sinfo.get_station_location()
+#            R = np.linalg.norm( sloc-location_correct )
+#            station_offset += R/v_air
+#        
+#        print(sname, station_offset)
+#        
+#        
+#        
+#        
+#        
+#        strong_SSPW_events = []
+#        strong_event_amps = []
+#            
+#        SSPW_station_list.sort(key=lambda x: x.best_ave_amp(), reverse=True)
+#        new_event_amps =  [SSPW.best_ave_amp() for SSPW in SSPW_station_list]
+#        
+#        for new_SSPW, new_amplitude in zip(SSPW_station_list, new_event_amps):
+#            ## the cases
+#            if len(strong_SSPW_events) == 0:
+#                strong_SSPW_events.append(new_SSPW)
+#                strong_event_amps.append(new_amplitude)
+#                continue
+#                
+#            ### now we know that there is at least one SSPW in strong_SSPW_events
+#            ### need to insure that new_SSPW isn't too close to stronger SSPW
+#            insert_location = bisect.bisect_right(strong_event_amps, new_amplitude)
+#            good = True ## if there is a stronger event that is too close to the new event, then good will be False
+#            
+#            for i in range(insert_location):
+#                timeDiff = abs(new_SSPW.ZAT[2] - strong_SSPW_events[i].ZAT[2])
+#                if timeDiff < min_time_between_SSPW_events:
+#                    good = False
+#                    break
+#                
+#            if not good:
+#                continue
+#            
+#            ## if we are here, then all stronger events are far enough away. We can garuntee that new_SSPW will be inserted
+#            ## BUT! we need to find if there are any weaker events that are too close, and should be removed
+#            
+#            events_too_close = []
+#            for i in range(insert_location, len(strong_SSPW_events)):
+#                timeDiff = abs(new_SSPW.ZAT[2] - strong_SSPW_events[i].ZAT[2])
+#                if timeDiff < min_time_between_SSPW_events:
+#                    events_too_close.append(i)
+#            ##remove the events
+#            events_too_close.sort(reverse=True)
+#            for i in events_too_close:
+#                strong_SSPW_events.pop(i)
+#                strong_event_amps.pop(i)
+#            
+#            ## add the event!
+#            strong_SSPW_events.insert(insert_location, new_SSPW)
+#            strong_event_amps.insert(insert_location, new_amplitude)
+        
+        
+        strong_SSPW_events = []
+        for SSPW in SSPW_station_list:
+            good = False
+            for pulse in SSPW.ant_data.values():
+                if filter_first_block <= pulse.pulse_section_number/2 <= (filter_first_block+actual_num_blocks):
+                    good=True
+                    break
+                
+            if good:
+                strong_SSPW_events.append( SSPW )
+        
+        
+            
+#        strong_SSPW_events = SSPW_station_list
+        
+        print(sname, '(',i,'/',len(SSPW_dict), ')')
+        print("    ", len(strong_SSPW_events), "strong events")
+        
+        for SSPW in strong_SSPW_events:
+            
+            CP.addEventList(sname, [SSPW.get_DataTime(sinfo.sorted_antenna_names)-station_offset], annotation_list=[SSPW.unique_index] )
+    
+    print("showing")
+    CP.annotate_station_names(t_offset=0, xt=1)
+    plt.show()
+    
+def histogram_RMS_fits():
+    
+    timeID = "D20180728T135703.246Z"
+    input_folder_name = "SSPWB"
+    
+    
+    SSPW_data = read_SSPW_timeID(timeID, input_folder_name, load_timeseries=False)
+    SSPW_dict = SSPW_data["SSPW_dict"]
+    
+    for sname, SSPW_list in SSPW_dict.items():
+        print("Processing", sname)
+        RMS = [SSPW.fit for SSPW in SSPW_list]
+        plt.hist(RMS, bins=int(np.sqrt(len(RMS))),range=[0,2E-9])
+        plt.show()
+        
+def antenna_health():
+    ## check timing error by antnenna, and fraction of time an antenna is used.
+    
+    timeID = "D20180728T135703.246Z"
+    input_folder_name = "SSPWB"
+    
+    
+    SSPW_data = read_SSPW_timeID(timeID, input_folder_name, load_timeseries=False)
+    SSPW_dict = SSPW_data["SSPW_dict"]
+    
+    for sname, SSPW_list in SSPW_dict.items():
+        print("Processing", sname)
+        
+        num_ant_used = {}
+        
+        for SSPW in SSPW_list:
+            for ant_name in SSPW.ant_data.keys():
+                if ant_name not in num_ant_used:
+                    num_ant_used[ant_name] = 0
+                num_ant_used[ant_name] += 1
+                
+        stat_ID = list(num_ant_used.keys())[0][:3]
+        
+        for ant_name in SSPW_data["ant_locations"].keys():
+            if ant_name[:3] == stat_ID:
+                if ant_name not in num_ant_used:
+                    num_ant_used[ant_name] = 0
+                    
+                    
+        print(list(num_ant_used.keys()), list(num_ant_used.values()))
+        plt.bar( np.arange(len(num_ant_used)), list(num_ant_used.values()) )
+        plt.gca().set_xticks(np.arange(len(num_ant_used)))
+        plt.gca().set_xticklabels( list(num_ant_used.keys()) )
+        plt.show()
+                
+    
+    
+#import LoLIM.IO.metadata as md
+def plot_planewave_directions():
+    
+    timeID = "D20180728T135703.246Z"
+    input_folder_name = "SSPWB"
+    
+    stations_to_exclude = []#["RS106", "RS305", "RS205", "CS201", "RS407"]
+    
+    max_RMS = 1.0E-9
+    min_num_antennas = 3
+    num_top_amp_events = 5
+    min_block = -np.inf
+    max_block = np.inf
+    
+    radius = 100 ## km
+    
+    SSPW_data = read_SSPW_timeID(timeID, input_folder_name, stations_to_exclude=stations_to_exclude, load_timeseries=True, min_block=min_block, max_block=max_block)
+    SSPW_dict = SSPW_data["SSPW_dict"]
+    antenna_locs = SSPW_data["ant_locations"]
+    
+    
+    for sname, SSPW_list in SSPW_dict.items():
+        
+        filtered_SSPW = [SSPW for SSPW in SSPW_list if SSPW.fit<=max_RMS and len(SSPW.ant_data)>=min_num_antennas]
+        
+        if len(filtered_SSPW) ==0:
+            print("warning: no SSPW on station", sname, len(SSPW_list))
+            continue
+        
+        
+        best_SSPW = []
+        best_SSPW_amp = []
+        
+        for SSPW in filtered_SSPW:
+            amp = SSPW.best_ave_amp()
+            
+            if len(best_SSPW) < num_top_amp_events:
+                best_SSPW.append( SSPW )
+                best_SSPW_amp.append( amp )
+            elif amp > best_SSPW_amp[-1]:
+                insert_index = bisect.bisect(best_SSPW_amp, amp)
+                best_SSPW.insert(insert_index, SSPW)
+                best_SSPW_amp.insert(insert_index, amp)
+                
+                best_SSPW = best_SSPW[:num_top_amp_events]
+                best_SSPW_amp = best_SSPW_amp[:num_top_amp_events]
+                
+        
+        ant_loc = antenna_locs[ list(best_SSPW[0].ant_data.keys())[0] ] ##location of an antenna
+        print(sname, ant_loc)
+                
+        plt.scatter([ant_loc[0]], [ant_loc[1]])
+        plt.annotate(sname, xy=[ant_loc[0], ant_loc[1]])
+        for SSPW,amp in zip(best_SSPW,best_SSPW_amp):
+            print("  ",SSPW.unique_index, amp, SSPW.fit)
+            print("     ",SSPW.ZAT)
+            dx = np.cos(SSPW.ZAT[1])*radius*1000
+            dy = np.sin(SSPW.ZAT[1])*radius*1000
+            
+            plt.plot( [ant_loc[0], ant_loc[0]+dx], [ant_loc[1], ant_loc[1]+dy] )
+    plt.show()
+    
+
+if __name__=="__main__":
+    from LoLIM.read_pulse_data import curtain_plot, read_station_info
+    from matplotlib import pyplot as plt
+    
+    histogram_RMS_fits()
+#    plot_planewave_directions()
+#    plot_planewaves()
+#    antenna_health()
+    

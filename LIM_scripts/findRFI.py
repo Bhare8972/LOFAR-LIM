@@ -6,10 +6,14 @@ This module is strongly based on pyCRtools findrfi.py by Arthur Corstanje.
 However, it has been heavily modified for use with LOFAR-LIM by Brian Hare
 """
 
+
+from pickle import load
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.signal import gaussian
 
+from LoLIM.utilities import processed_data_dir
 from LoLIM.signal_processing import half_hann_window, num_double_zeros
 
 
@@ -70,9 +74,9 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         num_good = np.sum(antenna_is_good)
         if verbose:
             print("  ",num_good, "good antennas out of", num_antennas)
-        if num_good<0.5*num_antennas:
+        if num_good<(0.5*num_antennas):
             if verbose:
-                print("   skipping block")
+                print("   skipping block (too few ant)")
             continue
             
         ##window the data
@@ -94,14 +98,19 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         if refant is None:
             channel_power = np.sum( mag_spectrum, axis=1 )
             antenna_is_good = np.logical_and( antenna_is_good, channel_power>1)
-            sorted_by_power = np.argsort( channel_power )[antenna_is_good]
-            refant = sorted_by_power[ int(len(sorted_by_power)/2) ]
+            sorted_by_power = np.argsort( channel_power )
+            
+            for anti in sorted_by_power[int(len(sorted_by_power)*0.5):]:
+                if antenna_is_good[anti]:
+                    refant = anti
+                    break
+                
             if verbose:
-                print( 'Taking channel %d as reference antenna' % refant)
+                print( 'Taking channel %d as reference antenna' % refant, antenna_is_good[refant])
             del channel_power ## obsesed about memory use
         elif not antenna_is_good[refant]:
             if verbose:
-                print("   skipping block")
+                print("   skipping block (bad ref)")
             continue
         
         num_analyzed_blocks += 1
@@ -193,28 +202,56 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     output_dict["phase_variance"] = phase_stability
     output_dict["dirty_channels"] = dirty_channels + lower_frequency_index
     output_dict["blocksize"] = block_size
+    
+    cleaned_spectrum = np.array( spectrum_mean )
+    cleaned_spectrum[:, dirty_channels] = 0.0
+    output_dict["cleaned_spectrum_magnitude"] = cleaned_spectrum
+    output_dict["cleaned_power"] = 2*np.sum( cleaned_spectrum, axis=1 )
+    
+    output_dict["antenna_names"] = TBB_in_file.get_antenna_names()
+    output_dict["timestamp"] = TBB_in_file.get_timestamp()
    
     return output_dict
 
 class window_and_filter:
-    def __init__(self, blocksize, find_RFI=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6):
+    def __init__(self, blocksize=None, find_RFI=None, timeID=None, sname=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6):
         self.lower_filter = lower_filter
         self.upper_filter = upper_filter
+        
+        if timeID is not None:
+            if find_RFI is None:
+                find_RFI = "/findRFI/findRFI_results"
+            find_RFI = processed_data_dir(timeID) + find_RFI
+            
+        if isinstance(find_RFI, str): ## load findRFI data from file
+            with open( find_RFI, 'rb' ) as fin:
+                find_RFI = load(fin)[ sname ]
+                
         self.RFI_data = find_RFI
         
         if self.RFI_data is not None:
-            if self.RFI_data['blocksize'] != blocksize:
+            if blocksize is None:
+                blocksize = self.RFI_data['blocksize']
+            elif self.RFI_data['blocksize'] != blocksize:
                 print("blocksize and findRFI blocksize must match")
                 quit()
+        elif blocksize is None:
+            print("window and filter needs a blocksize")
+            quit()
                 
+        self.blocksize = blocksize
         self.half_hann_window = half_hann_window(blocksize, half_window_percent)
 
         FFT_frequencies = np.fft.fftfreq(blocksize, d=time_per_sample)
         self.bandpass_filter = np.zeros( len(FFT_frequencies), dtype=complex)
         self.bandpass_filter[ np.logical_and( FFT_frequencies>=lower_filter, FFT_frequencies<=upper_filter  ) ] = 1.0
-        gaussian_weights = gaussian(len(FFT_frequencies), int( round(filter_roll_width/(FFT_frequencies[1]-FFT_frequencies[0]) ) ) ) 
-        self.bandpass_filter = np.convolve(self.bandpass_filter, gaussian_weights, mode='same' )
+        width = filter_roll_width/(FFT_frequencies[1]-FFT_frequencies[0])
+        if width > 1:
+            gaussian_weights = gaussian(len(FFT_frequencies), width ) 
+            self.bandpass_filter = np.convolve(self.bandpass_filter, gaussian_weights, mode='same' )
         self.bandpass_filter /= np.max(self.bandpass_filter) ##convolution changes the peak value
+        
+        self.FFT_frequencies = FFT_frequencies
         
         ## completly reject low-frequency bits
         self.bandpass_filter[0] = 0.0
@@ -224,13 +261,19 @@ class window_and_filter:
         if self.RFI_data is not None:
             self.bandpass_filter[ self.RFI_data["dirty_channels"] ] = 0.0
         
+    def get_frequencies(self):
+        return self.FFT_frequencies
+        
     def get_frequency_response(self):
         return self.bandpass_filter
         
         
-    def filter(self, data, additional_filter=None):
+    def filter(self, data, additional_filter=None, whiten=False):
         data[...,:] *= self.half_hann_window
         FFT_data = np.fft.fft( data, axis=-1 )
+        
+        if whiten:
+            FFT_data /= np.abs(FFT_data)
         
         FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
         if additional_filter:
@@ -267,10 +310,50 @@ class window_and_filter:
 #
 #        return np.fft.ifft(FFT_data, axis=-1)
         
+if __name__ == "__main__":
+    
+    from IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+    
+    timeID =  "D20170929T202255.000Z"
+    station = "CS002"
+    antenna_id = 0
         
         
+    block_size = 2**16
+    block_number = 3600
+    
+    raw_fpaths = filePaths_by_stationName(timeID)
+    
+    data_file = MultiFile_Dal1(raw_fpaths[station])
+    
+    block_size = 2**16 ##FindRFI needs a fairly large block size
+    
+    
+    ### find the radio stations that make noise ####
+    ### this searches the beginning of the data file, before the flash, for noise due to human radio stations ###
+    initial_block = 1
+    number_blocks = 20
+    RFI = FindRFI(data_file, block_size, initial_block, number_blocks, verbose=True, figure_location=None) ##set figure location to some folder to see output plots
+
+
+    RFI_filter = window_and_filter(block_size, RFI, lower_filter=30E6, upper_filter=80E6)
+    
+#    plt.plot( RFI_filter.bandpass_filter )
+#    plt.show()
+    
+    
+    ### now open one antenna of data
+    data = np.empty((block_size), dtype=np.double)
+    data[:] = data_file.get_data(block_size*block_number, block_size, antenna_index=antenna_id) ##get and store the data
         
-        
+    ##filter it
+    filtered_data = RFI_filter.filter( data ) ## this works for multiple antennas as well, (like done at bottom of raw_tbb_IO.py)
+    ## note that filtering the data turns it into complex numbers. The real component is the value of the signal, the absolute value is an envelope over the data
+    
+    plt.plot(np.abs(filtered_data), 'g', linewidth=3 )
+    plt.plot(np.real(filtered_data),'r', linewidth=3)
+    
+    plt.show()
         
         
         

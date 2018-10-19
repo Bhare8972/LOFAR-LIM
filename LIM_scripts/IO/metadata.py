@@ -161,6 +161,7 @@ def convertPhase_to_Timing(phase_calibration, sample_time=5.0e-9):
     Not sure how well this works with HBA antennas. Sample time should be seconds per sample. Default is 5 ns"""
     phases = np.angle(phase_calibration)
     delays = (phases[:, 1] - phases[:, 0]) * (1024 / (2*np.pi)) * sample_time ## this just finds the slope from the first two points. Are there better methods?
+    ### TODO: add a conditional that takes different points if the slope is too large
     return delays
     
 
@@ -574,6 +575,10 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     Function returns a 2D numpy array (even if input is 1D).
     Out cannot be same array as itrfpos
     """
+    if out is itrfpos:
+        print("out cannot be same as itrfpos in convertITRFToLocal. TODO: make this a real error")
+        quit()
+    
     lat = reflatlon[0]/RTD
     lon = reflatlon[1]/RTD
     arg0 = np.array([-np.sin(lon),   -np.sin(lat) * np.cos(lon),   np.cos(lat) * np.cos(lon)])

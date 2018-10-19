@@ -9,12 +9,30 @@
 ## this code is very unsafe. It literaly just runs arbtrary python commands. So do NOT run any porta_code files that arn't from sources that you would trust with complete controll over your computer.
 ## this module needs to be replaced with something that has more.....limited.....functionality
 
+from sys import argv
 import pickle
 
+class unique_var_name:
+    """return a string that could represent a variable name. Each call gives a unique name. each name starts with '__var__'"""
+    def __init__(self):
+        self.num = 0
+        
+    def __call__(self):
+        name = "__var__" + hex(self.num)
+        self.num += 1
+        return name
+
 class code_logger(object):
+    
+    class var_handle:
+        def __init__(self, name):
+            self.name = name
+    
     def __init__(self, fname):
         self.fname=fname
         self.lines=[] ##is a list of lines. Each line is a list. First item of the list is an integer, that says the kind of line and info to follow
+        self.var_generator = unique_var_name()
+        
         ##types:
         ## 0: statement, list also contains a string to be run
         ## 1: function, list contains function name, option argument list, and optional argument dictionary
@@ -29,12 +47,15 @@ class code_logger(object):
         
     def add_function(self, func, *largs, **dargs):
         """run a function on external data. first variable should be name of function, without parenthesis or arguments. 
-        Following arguments should be just function arguments. Do not call print from here, use "output" instead"""
-        self.lines.append( [1, func, largs, dargs] )
+        Returns a handle representing the return of the function. This handle can be used in future add_function calls"""
+        var_name = self.var_generator()
+        self.lines.append( [1, var_name, func, largs, dargs] )
+        return self.var_handle( var_name )
         
-    def add_variable(self, var, data):
-        """save external data as a variable. var should be variable name, and data should be the data to save to var"""
-        self.lines.append( [2, var, data] )
+    def add_variable(self, var_name, data):
+        """save external data as a variable. var should be variable name, and data should be the data to save to var. return a handle that can be used in 'add_function'"""
+        self.lines.append( [2, var_name, data] )
+        return self.var_handle( var_name ) 
         
     def save(self):
         with open(self.fname, "wb") as fout:
@@ -45,13 +66,23 @@ def read_file(fname):
         data=pickle.load(fin)
         
     for line in data:
-        if line[0]==0:
+        if line[0]==0: ## general statment
             exec(line[1])
-        elif line[0]==1:
+            
+        elif line[0]==1: ## function
             global __TMP1__, __TMP2__
-            __TMP1__=line[2]
-            __TMP2__=line[3]
-            func=line[1]+"(*__TMP1__, **__TMP2__)"
+            __TMP1__ = line[3]
+            for i,v in enumerate(__TMP1__):
+                if isinstance(v, code_logger.var_handle):
+                    __TMP1__[i] = eval( v.name )
+                
+            __TMP2__=line[4]
+            for i,v in __TMP2__.items():
+                if isinstance(v, code_logger.var_handle):
+                    __TMP1__[i] = eval( v.name )
+                
+            
+            func = line[1] + '=' + line[2]+"(*__TMP1__, **__TMP2__)"
             exec(func)
         elif line[0]==2:
             global __TMP__
@@ -67,19 +98,22 @@ class pyplot_emulator:
         self.CL.add_statement("from matplotlib import pyplot as plt")
         
     def plot(self, *largs, **dargs):
-        self.CL.add_function("plt.plot", *largs, **dargs)
+        return self.CL.add_function("plt.plot", *largs, **dargs)
         
     def scatter(self, *largs, **dargs):
-        self.CL.add_function("plt.scatter", *largs, **dargs)
+        return self.CL.add_function("plt.scatter", *largs, **dargs)
         
     def hist(self, *largs, **dargs):
-        self.CL.add_function("plt.hist", *largs, **dargs)
+        return self.CL.add_function("plt.hist", *largs, **dargs)
         
     def show(self, *largs, **dargs):
-        self.CL.add_function("plt.show", *largs, **dargs)
+        return self.CL.add_function("plt.show", *largs, **dargs)
         
     def annotate(self, *largs, **dargs):
-        self.CL.add_function("plt.annotate", *largs, **dargs)
+        return self.CL.add_function("plt.annotate", *largs, **dargs)
+    
+    def gca(self):
+        return self.CL.add_function("plt.gca")
     
 
 #### todo: add other functionality that allows one to program in python, but code is written to file

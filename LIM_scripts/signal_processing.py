@@ -62,8 +62,8 @@ class upsample_and_correlate:
         self.slice_E = slice(self.input_length,self.input_length+1,None)
         
     def run(self, A, B):
+        self.workspace_1[:] = 0
         self.workspace_1[:self.input_length] = B
-        self.workspace_1[self.input_length:] = 0
         fftpack.fft(self.workspace_1, overwrite_x = True)
         
         np.conjugate(self.workspace_1[self.slice_A], out=self.output[self.slice_A])
@@ -72,8 +72,8 @@ class upsample_and_correlate:
         
         
         
+        self.workspace_1[:] = 0
         self.workspace_1[:self.input_length] = A
-        self.workspace_1[self.input_length:] = 0
         fftpack.fft(self.workspace_1, overwrite_x = True)
         
         self.output[self.slice_A] *= self.workspace_1[self.slice_A]
@@ -90,7 +90,7 @@ class upsample_and_correlate:
         return self.output
         
 def correlateFFT(FFTdata_i, FFTdata_j, out):
-    """given two FFT data arrays, upsample, correlate, and inverse fourier transform"""
+    """given two FFT data arrays, upsample, correlate, and inverse fourier transform."""
         #### upsample, and multiply A*conj(B), using as little memory as possible
         
     in_len = FFTdata_i.shape[0]
@@ -124,7 +124,13 @@ def correlateFFT(FFTdata_i, FFTdata_j, out):
     
     
 class parabolic_fit:
-    def __init__(self, data, index, n_points):
+    def __init__(self, data, index=None, n_points=5):
+        """a class that fits a parabola to find the peak. data should be 1D array. index should be the index of the peak to fit in data, if None:
+            index = np.argmax(data). n_points is the total number of points to fit, should be odd, normally 5.  parabolic_fit.peak_index is
+            the fractional location of the peak"""
+        
+        if index is None:
+            index = np.argmax( data )
         
         self.index = index
         self.n_points = n_points
@@ -132,7 +138,7 @@ class parabolic_fit:
         self.matrix, self.error_ratio_A, self.error_ratio_B, self.error_ratio_C = self.get_fitting_matrix(n_points)
         
         half_n_points = int( (n_points-1)/2 )
-        points = data[ index-half_n_points :  index+1+half_n_points ]
+        points = data.take(np.arange(n_points)+index-half_n_points, axis=0, mode="wrap" )  #data[ index-half_n_points :  index+1+half_n_points ]
         
         self.A, self.B, self.C = np.dot( self.matrix, points )
         
@@ -226,6 +232,8 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
     start_i = 0
     end_i = 0
     
+    data_cut = []
+    
     if len(window_ends)>0 and ( len(window_starts)==0 or window_ends[0]<window_starts[0]):
         ## the data starts saturatated
         win_end = window_ends[ end_i ]
@@ -243,6 +251,8 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
         data[end_i+1 : end_i_end] *= post_window[:N]
         
         end_i += 1
+        
+        data_cut.append([0,end_i_end])
      
     for x in range(len(window_ends)-end_i):
         win_start = window_starts[ start_i ]
@@ -272,6 +282,7 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
         
         start_i += 1
         end_i += 1
+        data_cut.append([win_start_start,end_i_end])
         
     if start_i == len(window_starts)-1:
         ## the data ends saturated
@@ -287,6 +298,18 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
             N = win_start - win_start_start
       
         data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
+        data_cut.append([win_start_start,len(data)])
+        
+    return data_cut
+
+def data_cut_at_index(data_cuts, index):
+    """given data_cuts, which is the return value of remove_saturation, and index, return True if index is in a region that 
+    has been cut due to saturation, false otherwise"""
+    
+    for start,stop in data_cuts:
+        if start <= index < stop:
+            return True
+    return False
     
     
 def num_double_zeros(data):
@@ -295,3 +318,10 @@ def num_double_zeros(data):
     
     bad = np.logical_and( is_zero[:-1], is_zero[1:] )
     return np.sum(bad)
+
+def FFT_time_shift(frequencies, FFT_data, dt):
+    """given some frequency dependent data, apply a positive time-shift dt. Operates
+    on the data in-place """
+    FFT_data *= np.exp( frequencies*(-1j*2*np.pi*dt) )
+    
+

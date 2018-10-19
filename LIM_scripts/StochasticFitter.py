@@ -8,38 +8,57 @@ from os.path import isdir, isfile
 #external
 import numpy as np
 from scipy.optimize import least_squares, minimize
-from prettytable import PrettyTable
+from matplotlib import pyplot as plt
 
 #mine
-from utilities import log, processed_data_dir, v_air, SNum_to_SName_dict
-from binary_IO import read_long, write_long, write_double_array, write_string, write_double
-#from porta_code import code_logger
+from LoLIM.prettytable import PrettyTable
+from LoLIM.utilities import log, processed_data_dir, v_air, SId_to_Sname
+from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
+from porta_code import code_logger, pyplot_emulator
 #from RunningStat import RunningStat
 
-from read_pulse_data import writeTXT_station_delays,read_station_info, curtain_plot_CodeLog
+from LoLIM.read_pulse_data import writeTXT_station_delays,read_station_info, curtain_plot_CodeLog, curtain_plot
 
-from read_PSE import read_PSE_timeID
-from planewave_functions import read_SSPW_timeID_multiDir
+from LoLIM.read_PSE import read_PSE_timeID
+from LoLIM.planewave_functions import read_SSPW_timeID_multiDir
 
 
 class fitting_PSE:
-    def __init__(self, PSE):
+    def __init__(self, PSE, PSE_polarity, current_delays, delays_to_use):
         self.PSE = PSE
+        self.current_delays = current_delays
+        self.delays_to_use = delays_to_use
         PSE.load_antenna_data( True )
         
         if PSE.PolE_RMS<PSE.PolO_RMS:
             self.polarity = 0
         else:
             self.polarity = 1
+            
+        if PSE_polarity is not None:
+            self.polarity = PSE_polarity
         
         self.initial_loc = PSE.PolE_loc if self.polarity==0 else PSE.PolO_loc
         
         self.SSPW_list = []
+        
+    def get_block_indeces(self, sname):
+        blocks = []
+        for PSE_ant_info in self.PSE.antenna_data.values():
+            block  = int(PSE_ant_info.section_number/2)
+            if block not in blocks:
+                blocks.append( block )
+                
+        return blocks
 
     def add_SSPW(self, new_SSPW):
         self.SSPW_list.append(new_SSPW)
 
-    def fitting_prep(self, station_delay_input_order, stations_to_keep, PSE_ant_locs, SSPW_ant_locs):
+    def fitting_prep(self, station_delay_input_order, stations_to_keep, stations_use_PSE, PSE_ant_locs, SSPW_ant_locs):
+        self.stations_to_keep = stations_to_keep
+        self.stations_use_PSE = stations_use_PSE
+        self.ant_locs = PSE_ant_locs
+        
         print("PSE", self.PSE.unique_index)
         self.station_delay_input_order = station_delay_input_order
         
@@ -52,13 +71,18 @@ class fitting_PSE:
         
         for ant_name, ant_info in self.PSE.antenna_data.items():
             station_number = ant_name[0:3]
-            sname = SNum_to_SName_dict[ station_number ]
-            if sname not in stations_to_keep:
+            sname = SId_to_Sname[ int(station_number) ]
+            if not ( (sname in stations_to_keep) or (sname in stations_use_PSE) ) :
                 continue
             
             pt = ant_info.PolE_peak_time if self.polarity==0 else ant_info.PolO_peak_time 
             if not np.isfinite(pt):
                 continue
+            
+            if sname in self.current_delays:
+                pt += self.current_delays[sname]
+            if sname in self.delays_to_use:
+                pt -= self.delays_to_use[sname]
             
             ant_loc = PSE_ant_locs[ ant_name ]
             ant_X.append( ant_loc[0] )
@@ -76,9 +100,13 @@ class fitting_PSE:
             
             n_ant = 0
             for ant_name, ant_info in SSPW.ant_data.items():
-                pt = ant_info.PolE_peak_time if self.polarity==0 else ant_info.PolO_peak_time 
+                pt = ant_info.PolE_peak_time if self.polarity==0 else ant_info.PolO_peak_time
+                
                 if not np.isfinite(pt):
                     continue
+                
+                if sname in self.delays_to_use:
+                    pt -= self.delays_to_use[sname]
                 
                 ant_loc = SSPW_ant_locs[ ant_name ]
                 ant_X.append( ant_loc[0] )
@@ -108,7 +136,7 @@ class fitting_PSE:
         current_station = None
         start_index = None
         for idx, ant_name in enumerate(self.antenna_names):
-            sname = SNum_to_SName_dict[ ant_name[0:3] ]
+            sname = SId_to_Sname[ int(ant_name[0:3]) ]
             
             if start_index is None:
                 start_index = idx
@@ -324,85 +352,365 @@ class fitting_PSE:
         ave_error = np.average(workspace)
         return -ave_error/v_air
 
+    def plot_trace_data(self, station_timing_offsets, plotter=plt):
+        
+        sorted_ant_names = list(self.antenna_names)
+        sorted_ant_names.sort()
+        
+        snames_annotated = []
+        
+        offset_index = 0
+        for ant_name in sorted_ant_names:
+            sname = SId_to_Sname[ int(ant_name[0:3]) ]
+            ant_loc = self.ant_locs[ant_name]
+            
+            if (sname in self.stations_to_keep) or (sname in self.stations_use_PSE): ##in PSE
+            
+                ant_info = self.PSE.antenna_data[ant_name]
+            
+                PolE_peak_time = ant_info.PolE_peak_time
+                PolO_peak_time = ant_info.PolO_peak_time
+
+                PolE_hilbert = ant_info.even_antenna_hilbert_envelope
+                PolO_hilbert = ant_info.odd_antenna_hilbert_envelope
+            
+                PolE_trace = ant_info.even_antenna_data
+                PolO_trace = ant_info.odd_antenna_data
+
+                PolE_T_array = (np.arange(len(PolE_hilbert)) + ant_info.starting_index )*5.0E-9  + ant_info.PolE_time_offset
+                PolO_T_array = (np.arange(len(PolO_hilbert)) + ant_info.starting_index )*5.0E-9  + ant_info.PolO_time_offset
+            else: ## in SSPW
+                
+                for SSPW in self.SSPW_list:
+                    if SSPW.sname == sname:
+                        found_SSPW = SSPW
+                        break
+                    
+                ant_info = found_SSPW.ant_data[ant_name]
+            
+                PolE_peak_time = ant_info.PolE_peak_time
+                PolO_peak_time = ant_info.PolO_peak_time
+
+                PolE_hilbert = ant_info.PolE_hilbert_envelope
+                PolO_hilbert = ant_info.PolO_hilbert_envelope
+            
+                PolE_trace = ant_info.PolE_antenna_data
+                PolO_trace = ant_info.PolO_antenna_data
+
+                PolE_T_array = (np.arange(len(PolE_hilbert)) + ant_info.pulse_starting_index )*5.0E-9  + ant_info.PolE_time_offset
+                PolO_T_array = (np.arange(len(PolO_hilbert)) + ant_info.pulse_starting_index )*5.0E-9  + ant_info.PolO_time_offset
+                
+        
+            
+            PolE_T_array -= station_timing_offsets[sname]
+            PolO_T_array -= station_timing_offsets[sname]
+            
+            amp = max(np.max(PolE_hilbert), np.max(PolO_hilbert))
+            PolE_hilbert = PolE_hilbert/(amp*3.0)
+            PolO_hilbert = PolO_hilbert/(amp*3.0)
+            PolE_trace   = PolE_trace/(amp*3.0)
+            PolO_trace   = PolO_trace/(amp*3.0)
+            
+            
+            plotter.plot( PolE_T_array, offset_index+PolE_hilbert, 'g' )
+            plotter.plot( PolE_T_array, offset_index+PolE_trace, 'g' )
+            plotter.plot( [PolE_peak_time, PolE_peak_time], [offset_index, offset_index+2.0/3.0], 'g')
+            
+            plotter.plot( PolO_T_array, offset_index+PolO_hilbert, 'm' )
+            plotter.plot( PolO_T_array, offset_index+PolO_trace, 'm' )
+            plotter.plot( [PolO_peak_time, PolO_peak_time], [offset_index, offset_index+2.0/3.0], 'm')
+            
+            model_time = np.linalg.norm( ant_loc-self.source_location[0:3] )/v_air + self.source_location[3]
+            plotter.plot( [model_time,model_time], [offset_index, offset_index+2.0/3.0], 'r')
+            if self.polarity == 0:
+                plotter.plot( [model_time,model_time], [offset_index, offset_index+2.0/3.0], 'mo')
+            elif self.polarity == 1:
+                plotter.plot( [model_time,model_time], [offset_index, offset_index+2.0/3.0], 'go')
+                    
+            max_T = max( np.max(PolE_T_array), np.max(PolO_T_array) )
+            min_T = max( np.min(PolE_T_array), np.min(PolO_T_array) )
+            
+            plotter.annotate( ant_name, xy=[max_T, offset_index+1.0/3.0], size=15)
+            
+            if sname not in snames_annotated:
+                plotter.annotate( sname, xy=[min_T, offset_index+1.0/3.0], size=15)
+                snames_annotated.append( sname )
+            
+            offset_index += 1
+        plotter.show()
+    
+
 if __name__=="__main__":
+    
     ##opening data
-    timeID = "D20160712T173455.100Z"
+#    timeID = "D20170929T202255.000Z"
+#    output_folder = "stocastic_fitter_runA"
+#    
+#    SSPW_folders = ['SSPW2_tmp']
+#    PSE_folder = "handcorrelate_SSPW"
+#    
+#    max_num_itter = 2000
+#    itters_till_convergence =  100
+#    delay_width = 10000E-9  ##100.0E-9 
+#    position_width = delay_width/3.0E-9
+#    
+#    
+#    referance_station = "CS002"
+#    stations_to_keep = []## to keep from the PSE
+#    stations_to_correlate = ["CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103",
+#                             "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"]  
+#                                ## to correlate from the SSPW
+#    
+#    ## to find delays
+#    stations_to_find_offsets = stations_to_correlate + stations_to_keep
+#
+### -1 means use data from PSE None means no data
+#    correlation_table =  {
+##  "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103", 
+##  "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"
+#   
+#0:[  -1   ,    1808,      -1,      -1,      -1,     -1 ,      -1,      -1,      -1,      -1,      -1,     None,    -1 ,    -1  ,
+#        -1,   -1   ,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,     None,  None],
+#
+#1:[  -1   ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,   None,    -1  ,
+#      -1  ,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,    None,      -1,      -1,      -1,       -1,    -1 ],
+#  
+#2:[  -1   ,      -1,      -1,      -1,      -1,  19428 ,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+#      -1  ,   -1   ,    -1  ,    None,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    None],
+#   
+#3:[  -1   ,    1825,      -1,    None,    6191,      -1,      -1,      -1,      -1,   None ,      -1,       -1,     -1,   24648,
+#      -1  ,      -1,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    -1 ],
+#   
+#4:[  -1   ,      -1,      -1,      -1,    6200,      -1,  40265 ,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+#      -1  ,   -1   ,    -1  ,    -1  ,    None,  18376 ,    -1  ,      -1,      -1,    None,      -1,     None,    -1 ],
+#    
+##5:[  -1   ,      -1,    836 ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+##      -1  ,   -1   ,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    -1 ],
+#   
+#            }
+#    
+##2:[  -1   ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+##      -1  ,   -1   ,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    -1 ],
+#    
+#    ### since we are loading multiple SSPW files, the SSPW unique IDs are not actually unique. Either have a list of indeces, where each index
+#    ## refers to the file in "SSPW_folders", or a None, which implies all indeces are from the first "SSPW_folders"
+#    correlation_table_SSPW_group = { 
+#            0:None,
+#            1:None,
+#            2:None,
+#            3:None,
+#            4:None,
+##            5:None,
+#            }
+#    
+#    PSE_to_plot = []#list( correlation_table.keys() )
+#    
+#    ##set polarization to fit. Do not need to have PSE. if 0, use even annennas, if 1 use odd antennas. If None, or not-extent in this list,
+#    ## then use default polarization
+#    PSE_polarization = {
+#            0:1,
+#            1:1,
+#            2:1,
+#            3:0,
+#            4:0,
+##            5:1,
+#            }
+#
+#    
+#    initial_guess = np.array(
+#       [  1.40326475e-06,   4.30479399e-07,  -2.20650962e-07,
+#         4.32830875e-07,   3.98541326e-07,  -5.86309866e-07,
+#        -1.81558008e-06,  -8.44069643e-06,   9.23537095e-07,
+#        -2.74297829e-06,  -1.57373607e-06,  -8.17222435e-06,
+#        -2.85236088e-05,   6.74971391e-06,  -7.19546289e-07,
+#        -5.36000378e-06,   6.86710450e-06,   6.49488183e-06,
+#         6.21288530e-06,   1.35065442e-06,   2.41064270e-05,
+#         4.85765330e-06,  -9.61342940e-06,   6.92730986e-06,
+#         6.57015166e-06,   7.93761182e-06,  -1.55398871e+04,
+#         8.91884438e+03,   3.54843082e+03,   1.15317825e+00,
+#        -1.57070879e+04,   9.04128609e+03,   3.56309168e+03,
+#         1.15321446e+00,  -1.55078410e+04,   8.90700728e+03,
+#         3.59197303e+03,   1.15324217e+00,  -1.59926465e+04,
+#         9.23681333e+03,   3.68261300e+03,   1.15344759e+00,
+#        -1.58423240e+04,   9.08114847e+03,   3.34469757e+03,
+#         1.15356267e+00]
+#            )
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    timeID = "D20170929T202255.000Z"
     output_folder = "stocastic_fitter_runA"
     
-    SSPW_folders = ['SSPW_data']
-    PSE_folder = "correlate_SSPW_excludeRS"
+    SSPW_folders = ['SSPW', 'SSPW2_tmp']
+    PSE_folders = ["allPSE_runA", "handcorrelate_SSPW"]
+#    PSE_folder = "allPSE_runA"
     
     max_num_itter = 2000
     itters_till_convergence =  100
-    delay_width = 100.0E-9 
+    delay_width = 1000E-9  ##100.0E-9 
     position_width = delay_width/3.0E-9
     
     
     referance_station = "CS002"
-    stations_to_keep = ['CS001', 'CS002', 'CS013', 'CS006', 'CS031', 'CS028', 'CS011', 'CS030', 'CS026', 'CS032', 'CS021', 'CS004', 'CS302']#, 'RS106', 'RS205', 'RS208', 'RS305', 'RS306', 'RS307', 'RS406', 'RS407', 'RS503', 'RS508', 'RS509']  ## to keep from the PSE
-    stations_to_correlate = ['RS106', 'RS205', 'RS208', 'RS305', 'RS306', 'RS307', 'RS406', 'RS407', 'RS503', 'RS508', 'RS509']  ## to correlate from the SSPW
+    stations_to_keep = []## to keep from the PSE
+    stations_to_correlate = ["CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103",
+                             "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"]  
+                                ## to correlate from the SSPW
     
     ## to find delays
     stations_to_find_offsets = stations_to_correlate + stations_to_keep
+    
+    PSE_ids = { ##for each PSE, give unique ID and file index
+            2:(2,0), 
+            47:(47,0),
+            191:(191,0),
+            266:(266,0),
+            313:(313,0),
+            
+            0:(0,1),
+            1:(1,1),
+            3:(2,1),
+            4:(3,1),
+            5:(4,1),
+            6:(5,1),
+            }
+    
 
+## -1 means use data from PSE None means no data
     correlation_table =  {
-            2:[80334, None  , None  , None , None  , None , None , 205312, 108726, None, None],
-            3:[None , 187384, None  , None , 179554, None , 44449, None  , 108728, 17  , None],
-            6:[80376, 187416, None  , None , None  , None , 44481, None  , 108764, 63  , 62553],
-            7:[80441, 187480, 136608, None , None  , 38255, None , 205419, 108825, 150 , 62622],
-#            11:[None , None  , None  , None , None  , None , None , None  , None  , None, None ],
-            12:[80479, None  , None  , 29882, 179658, None , 44589, None  , 108865, None, None],
+#    "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103", 
+#    "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"
+
+2:[    -1   ,      -1,      -1,      -1,    None,      -1,    None,      -1,      -1,      -1,    None,       -1,     -1,    -1  ,
+        -1  ,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,   -1 ],
+   
+47:[   -1   ,    None,      -1,      -1,      -1,      -1,      -1,      -1,      -1,    None,    None,    None ,   None,   None ,
+        -1  ,    None,    -1  ,    -1  ,      -1,     -1 ,    -1  ,   None ,      -1,      -1,    None,   310086,   None],
+    
+191:[  -1   ,      -1,    None,    None,    None,   None ,      -1,   None ,   None ,   None ,      -1,     None,     -1,    -1  ,
+        None,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    -1 ],
+    
+266:[None   ,    None,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+        None,   -1   ,    None,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,   -1 ],
+     
+313:[  -1   ,    None,    None,      -1,      -1,    None,    None,      -1,      -1,      -1,    None,     None,   None,    -1  ,
+        -1  ,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,   -1 ],
+     
+     
+     
+0:[  -1     ,    1808,      -1,      -1,      -1,     -1 ,      -1,      -1,      -1,      -1,      -1,     None,    -1 ,    -1  ,
+          -1,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,      -1,      -1,      -1,      -1,     None,  None],
+   
+1:[ None    ,      -1,      -1,  None  ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,   None,    -1  ,
+        -1  ,   -1   ,    -1  ,    -1  ,  329831,     -1 ,    -1  ,      -1,      -1,      -1,      -1,     None,    -1 ],
+  
+3:[  -1     ,      -1,      -1,      -1,      -1,  19428 ,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+      -1    ,   -1   ,    -1  ,    None,  329837,     -1 ,    -1  ,      -1,      -1,      -1,      -1,   309190,    None],
+   
+4:[  -1     ,    None,      -1,    None,    6191,      -1,      -1,    None,      -1,   None ,    None,       -1,     -1,   24648,
+      -1    ,      -1,    None,    -1  ,  329859,     -1 ,    -1  ,      -1,      -1,      -1,    None,       -1,    -1 ],
+     
+5:[  -1     ,      -1,      -1,      -1,    6200,      -1,  40265 ,      -1,      -1,      -1,      -1,       -1,   None,    -1  ,
+      -1    ,   -1   ,    None,    -1  ,    None,  18376 ,    -1  ,      -1,      -1,    None,      -1,     None,    -1 ],
+    
+     
+            }
+    
+    PSE_order = [0, 2, 191, 266, 3, 47]
+## skip: 243, 292, 302, 304
+    
+#2:[  -1   ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+#        -1  ,   -1   ,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,   -1 ],
+    
+    ### since we are loading multiple SSPW files, the SSPW unique IDs are not actually unique. Either have a list of indeces, where each index
+    ## refers to the file in "SSPW_folders", or a None, which implies all indeces are from the first "SSPW_folders"
+    correlation_table_SSPW_group = { 
             
-            26:[84563, 191298, None  , 33588, 183144, None , None , None  , 112675, None, None ],
-            32:[85073, 191774, 139657, None , None  , None , None , None  , None  , None, None ],
-            34:[85466, 192118, None  , None , 183903, None , None , 210375, 113539, None, None ],
-            36:[85894, None  , None  , None , None  , None , 49557, 210803, 113942, None, None ],
-            37:[85974, 192582, None  , None , None  , None , 49637, None  , 114025, None, None ],
+#    "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103", 
+#    "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"
+2:0,
+47:0,
+191:0,
+266:0,
+313:0,
+
+
+#    "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103", 
+#    "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"
+
+0:1,
+1:[   1     ,       1,       1,       1,       1,       1,       1,       1,       1,       1,       1,        1,      1,     1  ,
+         1  ,    1   ,     1  ,     1  ,       0,      1 ,     1  ,       1,       1,       1,       1,        1,    1 ],
+   
+3:[   1     ,       1,       1,       1,       1,       1,       1,       1,       1,       1,       1,        1,      1,     1  ,
+         1  ,    1   ,     1  ,     1  ,       0,      1 ,     1  ,       1,       0,       1,       1,        0,    1 ],
+   
+4:[   0     ,       1,       1,       1,       1,       1,       1,       1,       1,       1,       1,        1,      1,     1  ,
+         1  ,    1   ,     1  ,     1  ,       0,      1 ,     1  ,       1,       1,       1,       1,        1,    1 ],
+   
+5:1,
+            }
+    
+    PSE_to_plot = []#list( correlation_table.keys() )
+    
+    ##set polarization to fit. Do not need to have PSE. if 0, use even annennas, if 1 use odd antennas. If None, or not-extent in this list,
+    ## then use default polarization
+    PSE_polarization = {
+            2:1,
+            47:1,
+            191:1,
+            266:1,
+            313:1, 
+            
+            0:1,
+            1:1,
+            3:1,
+            4:0,
+            5:0,
             }
 
-    correlation_table_SSPW_group = { ### since we are loading multiple SSPW files, the SSPW unique IDs are not actually unique...
-            2:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            3:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            6:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            7:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            12:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            
-            26:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            32:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            34:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            36:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            37:[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            }
-    
-    
-    
 
-    initial_guess = np.array([ -5.14212874e-07,  -4.09300285e-07,  -1.37456406e-06,
-         1.40592032e-07,   1.92089724e-07,  -2.63776140e-07,
-         1.05842464e-06,   1.52628872e-06,   3.22253192e-07,
-         2.64585736e-06,   1.97801644e-06,  -1.77618755e-08,
-         2.71348447e-08,  -6.95719329e-09,   3.77398845e-08,
-         7.22358436e-08,  -3.10145556e-08,   8.01027360e-08,
-        -2.28380742e-08,   6.74290715e-09,   4.18816133e-08,
-        -1.68437422e-09,  -5.70384818e-08,   3.05421187e+04,
-         2.85010492e+04,   2.34086165e+03,   3.81932739e+00,
-         3.06064132e+04,   2.85403282e+04,   1.93110645e+03,
-         3.81951522e+00,   3.05307373e+04,   2.87568257e+04,
-         4.53107578e+02,   3.82087373e+00,   3.03125196e+04,
-         2.88557720e+04,   1.09510010e+02,   3.82266991e+00,
-         3.03088501e+04,   2.88663274e+04,   9.69604871e+02,
-         3.82359723e+00,   3.05631025e+04,   2.84423446e+04,
-         3.88948534e+03,   3.88040043e+00,   3.05053832e+04,
-         2.85821856e+04,   3.95497377e+03,   3.88727216e+00,
-         3.13676325e+04,   2.86899006e+04,   3.55635443e+03,
-         3.89168231e+00,   3.06872444e+04,   2.89099678e+04,
-         6.20709424e+02,   3.89796547e+00,   3.12144844e+04,
-         2.84792220e+04,   2.85726972e+03,   3.89923199e+00])
-
+    
+    
+    initial_guess = np.array(
+      [  1.40642048e-06,   4.30353714e-07,  -2.20446034e-07,
+         4.33656872e-07,   4.00510047e-07,  -5.87026178e-07,
+        -1.81011176e-06,  -8.43797092e-06,   9.28644928e-07,
+        -2.73151939e-06,  -1.57714416e-06,  -8.16496814e-06,
+        -2.85242441e-05,   6.35983109e-06,  -7.31636551e-07,
+        -5.38775023e-06,  -4.30249855e-04,   3.52246913e-06,
+        -3.60162399e-06,  -4.32160239e-04,   1.04464472e-05,
+         2.28681068e-06,  -9.59837327e-06,   6.95992766e-06,
+        -3.93057016e-06,  -2.45852240e-06,  -1.51559350e+04,
+         8.76217477e+03,   3.28095055e+03,   1.15317977e+00,
+        -1.52430707e+04,   9.07687363e+03,   3.25066712e+03,
+         1.16347069e+00,  -1.53942084e+04,   9.05313943e+03,
+         4.16399579e+03,   1.17534780e+00,  -1.54462820e+04,
+         9.03551143e+03,   3.40389600e+03,   1.17195747e+00,
+        -1.51154810e+04,   8.74590160e+03,   3.34264256e+03,
+         1.15324371e+00,  -1.68358544e+04,   9.32895432e+03,
+         2.74899248e+03,   1.16552508e+00]
+      )
+    
+    
  
     print_fit_table = True
-    stations_to_plot = {'RS106':0, 'RS205':0, 'RS208':0, 'RS305':0, 'RS306':0, 'RS307':0, 'RS406':0, 'RS407':0, 'RS503':0, 'RS508':0, 'RS509':0} ## index is SSPW folder to use
+    stations_to_plot = []#'RS106':0, 'RS205':0, 'RS208':0, 'RS305':0, 'RS306':0, 'RS307':0, 'RS406':0, 'RS407':0, 'RS503':0, 'RS508':0, 'RS509':0} ## index is SSPW folder to use
+#    stations_to_plot = {sname:0 for sname in stations_to_correlate}
     
+#    for sname in stations_to_correlate:
+#        for sspw_i in range(len(SSPW_folders)):
+#            stations_to_plot.append( [sname,sspw_i] )
+    
+    SSPW_folders_to_plot = [0]
+            
+        
     
     
     if referance_station in stations_to_find_offsets:
@@ -432,7 +740,7 @@ if __name__=="__main__":
     log("output folder name:", output_folder)
     log("date and time run:", time.strftime("%c") )
     log("SSPW folder:", SSPW_folders)
-    log("PSE folder:", PSE_folder)
+    log("PSE folders:", PSE_folders)
     log("referance station:", referance_station)
     log("stations to keep:", stations_to_keep)
     log("stations to correlate:", stations_to_correlate)
@@ -450,23 +758,33 @@ if __name__=="__main__":
             
     #### open known PSE ####
     print("reading PSE")
-    PSE_data = read_PSE_timeID(timeID, PSE_folder, data_loc="/home/brian/processed_files")
-    PSE_ant_locs = PSE_data["ant_locations"]
-    PSE_list = PSE_data["PSE_list"]
-    old_delays = PSE_data["stat_delays"]
-    PSE_list.sort(key=lambda PSE: PSE.unique_index)
+#    PSE_data = read_PSE_timeID(timeID, PSE_folder, data_loc="/home/brian/processed_files")
+#    PSE_ant_locs = PSE_data["ant_locations"]
+#    PSE_list = PSE_data["PSE_list"]
+#    old_delays = PSE_data["stat_delays"]
+#    PSE_list.sort(key=lambda PSE: PSE.unique_index)
     
-    ##open known SSPW##
-    print("reading SSPW")
-    SSPW_data_dict = read_SSPW_timeID_multiDir(timeID, SSPW_folders, data_loc="/home/brian/processed_files", stations=stations_to_correlate, max_block=93000) 
-    SSPW_multiple_dict = SSPW_data_dict["SSPW_multi_dicts"]
-    SSPW_locs_dict = SSPW_data_dict["ant_locations"]
+    PSE_lists = []
+    PSE_delays = []
+    for fname in PSE_folders:
+        PSE_data = read_PSE_timeID(timeID, fname, data_loc="/home/brian/processed_files")
+        PSE_ant_locs = PSE_data["ant_locations"]
+        PSE_list = PSE_data["PSE_list"]
+        old_delays = PSE_data["stat_delays"]
+        PSE_list.sort(key=lambda PSE: PSE.unique_index)
+        
+        PSE_lists.append( PSE_list )
+        PSE_delays.append( old_delays )
     
-
-
-    ##### correlate SSPW to PSE according to matrix
+    
+    #### get list of blocks to open in SSPW ####
     PSE_to_correlate = []
-    for PSE_index, SSPW_indeces in correlation_table.items():
+    SSPW_blocks_to_open = [ [] for SSPW_file in  SSPW_folders]
+    for PSE_num in PSE_order:
+        PSE_index, PSE_list_num = PSE_ids[ PSE_num ]
+        PSE_list = PSE_lists[ PSE_list_num ]
+        PSE_past_delays = PSE_delays[ PSE_list_num ]
+        
         
         ## find PSE
         found_PSE = None
@@ -477,29 +795,71 @@ if __name__=="__main__":
         
         if found_PSE is None:
             print("error! cannot find PSE")
-            break
+            quit()
+            
+        PSE_polarity = None
+        if PSE_num in PSE_polarization:
+            PSE_polarity = PSE_polarization[PSE_num]
         
-        new_PSE_to_fit = fitting_PSE( found_PSE )
+        new_PSE_to_fit = fitting_PSE( found_PSE, PSE_polarity, PSE_past_delays, old_delays)
         
         PSE_to_correlate.append(new_PSE_to_fit)
+        
+        if len(SSPW_folders) == 0:
+            continue
+        
+        group_indeces = correlation_table_SSPW_group[PSE_num]
+        if isinstance(group_indeces, int):
+            group_indeces = [group_indeces]*len(stations_to_correlate)
+        
+        stations_to_PSE_use = []
+        for sname, SSPW_group_index in zip(stations_to_correlate, group_indeces):
+            block_indeces = new_PSE_to_fit.get_block_indeces( sname )
+            for BI in block_indeces:
+                if BI not in SSPW_blocks_to_open[ SSPW_group_index ]:
+                    SSPW_blocks_to_open[ SSPW_group_index ].append( BI )
+        
+            
+        
+            
+    
+    ##open known SSPW##
+    print("reading SSPW")
+    SSPW_data_dict = read_SSPW_timeID_multiDir(timeID, SSPW_folders, data_loc="/home/brian/processed_files", stations=stations_to_correlate, 
+                                               block_indeces=SSPW_blocks_to_open, blocks_per_file=100) 
+    SSPW_multiple_dict = SSPW_data_dict["SSPW_multi_dicts"]
+    SSPW_locs_dict = SSPW_data_dict["ant_locations"]
+    
+
+
+    ##### correlate SSPW to PSE according to matrix
+    for PSE_num, PSE_to_fit in zip(PSE_order, PSE_to_correlate):
+        
+        SSPW_indeces = correlation_table[PSE_num]
             
         ## correlate SSPW
-        group_indeces = correlation_table_SSPW_group[PSE_index]
+        group_indeces = correlation_table_SSPW_group[ PSE_num ]
+        if isinstance(group_indeces, int):
+            group_indeces = [group_indeces]*len(stations_to_correlate)
         
+        stations_to_PSE_use = []
         for sname, SSPW_index, SSPW_group_index in zip(stations_to_correlate, SSPW_indeces, group_indeces):
             
             if SSPW_index is None:
+                continue
+            if SSPW_index == -1:
+                stations_to_PSE_use.append(sname)
                 continue
             
             SSPW_dict = SSPW_multiple_dict[SSPW_group_index]
             
             for SSPW in SSPW_dict[sname]:
                 if SSPW.unique_index==SSPW_index:
-                    new_PSE_to_fit.add_SSPW(SSPW)
+                    PSE_to_fit.add_SSPW(SSPW)
                     break
                     
         ## prep the PSE
-        new_PSE_to_fit.fitting_prep(stations_to_find_offsets, stations_to_keep, PSE_ant_locs, SSPW_locs_dict)
+        PSE_to_fit.fitting_prep(stations_to_find_offsets, stations_to_keep, stations_to_PSE_use, PSE_ant_locs, SSPW_locs_dict)
         print()
         
             
@@ -526,12 +886,13 @@ if __name__=="__main__":
         
         
     workspace_sol = np.zeros(N_ant, dtype=np.double)
-    workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
+#    workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
     
     
     
     def objective_fun(sol):
-        global workspace_sol
+#        global workspace_sol
+        workspace_sol = np.zeros(N_ant, dtype=np.double)
         delays = sol[:N_delays]
         ant_i = 0
         param_i = N_delays
@@ -542,6 +903,8 @@ if __name__=="__main__":
             ant_i += N_stat_ant
             param_i += 4
             
+        
+            
         return workspace_sol
         
 #        workspace_sol *= workspace_sol
@@ -549,7 +912,12 @@ if __name__=="__main__":
         
     
     def objective_jac(sol):
-        global workspace_jac
+#        global workspace_jac
+        workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
+        
+        if np.isnan(workspace_jac).any():
+            print("JAC NAN A")
+            
         delays = sol[:N_delays]
         ant_i = 0
         param_i = N_delays
@@ -559,6 +927,9 @@ if __name__=="__main__":
             PSE.try_location_JAC(delays, sol[param_i:param_i+4],  workspace_jac[ant_i:ant_i+N_stat_ant, param_i:param_i+4],  workspace_jac[ant_i:ant_i+N_stat_ant, 0:N_delays])
             ant_i += N_stat_ant
             param_i += 4
+        
+        if np.isnan(workspace_jac).any():
+            print("JAC NAN B")
             
         return workspace_jac
             
@@ -598,9 +969,9 @@ if __name__=="__main__":
             ant_i += N_stat_ant
             param_i += 4
         
-        
         fit_res = least_squares(objective_fun, new_guess, jac=objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
-
+#        fit_res = least_squares(objective_fun, new_guess, jac="3-point", method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+        
         total_RMS = 0.0
         new_station_delays = fit_res.x[:N_delays] 
         param_i = N_delays
@@ -618,6 +989,9 @@ if __name__=="__main__":
             best_RMS = total_RMS
             best_solution = fit_res.x
             itters_since_change = 0
+            
+            print( repr(best_solution) )
+            
         print()
         
         if itters_since_change == itters_till_convergence:
@@ -644,7 +1018,7 @@ if __name__=="__main__":
     i = N_delays
     total_RMS = 0.0
     new_station_delays = best_solution[:N_delays] 
-    for PSE in PSE_to_correlate:
+    for PSE_num, PSE in zip(PSE_order, PSE_to_correlate):
         
         loc = best_solution[i:i+4]
         loc[2] = np.abs(loc[2])
@@ -652,12 +1026,12 @@ if __name__=="__main__":
         PSE.source_location = loc
         PSE.RMS_fit = np.sqrt(SSqE/len(PSE.antenna_X))
         
-        print("PSE", PSE.PSE.unique_index)
+        print("PSE", PSE_num, PSE.PSE.unique_index)
         print("  RMS:", PSE.RMS_fit)
         print("  loc:", loc)
         
         if print_fit_table:
-            fit_table_row = [PSE.PSE.unique_index]
+            fit_table_row = [PSE_num]
             station_fits = PSE.RMS_fit_byStation( new_station_delays,  loc )
             
             for sname in stations_to_correlate:
@@ -668,7 +1042,7 @@ if __name__=="__main__":
             fit_table_row.append( np.sqrt(SSqE/len(PSE.antenna_X)) )
             fit_table.add_row( fit_table_row )
             
-            fit_table_row_OLD = [PSE.PSE.unique_index]
+            fit_table_row_OLD = [ PSE_num ]
             for sname in stations_to_keep:
                 if sname in station_fits:
                     fit_table_row_OLD.append( station_fits[sname] )
@@ -697,7 +1071,7 @@ if __name__=="__main__":
     StationInfo_dict = read_station_info(timeID)
     
     ##### make plots of fits ####
-    for sname, SSPW_group_index in stations_to_plot.items():
+    for sname, SSPW_group_index in stations_to_plot:
         sdata = StationInfo_dict[sname]
         SSPW_dict = SSPW_multiple_dict[ SSPW_group_index ]
         
@@ -728,7 +1102,7 @@ if __name__=="__main__":
         data_SSPW  = [e.get_DataTime(sdata.sorted_antenna_names) for e in planewave_events]
         annotations  = [e.unique_index for e in planewave_events]
         
-        CP = curtain_plot_CodeLog(StationInfo_dict, logging_folder + "/SSPWvsPSE_"+sname)
+        CP = curtain_plot_CodeLog(StationInfo_dict, logging_folder + "/SSPWvsPSE_"+sname+"_"+str(SSPW_group_index))
         CP.addEventList(sname, data_SSPW, 'b', marker='o', size=50, annotation_list=annotations, annotation_size=20)
         
 
@@ -741,12 +1115,12 @@ if __name__=="__main__":
 #        PSE_amp_X = []
 #        PSE_even_amp_Y = []
 #        PSE_odd_amp_Y = []
-        for PSE in PSE_to_correlate:
+        for PSE_num, PSE in zip(PSE_order, PSE_to_correlate):
             distance = np.linalg.norm( PSE.source_location[0:3] - sdata.get_station_location() )
             arrival_time = PSE.source_location[3] + distance/v_air + sdelay
             
             CP.CL.add_function( "plt.axvline", x=arrival_time, c='r' )
-            CP.CL.add_function( "plt.annotate", str(PSE.PSE.unique_index), xy=(arrival_time, np.max(CP.station_offsets[sname]) ), size=20)
+            CP.CL.add_function( "plt.annotate", str(PSE_num), xy=(arrival_time, np.max(CP.station_offsets[sname]) ), size=20)
             
 #            PSE_amp_X.append(arrival_time)
 #            PSE_even_amp_Y.append(PSE.orig_even_amp)
@@ -770,6 +1144,10 @@ if __name__=="__main__":
             
         CP.save()
             
+
+            
+        
+        
     #### save point sources to binary ####
 #    with open(data_dir + "/PSE_data", 'wb') as fout:
 #        write_long(fout, len(PSE_to_correlate))
@@ -790,7 +1168,72 @@ if __name__=="__main__":
     print( repr(best_solution) )
         
     
-    
-    
+    for PSE in PSE_to_correlate:
+        if PSE.PSE.unique_index in PSE_to_plot:
+            
+            CL = code_logger(logging_folder + "/PSE_"+str(PSE.PSE.unique_index))
+            plotter = pyplot_emulator( CL )
+            
+            PSE.plot_trace_data( old_delays, plotter=plotter )
+            
+            plotter.show()
+            CL.save()
+            
+            
+            
+            
+    flash_location = np.zeros(3)
+    param_i = N_delays
+    for PSE in PSE_to_correlate:
+        flash_location += best_solution[param_i:param_i+3]
+        param_i += 4
+    flash_location /= len(flash_location)
+            
+    print()
+    print("plotting")
+    for SSPW_group_index in SSPW_folders_to_plot:
+        
+#        CP = curtain_plot_CodeLog(StationInfo_dict, logging_folder + "/planewaves_"+str(SSPW_group_index))
+        CP = curtain_plot(StationInfo_dict)
+        
+        SSPW_dict = SSPW_multiple_dict[ SSPW_group_index ]
+        
+        for i, sname in enumerate(stations_to_find_offsets+[referance_station]):
+            print(sname, '(',i,'/',len(stations_to_find_offsets)+1, ')')
+            sdata = StationInfo_dict[sname]
+            station_offset = old_delays[sname]
+            station_location = sdata.get_station_location()
+            propagation_delay = np.linalg.norm( station_location-flash_location )/v_air
+            
+            data_SSPW  = [e.get_DataTime(sdata.sorted_antenna_names)-station_offset-propagation_delay for e in SSPW_dict[sname]]
+            annotations  = [e.unique_index for e in SSPW_dict[sname]]
+            CP.addEventList(sname, data_SSPW, 'b', marker='o', size=50, annotation_list=annotations, annotation_size=20)
+            
+            
+            param_i = N_delays
+            Y_offsets = CP.station_offsets[sname]
+            for PSE_num, PSE in zip(PSE_order, PSE_to_correlate):
+                PSE_time = best_solution[param_i+3] + np.linalg.norm( best_solution[param_i:param_i+3]-station_location )/v_air - propagation_delay
+                param_i += 4
+            
+#                CP.CL.add_function( "plt.plot", [PSE_time,PSE_time], [Y_offsets[0], Y_offsets[-1]], c='r' )
+#                CP.CL.add_function( "plt.annotate", str(PSE_num), xy=(PSE_time, Y_offsets[-1]) , size=20 )
+                plt.plot( [PSE_time,PSE_time], [Y_offsets[0], Y_offsets[-1]], c='r' )
+                plt.annotate( str(PSE_num), xy=(PSE_time, Y_offsets[-1]) , size=20 )
+            
+            
+        CP.annotate_station_names(t_offset=0, xt=1)
+#        CP.save()
+        plt.show()
+
+
+
+
+
+
+
+
+
+
     
     

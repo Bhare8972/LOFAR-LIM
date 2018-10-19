@@ -10,10 +10,10 @@ import numpy as np
 from scipy.optimize import least_squares, minimize
 
 ##my packages
-from utilities import log, processed_data_dir, v_air
-from read_pulse_data import read_station_info, refilter_pulses, curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, getNwriteBin_modData
-from porta_code import code_logger
-from binary_IO import write_long, write_double_array, write_string, write_double
+from LoLIM.utilities import log, processed_data_dir, v_air
+from LoLIM.read_pulse_data import read_station_info, refilter_pulses, curtain_plot_CodeLog, AntennaPulse_dict__TO__AntennaTime_dict, getNwriteBin_modData
+from LoLIM.porta_code import code_logger
+from LoLIM.IO.binary_IO import write_long, write_double_array, write_string, write_double
 
 PSE_next_unique_index = 0
 class PointSourceEvent:
@@ -443,30 +443,31 @@ def individual_obj_fun_JAC(XYZT, antPos_dicts, antTime_dicts, pulse_indeces):
 
 if __name__ == "__main__":
     
-    timeID = "D20160712T173455.100Z"
+    timeID = "D20170929T202255.000Z"
     output_folder = "allPSE_runA"
     
     plot_station_map = True
     
-    stations_to_exclude = []
+    stations_to_exclude =  ["CS028","RS106", "RS305", "RS205", "CS201", "RS407"]#, "RS406"]
     
     num_blocks_per_step = 100
-    initial_block = 88000
-    num_steps = 110
+    initial_block = 3500
+    num_steps = 10
     
     ant_timing_calibrations = "cal_tables/TxtAntDelay"
     polarization_flips = "polarization_flips.txt"
     bad_antennas = "bad_antennas.txt"
-    station_delays = "stocastic_fitter_runA/station_delays.txt"
     additional_antenna_delays = "ant_delays.txt"
     
-    min_signal_SNR = 20
+    station_delays = "/station_delays.txt"
     
-    search_location = np.array( [3.30346726e+04,  2.89720980e+04,  3.17456732e+03] )
+    min_signal_SNR = 0.0
+    
+    search_location = np.array( [-1.58423240e+04,   9.08114847e+03,   4.0e+03] )
     hyphersphere_initial_size = 20000.0
-    hypersphere_min_size = 1000.0E-9
-    
-    max_ant_time_residual = 1000.0E-9 #### if the residual of an antenna time is greater than this, the antenna is thrown out
+    hypersphere_min_size = 10.0E-9 ##1000
+     
+    max_ant_time_residual = 100.0E-9 #### if the residual of an antenna time is greater than this, the antenna is thrown out ## 1000E-9
     num_ant_threshold = 50
     
     
@@ -520,6 +521,7 @@ if __name__ == "__main__":
     StationInfo_dict = read_station_info(timeID, stations_to_exclude=stations_to_exclude, bad_antennas_fname=bad_antennas, ant_delays_fname=additional_antenna_delays, 
                                          pol_flips_fname=polarization_flips, station_delays_fname=station_delays, txt_cal_table_folder=ant_timing_calibrations)
         
+    print("using stations:", StationInfo_dict.keys())
 
     if plot_station_map:
         CL = code_logger(logging_folder+ "/station_map")
@@ -651,10 +653,11 @@ if __name__ == "__main__":
                 new_num_antennas = len(pulse_indeces)
                 
                 
-                print(new_num_antennas, num_ant)
-                if new_num_antennas < num_ant:
-                    quit()
+#                print(new_num_antennas, num_ant)
+#                if new_num_antennas < num_ant:
+#                    quit()
                     
+                previous_num_antennas = None
                 num_ant = new_num_antennas
                 
                 found_PSE = False
@@ -670,7 +673,7 @@ if __name__ == "__main__":
                     new_num_antennas = len(pulse_indeces)
                     
                     if new_num_antennas ==0:
-                        print("WARINGING! zero ant")
+                        print("WARNING! zero ant")
                         break
                     
                     print("loop:")
@@ -685,7 +688,7 @@ if __name__ == "__main__":
                     if new_num_antennas <5:
                         print("not enough ant")
                         break
-                    elif new_num_antennas == num_ant:
+                    elif new_num_antennas == num_ant or (previous_num_antennas is not None and new_num_antennas==previous_num_antennas) :
                         ### we have converged!!!
                         if new_num_antennas < num_ant_threshold:
                             print("not enough ant")
@@ -705,6 +708,7 @@ if __name__ == "__main__":
                         
                         break
                     else:
+                        previous_num_antennas = num_ant
                         num_ant = new_num_antennas
                         current_location = EvenPol_min.x
                         

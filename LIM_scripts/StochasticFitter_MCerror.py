@@ -11,19 +11,19 @@ from scipy.optimize import least_squares, minimize
 from prettytable import PrettyTable
 
 #mine
-from utilities import log, processed_data_dir, v_air, SNum_to_SName_dict
-from binary_IO import read_long, write_long, write_double_array, write_string, write_double
+from LoLIM.utilities import log, processed_data_dir, v_air, SId_to_Sname#SNum_to_SName_dict
+from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
 #from porta_code import code_logger
 #from RunningStat import RunningStat
 
-from read_pulse_data import writeTXT_station_delays,read_station_info, curtain_plot_CodeLog
+from LoLIM.read_pulse_data import writeTXT_station_delays,read_station_info, curtain_plot_CodeLog
 
-from read_PSE import read_PSE_timeID
-from planewave_functions import read_SSPW_timeID_multiDir
+from LoLIM.read_PSE import read_PSE_timeID
+from LoLIM.planewave_functions import read_SSPW_timeID_multiDir
 
 
 class fitting_PSE:
-    def __init__(self, PSE):
+    def __init__(self, PSE, PSE_polarity):
         self.PSE = PSE
         PSE.load_antenna_data( True )
         
@@ -31,6 +31,9 @@ class fitting_PSE:
             self.polarity = 0
         else:
             self.polarity = 1
+            
+        if PSE_polarity is not None:
+            self.polarity = PSE_polarity
         
         self.initial_loc = PSE.PolE_loc if self.polarity==0 else PSE.PolO_loc
         
@@ -39,7 +42,7 @@ class fitting_PSE:
     def add_SSPW(self, new_SSPW):
         self.SSPW_list.append(new_SSPW)
 
-    def fitting_prep(self, station_delay_input_order, stations_to_keep, PSE_ant_locs, SSPW_ant_locs):
+    def fitting_prep(self, station_delay_input_order, stations_to_keep, stations_use_PSE, PSE_ant_locs, SSPW_ant_locs):
         print("PSE", self.PSE.unique_index)
         self.station_delay_input_order = station_delay_input_order
         
@@ -52,8 +55,8 @@ class fitting_PSE:
         
         for ant_name, ant_info in self.PSE.antenna_data.items():
             station_number = ant_name[0:3]
-            sname = SNum_to_SName_dict[ station_number ]
-            if sname not in stations_to_keep:
+            sname = SId_to_Sname[ int(station_number) ]
+            if not ( (sname in stations_to_keep) or (sname in stations_use_PSE) ) :
                 continue
             
             pt = ant_info.PolE_peak_time if self.polarity==0 else ant_info.PolO_peak_time 
@@ -109,7 +112,7 @@ class fitting_PSE:
         current_station = None
         start_index = None
         for idx, ant_name in enumerate(self.antenna_names):
-            sname = SNum_to_SName_dict[ ant_name[0:3] ]
+            sname = SId_to_Sname[ int(ant_name[0:3]) ]
             
             if start_index is None:
                 start_index = idx
@@ -330,181 +333,85 @@ class fitting_PSE:
 
 if __name__=="__main__":
     ##opening data
-    timeID = "D20160712T173455.100Z"
-    output_folder = "MCerror_StochasticFitter_65PSE_2ns"
+    timeID = "D20170929T202255.000Z"
+    output_folder = "stocastic_fitter_runA_err2ns"
     
-    SSPW_folders = ['excluded_SSPW_delay_fixed', 'excluded_SSPW_delay_fixed_later', 'old_stats_SSPW_early', 'old_stats_SSPW_late']
-    PSE_folder = "allPSE"
+    SSPW_folders = ['SSPW2_tmp']
+    PSE_folder = "handcorrelate_SSPW"
     
     num_itter = 1000
     timing_error = 2.0E-9
     
     referance_station = "CS002"
-    stations_to_keep = ['CS001', 'CS002', 'CS013', 'CS006', 'CS031', 'CS028', 'CS011', 'CS030', 'CS026', 'CS302', 'CS032', 'CS021', 'CS004', 'RS106', 'RS305', 'RS306', 'RS407', 'RS508'] ## to keep from the PSE
-    stations_to_correlate = ['RS205', 'RS208', 'RS307', 'RS406', 'RS503', 'RS509']  ## to correlate from the SSPW
+    stations_to_keep = []## to keep from the PSE
+    stations_to_correlate = ["CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103",
+                             "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"]  
+                                ## to correlate from the SSPW
     
     ## to find delays
     stations_to_find_offsets = stations_to_correlate + stations_to_keep
 
+   
+## -1 means use data from PSE None means no data
     correlation_table =  {
-            63: [3482, 2703, 330, 1151, 1957, 1487], 
-            52: [3341, 2584, 220, 1003, 1817, 1349], 
-            69: [3529, 2747, 372, 1198, 2006, None], 
-            28: [3223, 2469, 124, 863, 1685, 1211], 
-            21: [3306, 2548, 194, 968, 1783, 1310], 
-            22: [3322, 2565, 208, 983, 1799, 1326], 
-            
-            456: [5914, 4607, 730, 2032, 3479, None], 
-            362: [5191, 4102, None, None, 2758, 2026], 
-            497: [6306, 4890, 1034, 2415, 3868, None], 
-            429: [5507, 4317, None, 1658, 3072, 2330], 
-            501: [6162, 4782, 913, 2272, 3720, 2949], 
-            509: [6297, 4885, 1025, 2404, 3856, None], 
-            
-            0: [3051, 2334, 0, 680, 1506, 1027], 
-            1: [3067, 2343, 12, 698, 1526, 1048], 
-            3: [3114, 2377, 44, 742, 1571, 1094], 
-            4: [3086, 2359, 27, 718, 1549, 1065], 
-            7: [3069, 2344, 13, 699, 1528, 1050], 
-            8: [3141, 2404, 66, None, 1601, None], 
-            
-            9: [3133, 2398, 60, 770, 1592, 1119], 
-            10: [3084, 2358, 26, 716, 1547, None], 
-            11: [3148, 2412, 70, 786, 1608, 1131], 
-            17: [3143, None, 68, 780, None, None], 
-            18: [3210, 2459, 115, 848, None, 1198], 
-            19: [3187, 2441, 101, 828, 1653, 1171], 
-            
-            20: [3303, 2546, 192, 966, 1780, 1307], 
-            418: [5514, 4325, 421, 1664, 3078, None], 
-            413: [5508, 4321, 417, 1660, 3073, None], 
-            346: [5153, 4073, 151, 1303, 2710, None], 
-            434: [5427, 4263, 359, 1579, 2991, None], 
-            440: [5709, 4462, 567, 1833, 3266, None], 
-            
-            449: [None, 4556, 673, 1963, 3409, 2626], 
-            344: [5301, 4173, 260, 1451, 2866, 2125], 
-            495: [6095, 4743, 870, 2219, 3667, None], 
-            379: [5602, None, 490, 1739, 3163, None], 
-            334: [5201, 4109, 188, 1358, 2767, 2034], 
-            339: [5206, 4111, 192, 1363, 2771, None], 
-            
-            338: [5249, 4135, 219, 1401, 2814, None], 
-            292: [4996, 3977, 41, 1153, 2555, 1854], 
-            298: [5047, 4003, 75, 1209, 2612, None], 
-            291: [4988, 3971, 34, 1146, 2546, 1847], 
-            296: [5070, 4019, 92, 1232, 2634, None], 
-            458: [5814, 4539, 646, 1939, 3382, None], 
-            
-            455: [5956, 4639, 767, 2079, 3524, None], 
-            341: [5322, 4189, 278, 1472, 2888, None], 
-            420: [5424, 4258, 356, 1572, 2986, None], 
-            468: [5949, 4628, 756, None, 3515, 2738], 
-            463: [5992, None, 796, 2112, 3560, None], 
-            82: [3830, 3016, 644, 1466, 2291, 1892], 
-            
-            24: [3315, 2558, 203, 977, 1792, 1321], 
-            77: [3805, 2998, 625, 1444, 2268, 1860], 
-            62: [3410, 2642, 273, 1079, 1887, 1418], 
-            80: [3820, 3009, 639, 1459, 2283, 1882], 
-            57: [3443, 2668, 301, 1116, 1919, 1448], 
-            23: [3316, 2559, 204, 978, 1793, 1322], 
-            
-            79: [3754, 2957, 580, 1394, 2214, 1807], 
-            60: [3330, 2573, 212, 991, 1805, 1335], 
-            65: [3419, 2649, 279, 1086, 1894, 1426], 
-            30: [None, None, 109, 840, 1665, 1189], 
-            38: [3182, 2437, 97, 823, 1646, 1165], 
-            56: [3433, 2660, 293, 1102, 1910, 1435], 
-            
-            64: [3486, 2706, 331, 1156, 1960, 1491], 
-            58: [3408, 2640, 270, 1078, 1884, 1415], 
-            39: [3191, None, None, 830, 1655, 1176], 
-            49: [3413, None, 275, 1082, 1889, 1422], 
-            45: [3259, 2510, 158, 918, 1737, 1256]}
-#           RS205 RS208 RS307 RS406 RS503 RS509
+#  "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS021", "CS030", "CS032", "CS101", "CS103", 
+#  "RS208", "CS301", "CS302", "RS306", "RS307", "RS310", "CS401", "RS406", "RS409", "CS501", "RS503", "RS508", "RS509"
+   
+0:[  -1   ,    1808,      -1,      -1,      -1,     -1 ,      -1,      -1,      -1,      -1,      -1,     None,    -1 ,    -1  ,
+        -1,   -1   ,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,     None,  None],
 
-    correlation_table_SSPW_group = { ### since we are loading multiple SSPW files, the SSPW unique IDs are not actually unique...
-            63: [0, 0, 0, 0, 0, 2], 
-            52: [0, 0, 0, 0, 0, 2], 
-            69: [0, 0, 0, 0, 0, 2], 
-            28: [0, 0, 0, 0, 0, 2], 
-            21: [0, 0, 0, 0, 0, 2], 22: [0, 0, 0, 0, 0, 2], 456: [1, 1, 1, 1, 1, 3], 362: [1, 1, 1, 1, 1, 3], 497: [1, 1, 1, 1, 1, 3], 429: [1, 1, 1, 1, 1, 3], 501: [1, 1, 1, 1, 1, 3], 509: [1, 1, 1, 1, 1, 3], 0: [0, 0, 0, 0, 0, 2], 1: [0, 0, 0, 0, 0, 2], 3: [0, 0, 0, 0, 0, 2], 4: [0, 0, 0, 0, 0, 2], 7: [0, 0, 0, 0, 0, 2], 8: [0, 0, 0, 0, 0, 2], 9: [0, 0, 0, 0, 0, 2], 10: [0, 0, 0, 0, 0, 2], 11: [0, 0, 0, 0, 0, 2], 17: [0, 0, 0, 0, 0, 2], 18: [0, 0, 0, 0, 0, 2], 19: [0, 0, 0, 0, 0, 2], 20: [0, 0, 0, 0, 0, 2], 418: [1, 1, 1, 1, 1, 3], 413: [1, 1, 1, 1, 1, 3], 346: [1, 1, 1, 1, 1, 3], 434: [1, 1, 1, 1, 1, 3], 440: [1, 1, 1, 1, 1, 3], 449: [1, 1, 1, 1, 1, 3], 344: [1, 1, 1, 1, 1, 3], 495: [1, 1, 1, 1, 1, 3], 379: [1, 1, 1, 1, 1, 3], 334: [1, 1, 1, 1, 1, 3], 339: [1, 1, 1, 1, 1, 3], 338: [1, 1, 1, 1, 1, 3], 292: [1, 1, 1, 1, 1, 3], 298: [1, 1, 1, 1, 1, 3], 291: [1, 1, 1, 1, 1, 3], 296: [1, 1, 1, 1, 1, 3], 458: [1, 1, 1, 1, 1, 3], 455: [1, 1, 1, 1, 1, 3], 341: [1, 1, 1, 1, 1, 3], 420: [1, 1, 1, 1, 1, 3], 468: [1, 1, 1, 1, 1, 3], 463: [1, 1, 1, 1, 1, 3], 82: [0, 0, 0, 0, 0, 2], 24: [0, 0, 0, 0, 0, 2], 77: [0, 0, 0, 0, 0, 2], 62: [0, 0, 0, 0, 0, 2], 80: [0, 0, 0, 0, 0, 2], 57: [0, 0, 0, 0, 0, 2], 23: [0, 0, 0, 0, 0, 2], 79: [0, 0, 0, 0, 0, 2], 60: [0, 0, 0, 0, 0, 2], 65: [0, 0, 0, 0, 0, 2], 30: [0, 0, 0, 0, 0, 2], 38: [0, 0, 0, 0, 0, 2], 56: [0, 0, 0, 0, 0, 2], 64: [0, 0, 0, 0, 0, 2], 58: [0, 0, 0, 0, 0, 2], 39: [0, 0, 0, 0, 0, 2], 49: [0, 0, 0, 0, 0, 2], 45: [0, 0, 0, 0, 0, 2]}
+1:[  -1   ,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,      -1,       -1,   None,    -1  ,
+      -1  ,   -1   ,    -1  ,    -1  ,    None,     -1 ,    -1  ,    None,      -1,      -1,      -1,       -1,    -1 ],
+  
+2:[  -1   ,      -1,      -1,      -1,      -1,  19428 ,      -1,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+      -1  ,   -1   ,    -1  ,    None,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    None],
+   
+3:[  -1   ,    1825,      -1,    None,    6191,      -1,      -1,      -1,      -1,   None ,      -1,       -1,     -1,   24648,
+      -1  ,      -1,    -1  ,    -1  ,      -1,     -1 ,    -1  ,      -1,      -1,      -1,      -1,       -1,    -1 ],
+   
+4:[  -1   ,      -1,      -1,      -1,    6200,      -1,  40265 ,      -1,      -1,      -1,      -1,       -1,     -1,    -1  ,
+      -1  ,   -1   ,    -1  ,    -1  ,    None,  18376 ,    -1  ,      -1,      -1,    None,      -1,     None,    -1 ],
+   
+            }
     
+    ### since we are loading multiple SSPW files, the SSPW unique IDs are not actually unique. Either have a list of indeces, where each index
+    ## refers to the file in "SSPW_folders", or a None, which implies all indeces are from the first "SSPW_folders"
+    correlation_table_SSPW_group = { 
+            0:None,
+            1:None,
+            2:None,
+            3:None,
+            4:None,
+            }
     
+    ##set polarization to fit. Do not need to have PSE. if 0, use even annennas, if 1 use odd antennas. If None, or not-extent in this list,
+    ## then use default polarization
+    PSE_polarization = {
+            0:1,
+            1:1,
+            2:1,
+            3:0,
+            4:0,
+            }
+
     
-    initial_guess = np.array([  
-   8.95586087e-08,   1.28237516e-07,   2.68804730e-08,   1.21275736e-07,
-   4.30019247e-08,  -9.17438250e-08,   1.45847162e-09,   3.66247929e-09,
-  -1.14850014e-09,   1.00924553e-08,  -1.22278859e-10,  -3.44331172e-09,
-   9.13698791e-09,  -1.01954214e-08,   1.11357876e-08,   7.47272969e-09,
-   6.58799125e-09,   6.44090774e-10,  -1.65764371e-07,   5.56037437e-08,
-   7.18077778e-08,  -1.15865721e-07,  -9.37889376e-07,   3.21295163e+04,
-   2.82279468e+04,   3.46872191e+03,   3.82989340e+00,   3.22332014e+04,
-   2.84367908e+04,   4.07810030e+03,   3.82738436e+00,   3.21956491e+04,
-   2.83121260e+04,   3.23438325e+03,   3.83103439e+00,   3.13336000e+04,
-   2.85809365e+04,   4.56617675e+03,   3.82450756e+00,   3.20490980e+04,
-   2.83526201e+04,   4.23222690e+03,   3.82664692e+00,   3.20467523e+04,
-   2.83442559e+04,   4.19599079e+03,   3.82697834e+00,   2.91906853e+04,
-   2.60772841e+04,   2.62107227e+03,   3.87087677e+00,   2.98241706e+04,
-   2.54413422e+04,   2.76151181e+03,   3.86152731e+00,   2.92079429e+04,
-   2.64968099e+04,   2.78197974e+03,   3.87547632e+00,   3.16599943e+04,
-   2.91705679e+04,   2.66289662e+03,   3.86592608e+00,   3.12200166e+04,
-   2.80713416e+04,   6.32304355e+03,   3.87383893e+00,   2.94468790e+04,
-   2.65314420e+04,   2.58984283e+03,   3.87533879e+00,   3.14650080e+04,
-   2.80313540e+04,   5.32796336e+03,   3.81917148e+00,   3.13998026e+04,
-   2.81853848e+04,   5.11558488e+03,   3.82029004e+00,   3.14932448e+04,
-   2.83537896e+04,   4.76633170e+03,   3.82156557e+00,   3.12943436e+04,
-   2.82896033e+04,   5.05435576e+03,   3.82091056e+00,   3.14490824e+04,
-   2.80727257e+04,   5.14447538e+03,   3.82029922e+00,   3.14367637e+04,
-   2.85284613e+04,   4.76041214e+03,   3.82245242e+00,   3.15033092e+04,
-   2.83863716e+04,   4.71055589e+03,   3.82223943e+00,   3.13280016e+04,
-   2.82648542e+04,   5.04239787e+03,   3.82084694e+00,   3.14251579e+04,
-   2.85560859e+04,   4.75058349e+03,   3.82262140e+00,   3.17298470e+04,
-   2.83758074e+04,   4.71990389e+03,   3.82247876e+00,   3.18974693e+04,
-   2.83800043e+04,   4.67835150e+03,   3.82424272e+00,   3.15261175e+04,
-   2.82547730e+04,   4.59922034e+03,   3.82367261e+00,   3.21954939e+04,
-   2.84802122e+04,   4.24595894e+03,   3.82657674e+00,   3.12761736e+04,
-   2.78941633e+04,   6.06377294e+03,   3.86602562e+00,   2.95178415e+04,
-   2.56340524e+04,   2.79861165e+03,   3.86596354e+00,   2.98395356e+04,
-   2.53665185e+04,   2.66935809e+03,   3.86080982e+00,   2.95904827e+04,
-   2.54937372e+04,   2.88103507e+03,   3.86489837e+00,   2.94989749e+04,
-   2.58985910e+04,   2.72739056e+03,   3.86834432e+00,   3.12416249e+04,
-   2.78629805e+04,   6.06248166e+03,   3.87006261e+00,   2.95892643e+04,
-   2.53454754e+04,   2.52670411e+03,   3.86324434e+00,   3.29673982e+04,
-   2.66064039e+04,   2.63025115e+03,   3.87307161e+00,   2.94691481e+04,
-   2.57677323e+04,   2.79135628e+03,   3.86715456e+00,   3.13538007e+04,
-   2.80665693e+04,   5.99216270e+03,   3.86169204e+00,   2.97472616e+04,
-   2.53936333e+04,   2.64177147e+03,   3.86178283e+00,   2.96954805e+04,
-   2.53722476e+04,   2.55654663e+03,   3.86248493e+00,   3.22220891e+04,
-   2.85642091e+04,   4.23912090e+03,   3.85765708e+00,   3.00477463e+04,
-   2.53220254e+04,   2.68182428e+03,   3.85885524e+00,   3.13588662e+04,
-   2.79999757e+04,   6.05069319e+03,   3.85750060e+00,   3.13041820e+04,
-   2.79206474e+04,   6.04084941e+03,   3.85939808e+00,   2.92029845e+04,
-   2.59270270e+04,   2.72053170e+03,   3.86971687e+00,   2.95293416e+04,
-   2.48930083e+04,   3.35405704e+03,   3.87140690e+00,   2.96531723e+04,
-   2.54084873e+04,   2.77844839e+03,   3.86353192e+00,   2.95848660e+04,
-   2.54889654e+04,   2.87868857e+03,   3.86482656e+00,   2.95306904e+04,
-   2.60887331e+04,   2.68209659e+03,   3.87128741e+00,   2.90764506e+04,
-   2.62175936e+04,   2.70170112e+03,   3.87182169e+00,   3.26126193e+04,
-   2.69385301e+04,   2.91539372e+03,   3.83710396e+00,   3.22029993e+04,
-   2.85403257e+04,   4.24249951e+03,   3.82685769e+00,   3.25884481e+04,
-   2.70755117e+04,   2.97426139e+03,   3.83673799e+00,   3.23429567e+04,
-   2.82696437e+04,   3.98761843e+03,   3.82873670e+00,   3.26192411e+04,
-   2.69627846e+04,   2.90777706e+03,   3.83696354e+00,   3.17105695e+04,
-   2.78781924e+04,   4.79540428e+03,   3.82924040e+00,   3.19044159e+04,
-   2.81397302e+04,   4.38674785e+03,   3.82688376e+00,   3.06801542e+04,
-   2.76127086e+04,   3.00255771e+03,   3.83600944e+00,   3.20488822e+04,
-   2.81051359e+04,   4.47767737e+03,   3.82710521e+00,   3.24877628e+04,
-   2.85774712e+04,   3.99331671e+03,   3.82887827e+00,   3.13539248e+04,
-   2.85675002e+04,   4.58803989e+03,   3.82400102e+00,   3.15254596e+04,
-   2.82736831e+04,   4.62750830e+03,   3.82350774e+00,   3.21606230e+04,
-   2.83035960e+04,   3.80972568e+03,   3.82908254e+00,   3.18378171e+04,
-   2.83910591e+04,   4.65630566e+03,   3.82997898e+00,   3.23126632e+04,
-   2.84280713e+04,   3.91134638e+03,   3.82868102e+00,   3.18640104e+04,
-   2.83971366e+04,   4.65427406e+03,   3.82373717e+00,   3.24691049e+04,
-   2.85731863e+04,   3.96539622e+03,   3.82880689e+00,   3.16420992e+04,
-   2.80233674e+04,   4.56524629e+03,   3.82558914e+00])
+    initial_guess = np.array(
+            [  1.40427809e-06,   4.31025200e-07,  -2.20496710e-07,
+         4.31343516e-07,   3.98578573e-07,  -5.88519822e-07,
+        -1.81445018e-06,  -8.44276344e-06,   9.25953807e-07,
+        -2.73962044e-06,  -1.57047793e-06,  -8.17613911e-06,
+        -2.85284318e-05,   6.68084426e-06,  -7.19812324e-07,
+        -5.35571542e-06,   7.10156300e-06,   6.39487995e-06,
+         6.51643900e-06,   1.49666497e-06,   2.43805669e-05,
+         4.36558182e-06,  -9.61191607e-06,   6.93244635e-06,
+         6.71737582e-06,   7.27924311e-06,  -1.54706398e+04,
+         8.87008324e+03,   3.42588066e+03,   1.15317861e+00,
+        -1.57684642e+04,   9.06902196e+03,   3.49821834e+03,
+         1.15321428e+00,  -1.54479311e+04,   8.85861563e+03,
+         3.43834812e+03,   1.15324252e+00,  -1.59066697e+04,
+         9.15824077e+03,   3.42515884e+03,   1.15344813e+00,
+        -1.57110000e+04,   8.98502233e+03,   3.26820689e+03,
+         1.15356325e+00])
     
 
     if referance_station in stations_to_find_offsets:
@@ -579,25 +486,37 @@ if __name__=="__main__":
             print("error! cannot find PSE")
             break
         
-        new_PSE_to_fit = fitting_PSE( found_PSE )
+        PSE_polarity = None
+        if PSE_index in PSE_polarization:
+            PSE_polarity = PSE_polarization[PSE_index]
+        
+        new_PSE_to_fit = fitting_PSE( found_PSE, PSE_polarity )
         
         PSE_to_correlate.append(new_PSE_to_fit)
             
         ## correlate SSPW
         group_indeces = correlation_table_SSPW_group[PSE_index]
+        if group_indeces is None:
+            group_indeces = [0]*len(stations_to_correlate)
         
+        stations_to_PSE_use = []
         for sname, SSPW_index, SSPW_group_index in zip(stations_to_correlate, SSPW_indeces, group_indeces):
-            SSPW_dict = SSPW_multiple_dict[SSPW_group_index]
             
             if SSPW_index is None:
                 continue
+            if SSPW_index == -1:
+                stations_to_PSE_use.append(sname)
+                continue
+            
+            SSPW_dict = SSPW_multiple_dict[SSPW_group_index]
+            
             for SSPW in SSPW_dict[sname]:
                 if SSPW.unique_index==SSPW_index:
                     new_PSE_to_fit.add_SSPW(SSPW)
                     break
                     
         ## prep the PSE
-        new_PSE_to_fit.fitting_prep(stations_to_find_offsets, stations_to_keep, PSE_ant_locs, SSPW_locs_dict)
+        new_PSE_to_fit.fitting_prep(stations_to_find_offsets, stations_to_keep, stations_to_PSE_use, PSE_ant_locs, SSPW_locs_dict)
         print()
         
             
@@ -611,10 +530,12 @@ if __name__=="__main__":
         N_ant += len(PSE.antenna_X)
         
     workspace_sol = np.zeros(N_ant, dtype=np.double)
-    workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
+#    workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
+    
     
     def objective_fun(sol):
-        global workspace_sol
+#        global workspace_sol
+        workspace_sol = np.zeros(N_ant, dtype=np.double)
         delays = sol[:N_delays]
         ant_i = 0
         param_i = N_delays
@@ -625,6 +546,8 @@ if __name__=="__main__":
             ant_i += N_stat_ant
             param_i += 4
             
+        
+            
         return workspace_sol
         
 #        workspace_sol *= workspace_sol
@@ -632,7 +555,12 @@ if __name__=="__main__":
         
     
     def objective_jac(sol):
-        global workspace_jac
+#        global workspace_jac
+        workspace_jac = np.zeros((N_ant, N_delays+4*len(PSE_to_correlate)), dtype=np.double)
+        
+        if np.isnan(workspace_jac).any():
+            print("JAC NAN A")
+            
         delays = sol[:N_delays]
         ant_i = 0
         param_i = N_delays
@@ -642,6 +570,9 @@ if __name__=="__main__":
             PSE.try_location_JAC(delays, sol[param_i:param_i+4],  workspace_jac[ant_i:ant_i+N_stat_ant, param_i:param_i+4],  workspace_jac[ant_i:ant_i+N_stat_ant, 0:N_delays])
             ant_i += N_stat_ant
             param_i += 4
+        
+        if np.isnan(workspace_jac).any():
+            print("JAC NAN B")
             
         return workspace_jac
             

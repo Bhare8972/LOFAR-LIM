@@ -1,2 +1,2 @@
 #!/bin/sh
-python imaging_setup.py build_ext --inplace
+python setup_imager_tools.py build_ext --inplace

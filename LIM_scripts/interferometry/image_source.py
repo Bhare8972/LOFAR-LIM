@@ -17,11 +17,11 @@ if __name__ == "__main__":
 #    input_folder = "interferometry_out4_tstS2abs"
     input_folder = "interferometry_out4"
     
-    unique_ID = 55748
+    unique_ID = 55760
     block_help = [557]
     
-#    image_widths = [20,10,40]
-    image_widths = [60,30,120]
+    image_widths = [20,10,40]
+#    image_widths = [30,30,120]
     max_pixel_size = 0.2
     
     num_threads = 4
@@ -83,29 +83,29 @@ if __name__ == "__main__":
     Z_array = np.linspace( IPSE_to_image.loc[2]-image_widths[2], IPSE_to_image.loc[2]+image_widths[2], nZ_pixels )
     
     ## image X, Y ##
-    print("image XY")
-    XYZs = np.zeros( (nX_pixels*nY_pixels, 3) )
-    for xi in range(nX_pixels):
-        for yj in range(nY_pixels):
-            i = nY_pixels*xi + yj
-            XYZs[i,0] = X_array[xi]
-            XYZs[i,1] = Y_array[yj]
-            XYZs[i,2] = IPSE_to_image.loc[2]
-            
-    image = np.zeros( nX_pixels*nY_pixels )
-    imaging_function( XYZs, image, num_threads )
-    
-    print("plotting XY")
-    
-    image *= -1
-    image = np.swapaxes(image.reshape( nX_pixels, nY_pixels ), 0,1)
-    
-    plt.pcolormesh(X_array-IPSE_to_image.loc[0], Y_array-IPSE_to_image.loc[1], image, vmin=0.49, vmax=1.0)
-    plt.colorbar()
-#    circle1 = plt.Circle((IPSE_to_image.loc[0],IPSE_to_image.loc[1]), radius=0.25, alpha=.3, color='k')
-    circle1 = plt.Circle((0.0,0.0), radius=0.25, alpha=.3, color='k')
-    plt.gca().add_patch( circle1 )
-    plt.show()
+#    print("image XY")
+#    XYZs = np.zeros( (nX_pixels*nY_pixels, 3) )
+#    for xi in range(nX_pixels):
+#        for yj in range(nY_pixels):
+#            i = nY_pixels*xi + yj
+#            XYZs[i,0] = X_array[xi]
+#            XYZs[i,1] = Y_array[yj]
+#            XYZs[i,2] = IPSE_to_image.loc[2]
+#            
+#    image = np.zeros( nX_pixels*nY_pixels )
+#    imaging_function( XYZs, image, num_threads )
+#    
+#    print("plotting XY")
+#    
+#    image *= -1
+#    image = np.swapaxes(image.reshape( nX_pixels, nY_pixels ), 0,1)
+#    
+#    plt.pcolormesh(X_array-IPSE_to_image.loc[0], Y_array-IPSE_to_image.loc[1], image, vmin=0.3, vmax=1.0)
+#    plt.colorbar()
+##    circle1 = plt.Circle((IPSE_to_image.loc[0],IPSE_to_image.loc[1]), radius=0.25, alpha=.3, color='k')
+#    circle1 = plt.Circle((0.0,0.0), radius=0.25, alpha=.3, color='k')
+#    plt.gca().add_patch( circle1 )
+#    plt.show()
     
     
     ## image X, Z ##
@@ -126,7 +126,7 @@ if __name__ == "__main__":
     image *= -1
     image = np.swapaxes(image.reshape( nX_pixels, nZ_pixels ), 0,1)
     
-    plt.pcolormesh(X_array-IPSE_to_image.loc[0], Z_array-IPSE_to_image.loc[2], image, vmin=0.49, vmax=1.0)
+    plt.pcolormesh(X_array-IPSE_to_image.loc[0], Z_array-IPSE_to_image.loc[2], image, vmin=0.3, vmax=1.0)
     plt.colorbar()
 #    circle1 = plt.Circle((IPSE_to_image.loc[0],IPSE_to_image.loc[2]), radius=0.25, alpha=.3, color='k')
     circle1 = plt.Circle((0.0,0.0), radius=0.25, alpha=.3, color='k')

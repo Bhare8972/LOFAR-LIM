@@ -12,7 +12,7 @@ from os import mkdir
 from os.path import isdir
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20170929T202255.000Z"
     output_folder = "/max_over_blocks"
     block_size = 2**16
     
@@ -59,6 +59,6 @@ if __name__ == "__main__":
 #            plt.show()
         
         print("saving figure:", output_fpath+'/'+station+'.png')
-        plt.savefig(output_fpath+'/'+station+'.png')
-#        plt.show()
-        plt.close()
+#        plt.savefig(output_fpath+'/'+station+'.png')
+        plt.show()
+#        plt.close()

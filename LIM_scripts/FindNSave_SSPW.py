@@ -33,12 +33,15 @@ if __name__=="__main__":
     min_signal_SNR = 100 ##10? 15? 20?
     
     ##opening data
-    timeID = "D20180728T135703.246Z"
+    timeID = "D20180809T141413.250Z"
     input_folder_name = "/pulse_data"
-    output_folder = "SSPWB"
+    output_folder = "SSPW"
     stations_to_find_SSPW = None ## leave at None for all stations, otherwise a list of station names
-    stations_to_exclude = ["CS006", "CS101", "CS401", "RS305", "RS503", "CS007"]
-    initial_block = 5500
+    stations_to_exclude = ["CS021", "RS305", "RS409", "RS503", "CS501",
+                           "CS001", "CS002", "CS003", "CS004", "CS005", "CS006", "CS007", "CS011", "CS013", "CS017", "CS024", "CS028",
+                           "CS030", "CS032", "CS103", "CS201", "CS301", "CS302", "RS106", "RS205", "RS208", "RS210", "RS306", "RS307",
+                           "RS310", "RS406", "RS407", "RS508", "RS509"]
+    initial_block = 3000
     num_blocks_per_step = 100
     num_steps = 5
     

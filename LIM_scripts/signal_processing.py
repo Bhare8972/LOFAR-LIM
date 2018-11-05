@@ -63,7 +63,7 @@ class upsample_and_correlate:
         
     def run(self, A, B):
         self.workspace_1[:] = 0
-        self.workspace_1[:self.input_length] = B
+        self.workspace_1[:min(self.input_length,len(B))] = B
         fftpack.fft(self.workspace_1, overwrite_x = True)
         
         np.conjugate(self.workspace_1[self.slice_A], out=self.output[self.slice_A])
@@ -73,7 +73,7 @@ class upsample_and_correlate:
         
         
         self.workspace_1[:] = 0
-        self.workspace_1[:self.input_length] = A
+        self.workspace_1[:min(self.input_length,len(A))] = A
         fftpack.fft(self.workspace_1, overwrite_x = True)
         
         self.output[self.slice_A] *= self.workspace_1[self.slice_A]

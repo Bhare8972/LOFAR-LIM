@@ -9,34 +9,35 @@
 cimport numpy as np
 import numpy as np
 from libcpp cimport bool
-from libc.math cimport sqrt, fabs
+from libc.math cimport sqrt, fabs, isfinite
 from libc.stdlib cimport malloc, free
 
-cdef extern from "gsl/gsl_math.h" nogil:
-    int gsl_finite(const double x)
+#cdef extern from "gsl/gsl_math.h" nogil:
+#    int gsl_finite(const double x)
 
-cdef extern from "gsl/gsl_vector.h" nogil:
-    
-    void* gsl_vector_alloc(size_t n)
-    void gsl_vector_free(void* v)
-    
-    double gsl_vector_get(const void* v, const size_t i)
-    void gsl_vector_set(void* v, const size_t i, double x)
-    double* gsl_vector_ptr(void* v, size_t i)
-    
-    void gsl_vector_set_all(void* v, double x)
-    
+#cdef extern from "gsl/gsl_vector.h" nogil:
+#    
+#    void* gsl_vector_alloc(size_t n)
+#    void gsl_vector_free(void* v)
+#    
+#    double gsl_vector_get(const void* v, const size_t i)
+#    void gsl_vector_set(void* v, const size_t i, double x)
+#    double* gsl_vector_ptr(void* v, size_t i)
+#    
+#    void gsl_vector_set_all(void* v, double x)
+#    
+#
+#cdef extern from "gsl/gsl_matrix.h" nogil:
+#    void* gsl_matrix_alloc(size_t n1, size_t n2)
+#    void gsl_matrix_free(void *m)
+#    
+#    double gsl_matrix_get(void *m, size_t i, size_t j)
+#    void gsl_matrix_set(void *m, size_t i, size_t j, double x)
+#    void gsl_matrix_set_all(void *m, double x)
+#
+#cdef extern from "gsl/gsl_cblas.h" nogil:
+#    int gsl_blas_ddot(void *x, void *y, double *result)
 
-cdef extern from "gsl/gsl_matrix.h" nogil:
-    void* gsl_matrix_alloc(size_t n1, size_t n2)
-    void gsl_matrix_free(void *m)
-    
-    double gsl_matrix_get(void *m, size_t i, size_t j)
-    void gsl_matrix_set(void *m, size_t i, size_t j, double x)
-    void gsl_matrix_set_all(void *m, double x)
-
-cdef extern from "gsl/gsl_cblas.h" nogil:
-    int gsl_blas_ddot(void *x, void *y, double *result)
 
 #cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
 #    ctypedef struct gsl_multifit_nlinear_fdtype:
@@ -215,11 +216,6 @@ cdef class stationDelay_fitter:
         self.fitting_info.num_events = _num_events
         self.fitting_info.station_indexes = _station_indexes
         
-        print(_station_indexes)
-        print()
-        print()
-        print(self.fitting_info.station_indexes)
-        
         self.fitting_info.measurement_times = np.empty( _num_events*self.fitting_info.num_antennas, dtype=np.double )
         self.fitting_info.measurement_filter = np.zeros( _num_events*self.fitting_info.num_antennas, np.uint8 )
         
@@ -232,7 +228,7 @@ cdef class stationDelay_fitter:
         
         cdef int ant_i
         for ant_i in range(self.fitting_info.num_antennas):
-            if gsl_finite( arrival_times[ant_i] ):
+            if isfinite( arrival_times[ant_i] ):
                 filter_slice[ant_i] = 1
                 self.total_num_measurments += 1
             else:
@@ -257,6 +253,8 @@ cdef class stationDelay_fitter:
         
         cdef int event_i
         cdef int antenna_i
+        cdef int station_i
+        cdef double stat_delay
         cdef int output_i = 0
         cdef double[:] measurement_slice
         cdef np.uint8_t[:] filter_slice
@@ -275,7 +273,11 @@ cdef class stationDelay_fitter:
                     dx = self.fitting_info.antenna_locations[antenna_i, 0] - X
                     dy = self.fitting_info.antenna_locations[antenna_i, 1] - Y
                     dz = self.fitting_info.antenna_locations[antenna_i, 2] - Z
-                    dt = sqrt(dx*dx + dy*dy + dz*dz)*c_air_inverse + T + guess[ self.fitting_info.station_indexes[ antenna_i ] ]
+                    stat_delay = 0.0
+                    station_i = self.fitting_info.station_indexes[ antenna_i ]
+                    if station_i != self.fitting_info.num_station_delays:
+                        stat_delay = guess[ station_i ]
+                    dt = sqrt(dx*dx + dy*dy + dz*dz)*c_air_inverse + T + stat_delay
                     dt -= measurement_slice[ antenna_i ]
                     
                     ret[output_i] = dt
@@ -283,8 +285,13 @@ cdef class stationDelay_fitter:
                     
         return ret
     
+    def RMS(self, guess, num_DOF):
+        diffs = self.objective_fun( guess )
+        diffs *= diffs
+        return np.sqrt( np.sum(diffs)/num_DOF )
+    
     def objective_jac(self, guess):
-        cdef np.ndarray[double , ndim=2] ret = np.zeros(self.total_num_measurments, self.fitting_info.num_station_delays + 4*self.fitting_info.num_events)
+        cdef np.ndarray[double , ndim=2] ret = np.zeros((self.total_num_measurments, self.fitting_info.num_station_delays + 4*self.fitting_info.num_events))
         
         cdef double X
         cdef double Y
@@ -298,6 +305,7 @@ cdef class stationDelay_fitter:
         
         cdef int event_i
         cdef int antenna_i
+        cdef int station_i
         cdef int output_i = 0
         cdef double[:] measurement_slice
         cdef np.uint8_t[:] filter_slice
@@ -324,9 +332,14 @@ cdef class stationDelay_fitter:
                     ret[output_i, self.fitting_info.num_station_delays + event_i*4 + 2] = dz*inv_R
                     
                     ret[output_i, self.fitting_info.num_station_delays + event_i*4 + 3] = 1
-                    ret[output_i, self.fitting_info.station_indexes[ antenna_i ]] = 1
+                    
+                    station_i = self.fitting_info.station_indexes[ antenna_i ]
+                    if station_i != self.fitting_info.num_station_delays:
+                        ret[output_i, station_i] = 1
                     
                     output_i += 1
+                    
+        return ret
         
         
 #    def setup_fitter(self):

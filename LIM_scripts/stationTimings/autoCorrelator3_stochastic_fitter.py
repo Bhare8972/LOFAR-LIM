@@ -26,7 +26,7 @@ from LoLIM.porta_code import code_logger, pyplot_emulator
 from LoLIM.signal_processing import parabolic_fit, remove_saturation, data_cut_at_index
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
 from LoLIM.findRFI import window_and_filter
-from LoLIM.autoCorrelator_tools import stationDelay_fitter
+from LoLIM.stationTimings.autoCorrelator_tools import stationDelay_fitter
 #from RunningStat import RunningStat
 
 
@@ -144,6 +144,18 @@ class stochastic_fitter:
             print("num jac nans:", np.sum(filter))
         
         return workspace_jac
+    
+    def get_RMS(self, solution):
+        
+        total_RMS = 0.0
+        new_station_delays = solution[:self.num_delays] 
+        param_i = self.num_delays
+        for PSE in self.source_object_list:
+            total_RMS += PSE.SSqE_fit( new_station_delays,  solution[param_i:param_i+4] )
+            param_i += 4
+            
+        return np.sqrt(total_RMS/self.num_DOF)
+        
             
     def rerun(self):
         
@@ -153,8 +165,12 @@ class stochastic_fitter:
         fit_res = least_squares(self.objective_fun, current_guess, jac=self.objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
 #        fit_res = least_squares(self.objective_fun, current_guess, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
         
+        
+        
+        print("guess RMS:", self.get_RMS(current_guess))
         current_guess = fit_res.x
         current_fit = fit_res.cost
+        print("new RMS:", self.get_RMS(current_guess), current_fit, fit_res.status)
         
         current_temperature = max_jitter_width
         new_guess = np.array( current_guess )
@@ -343,6 +359,9 @@ class stochastic_fitter_dt:
         self.fitter = stationDelay_fitter(ant_locs, self.station_indeces, len(self.source_object_list), self.num_delays)
         for source in self.source_object_list:
             self.fitter.set_event( source.pulse_times )
+            
+#        self.one_fitter = stationDelay_fitter(ant_locs, self.station_indeces, 1, self.num_delays)
+#        self.one_fitter.set_event( self.source_object_list[0] )
         
         #### make guess ####
         self.num_DOF = -self.num_delays
@@ -368,12 +387,17 @@ class stochastic_fitter_dt:
     def rerun(self):
         
         current_guess = np.array( self.solution )
+#        print('D', current_guess)
         
         #### first itteration ####
-        fit_res = least_squares(self.fitter.objective_fun, current_guess, jac=self.fitter.objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
-#        fit_res = least_squares(self.objective_fun, current_guess, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+#        fit_res = least_squares(self.fitter.objective_fun, current_guess, jac=self.fitter.objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+        fit_res = least_squares(self.fitter.objective_fun, current_guess, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+        
+#        print( self.fitter.objective_jac(current_guess) )
         
         current_guess = fit_res.x
+#        print('E', fit_res.status, current_guess)
+#        quit()
         current_fit = fit_res.cost
         
         current_temperature = max_jitter_width
@@ -400,8 +424,8 @@ class stochastic_fitter_dt:
                     param_i += 4
                 
                 #### FIT!!! ####
-                fit_res = least_squares(self.fitter.objective_fun, current_guess, jac=self.fitter.objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
-#                fit_res = least_squares(self.objective_fun, new_guess, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+#                fit_res = least_squares(self.fitter.objective_fun, current_guess, jac=self.fitter.objective_jac, method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+                fit_res = least_squares(self.fitter.objective_fun, current_guess, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
 #                print("    cost:", fit_res.cost)
         
                 if fit_res.cost < current_fit:
@@ -508,24 +532,32 @@ class stochastic_fitter_dt:
             print("  loc:", self.solution[param_i:param_i+4])
             param_i += 4
     
-    def print_station_fits(self, source_object_list):
+    def print_station_fits(self, source_object_list, num_stat_per_table):
         
-        fit_table = PrettyTable()
-        fit_table.field_names = ['id'] + station_order + [referance_station] + ['total']
-        fit_table.float_format = '.2E'
-        
-        for source, RMSfit, stationfits in zip(source_object_list, self.PSE_RMS_fits, self.PSE_fits):
-            new_row = ['']*len(fit_table.field_names)
-            new_row[0] = source.ID
-            new_row[-1] = RMSfit
+        stations_to_print = station_order + [referance_station]
+        current_station_i = 0
+        while len(stations_to_print) > 0:
+            stations_this_run = stations_to_print[:num_stat_per_table]
+            stations_to_print = stations_to_print[len(stations_this_run):]
             
-            for i,stat_fit in enumerate(stationfits):
-                if stat_fit is not None:
-                    new_row[i+1] = stat_fit
-                    
-            fit_table.add_row( new_row )
+            fit_table = PrettyTable()
+            fit_table.field_names = ['id'] + stations_this_run + ['total']
+            fit_table.float_format = '.2E'
             
-        print( fit_table )
+            for source, RMSfit, stationfits in zip(source_object_list, self.PSE_RMS_fits, self.PSE_fits):
+                new_row = ['']*len(fit_table.field_names)
+                new_row[0] = source.ID
+                new_row[-1] = RMSfit
+                
+                for i,stat_fit in enumerate(stationfits[current_station_i:current_station_i+len(stations_this_run)]):
+                    if stat_fit is not None:
+                        new_row[i+1] = stat_fit
+                        
+                fit_table.add_row( new_row )
+                
+            print( fit_table )
+            print()
+            current_station_i += len(stations_this_run)
                     
     def print_delays(self, original_delays):
         for sname, delay, original in zip(station_order, self.solution[:self.num_delays], original_delays):
@@ -1022,8 +1054,11 @@ class source_object():
         workspace = delta_X_sq+delta_Y_sq
         workspace += delta_Z_sq
         
+#        print(delta_X_sq)
         np.sqrt(workspace, out=workspace)
         
+#        print(self.pulse_times)
+#        print(workspace)
         workspace[:] -= self.pulse_times*v_air ## this is now source time
         
         ##now account for delays
@@ -1031,7 +1066,7 @@ class source_object():
             first,last = index_range
             workspace[first:last] += delay*v_air ##note the wierd sign
                 
-                
+#        print(workspace)
         ave_error = np.nanmean( workspace )
         return -ave_error/v_air
             
@@ -1274,7 +1309,7 @@ class Part1_input_manager:
         
         self.input_data = []
         for folder_i, folder in enumerate(input_files):
-            input_folder = processed_data_dir + "/" + folder +'/'
+            input_folder = processed_data_folder + "/" + folder +'/'
             
             file_list = [(int(f.split('_')[1][:-3])*self.max_num_input_files+folder_i ,input_folder+f) for f in listdir(input_folder) if f.endswith('.h5')] ## get all file names, and get the 'ID' for the file name
             file_list.sort( key=lambda x: x[0] ) ## sort according to ID
@@ -1290,598 +1325,42 @@ class Part1_input_manager:
         
 
 np.set_printoptions(precision=10, threshold=np.inf)
-#if __name__ == "__main__": 
-#    
-#    #### TODO: make code that looks for pulses on all antennas, ala analyze amplitudes
-#    ## probably need a seperate code that just fits location of one source, so can be tuned by hand, then fed into main code
-#    ## prehaps just add one station at a time? (one closest to known stations) seems to be general stratigey
-#    
-#    timeID = "D20170929T202255.000Z"
-#    output_folder = "autoCorrelator3_fitter_reTST"
-#    
-#    part1_inputs = ["autoCorrelator3_part1C"]#, "autoCorrelator3_fromIPSE"]
-#    
-#    
-#    #### fitter settings ####
-#    max_itters_per_loop = 2000
-#    itters_till_convergence = 100
-#    max_jitter_width = 100000E-9
-#    min_jitter_width = 1E-9
-#    cooldown = 10.0 ## 10.0
-#    strong_cooldown = 100.0
-#    
-##    ## quality control
-#    min_antenna_amplitude = 10
-##    max_station_RMS = 5.0E-9
-##    min_stations = 4
-##    min_antenna_per_station = 4
-#    
-#    #### initial guesses ####
-#    referance_station = "CS002"
-#    
-#    guess_timings = { ##OLD STANDARD
-#'CS003' :  1.40494600712e-06 , ## diff to guess: -7.66779057095e-10
-#'CS004' :  4.31090399655e-07 , ## diff to guess: 6.99747558283e-10
-#'CS005' :  -2.19120784288e-07 , ## diff to guess: 9.7074831305e-10
-#'CS006' :  4.33554497556e-07 , ## diff to guess: -8.43001702525e-11
-#'CS007' :  3.99902678123e-07 , ## diff to guess: -5.9939666121e-10
-#'CS011' :  -5.8560385891e-07 , ## diff to guess: 2.89824346402e-10
-#'CS013' :  -1.81325669666e-06 , ## diff to guess: -1.34754955008e-09
-#'CS017' :  -8.43878144671e-06 , ## diff to guess: -1.37869682555e-09
-#'CS021' :  9.24163752585e-07 , ## diff to guess: -1.48380056922e-09
-#'CS030' :  -2.74037597057e-06 , ## diff to guess: -2.78214833694e-09
-#'CS032' :  -1.57466749415e-06 , ## diff to guess: 2.83849237954e-09
-#'CS101' :  -8.16817259789e-06 , ## diff to guess: -4.65243457996e-09
-#'CS103' :  -2.8518179599e-05 , ## diff to guess: -3.69610176348e-09
-#'RS208' :  6.94747112635e-06 , ## diff to guess: 5.55896927948e-08
-#'CS301' :  -7.18344260299e-07 , ## diff to guess: 5.53169999063e-09
-#'CS302' :  -5.35619408893e-06 , ## diff to guess: 9.98450123074e-09
-#'RS306' :  7.02305935406e-06 , ## diff to guess: 4.40228038518e-08
-#'RS307' :  6.92860064373e-06 , ## diff to guess: 8.07099571938e-08
-#'RS310' :  7.02115632779e-06 , ## diff to guess: 1.53739165001e-07
-#'CS401' :  -9.52017247995e-07 , ## diff to guess: 1.9274824037e-09
-#'RS406' :  7.02462236919e-06 , ## diff to guess: 5.07479726915e-05
-#'RS409' :  7.03940588106e-06 , ## diff to guess: 3.39804652173e-08
-#'CS501' :  -9.6076184928e-06 , ## diff to guess: -5.34064484748e-09
-#'RS503' :  6.94774095106e-06 , ## diff to guess: -1.75724349742e-08
-#'RS508' :  7.06896423643e-06 , ## diff to guess: -4.27040985914e-08
-#'RS509' :  7.11591455679e-06 , ## diff to guess: -4.30170606727e-08
-#        }
-#   
-#        
-#    if referance_station in guess_timings:
-#        del guess_timings[referance_station]
-#    
-#    
-#    #### these are sources whose location have been fitted, and stations are associated
-#    known_sources = [0,10,30,50,80]
-#    
-#    ### locations of fitted sources
-#    known_source_locations = {
-#0 :[ -15693.542761 , 10614.7690102 , 4833.01819705 , 1.22363744148 ],
-#10 :[ -14746.6987709 , 10164.4935227 , 5153.23554352 , 1.22778566789 ],
-#20 :[ -15733.992892 , 10817.6206629 , 4888.45795366 , 1.22938141588 ], ## OLAF SAYS NOT SUITABLE
-#30 :[ -14837.260161 , 10240.4210371 , 5200.02019411 , 1.2307873997 ],
-#40 :[ -15045.1734315 , 10401.3870684 , 5085.78988291 , 1.23751673723 ],
-#50 :[ -15728.0633707 , 10828.3878524 , 4930.20022273 , 1.24428590365 ],
-#60 :[ -15076.0691784 , 10428.6773094 , 5120.20382588 , 1.24440896162 ],
-#70 :[ -18648.664056 , 9482.97793092 , 3094.45610521 , 1.27982455954 ],
-#80 :[ -15176.5061353 , 8481.5636753 , 4742.15114273 , 1.3357053429 ],
-#90 :[ -15176.4922093 , 8166.78593544 , 4297.68674851 , 1.36449659607 ],
-#    }
-#    
-#    ### polarization of fitted sources
-#    known_polarizations = {
-#0 : 1 ,
-#10 : 1 ,
-#20 : 1 ,
-#30 : 1 ,
-#40 : 1 ,
-#50 : 1 ,
-#60 : 1 ,
-#70 : 1 ,
-#80 : 1 ,
-#90 : 0 ,
-#    }
-#    
-#    
-#    ## these are stations to exclude
-#    stations_to_exclude = {
-#            0:['CS021', 'RS406'],
-#            10:['RS208'],
-#            20:['CS003', 'RS306', 'RS406', 'RS409'],
-#            30:['CS002', 'RS306', 'RS307', 'RS310', 'RS406', 'RS409', 'RS508', 'RS509'],
-#            40:['RS406'],
-#            50:['CS017', "RS406"],
-#            60:[],
-#            70:['CS007', 'CS013', 'CS401', 'RS306', 'RS310', 'RS406', 'RS409', 'RS503', 'RS508', 'RS509'],
-#            80:['RS307', 'RS310', 'RS503', 'RS508', 'RS509'],
-#            90:['CS002', 'RS208', 'RS306', 'RS307', 'RS406']
-#            }
-#    
-#    antennas_to_exclude = {
-#            0:['146007060'],
-#            10:[], 
-#            20:[],
-#            30:[],
-#            40:['161010080', '183002016'],
-#            50:[],
-#            60:['128011094', '128011092', '128005044', '128003028', '128010080', '128000000',
-#               '150005044', '150009076'],
-#            70:['003004032', '003010080', '004008064', '011011092', '011009078', '017006050',
-#               '021008064', '021001014', '030006048', '030001014', '032006048', '032002016', 
-#               '032005046', '101002016', '141006048', '142000000', '142008064', '412007060',
-#               '142007062', '181005044'],
-#            80:[],
-#            90:['032006048'],
-#            }
-#    
-#    bad_antennas = [
-#            ##CS002
-#            '003008064', ##CS003
-#            ##CS004
-#            ##CS005
-#            ##CS006
-#            ##CS007
-#            ##CS011
-#            ##CS013
-#            ##CS017
-#            '021011092', ##CS021
-#            '030003028', ##CS030
-#            '032010080',##CS032
-#            ##CS101
-#            ##CS103
-#            ##CS301
-#            ##CS302
-#            ##CS401
-#            '181006048', ##CS501
-#            ##RS208
-#            ##RS306
-#            ##RS307
-#            ##RS310
-#            ##RS406
-#            '169005046', '169009076',##RS409
-#            ##RS503
-#            '188011094',##RS508
-#            ##RS509
-#                    ]
 
-
-if __name__ == "__main__": 
+## some global settings
+num_stat_per_table = 10
+#### these globals are holdovers
+#station_locations = None ## to be set
+#station_to_antenna_index_list = None## to be set
+#stations_with_fits = None## to be set
+#station_to_antenna_index_dict = None
+def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces_to_fit, guess_source_locations,
+               source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
+               ref_station="CS002", min_ant_amplitude=10, max_stoch_loop_itters = 2000, min_itters_till_convergence = 100,
+               initial_jitter_width = 100000E-9, final_jitter_width = 1E-9, cooldown_fraction = 10.0, strong_cooldown_fraction = 100.0):
     
-    #### TODO: make code that looks for pulses on all antennas, ala analyze amplitudes
-    ## probably need a seperate code that just fits location of one source, so can be tuned by hand, then fed into main code
-    ## prehaps just add one station at a time? (one closest to known stations) seems to be general stratigey
+    ##### holdovers. These globals need to be fixed, so not global....
+    global station_locations, station_to_antenna_index_list, stations_with_fits, station_to_antenna_index_dict
+    global referance_station, station_order, sorted_antenna_names, min_antenna_amplitude, ant_locs, bad_antennas
+    global max_itters_per_loop, itters_till_convergence, min_jitter_width, max_jitter_width, cooldown, strong_cooldown
+    global current_delays_guess, processed_data_folder
     
-    timeID = "D20170929T202255.000Z"
-    output_folder = "autoCorrelator3_fitter_reTST"
+    referance_station = ref_station
+    min_antenna_amplitude = min_ant_amplitude
+    bad_antennas = bad_ants
+    max_itters_per_loop = max_stoch_loop_itters
+    itters_till_convergence = min_itters_till_convergence
+    max_jitter_width = initial_jitter_width
+    min_jitter_width = final_jitter_width
+    cooldown = cooldown_fraction
+    strong_cooldown = strong_cooldown_fraction
     
-    part1_inputs = ["autoCorrelator3_fromLOCA"]
-    
-    
-    #### fitter settings ####
-#    max_itters_per_loop = 2000
-#    itters_till_convergence = 100
-#    max_jitter_width = 100000E-9
-#    min_jitter_width = 1E-9
-#    cooldown = 10.0 ## 10.0
-#    strong_cooldown = 100.0
-    
-    max_itters_per_loop = 5000
-    itters_till_convergence = 1000
-    max_jitter_width = 100000E-9
-    min_jitter_width = 1E-13
-    cooldown = 10.0 ## 10.0
-    strong_cooldown = 10.0
-    
-#    ## quality control
-    min_antenna_amplitude = 10
-#    max_station_RMS = 5.0E-9
-#    min_stations = 4
-#    min_antenna_per_station = 4
-    
-    #### initial guesses ####
-    referance_station = "CS002"
-    
-    guess_timings = { ##OLD STANDARD
-'CS003' :  1.40494600712e-06 , ## diff to guess: -7.66779057095e-10
-'CS004' :  4.31090399655e-07 , ## diff to guess: 6.99747558283e-10
-'CS005' :  -2.19120784288e-07 , ## diff to guess: 9.7074831305e-10
-'CS006' :  4.33554497556e-07 , ## diff to guess: -8.43001702525e-11
-'CS007' :  3.99902678123e-07 , ## diff to guess: -5.9939666121e-10
-'CS011' :  -5.8560385891e-07 , ## diff to guess: 2.89824346402e-10
-'CS013' :  -1.81325669666e-06 , ## diff to guess: -1.34754955008e-09
-'CS017' :  -8.43878144671e-06 , ## diff to guess: -1.37869682555e-09
-'CS021' :  9.24163752585e-07 , ## diff to guess: -1.48380056922e-09
-'CS030' :  -2.74037597057e-06 , ## diff to guess: -2.78214833694e-09
-'CS032' :  -1.57466749415e-06 , ## diff to guess: 2.83849237954e-09
-'CS101' :  -8.16817259789e-06 , ## diff to guess: -4.65243457996e-09
-'CS103' :  -2.8518179599e-05 , ## diff to guess: -3.69610176348e-09
-'RS208' :  6.94747112635e-06 , ## diff to guess: 5.55896927948e-08
-'CS301' :  -7.18344260299e-07 , ## diff to guess: 5.53169999063e-09
-'CS302' :  -5.35619408893e-06 , ## diff to guess: 9.98450123074e-09
-'RS306' :  7.02305935406e-06 , ## diff to guess: 4.40228038518e-08
-'RS307' :  6.92860064373e-06 , ## diff to guess: 8.07099571938e-08
-'RS310' :  7.02115632779e-06 , ## diff to guess: 1.53739165001e-07
-'CS401' :  -9.52017247995e-07 , ## diff to guess: 1.9274824037e-09
-'RS406' :  7.02462236919e-06 , ## diff to guess: 5.07479726915e-05
-'RS409' :  7.03940588106e-06 , ## diff to guess: 3.39804652173e-08
-'CS501' :  -9.6076184928e-06 , ## diff to guess: -5.34064484748e-09
-'RS503' :  6.94774095106e-06 , ## diff to guess: -1.75724349742e-08
-'RS508' :  7.06896423643e-06 , ## diff to guess: -4.27040985914e-08
-'RS509' :  7.11591455679e-06 , ## diff to guess: -4.30170606727e-08
-        }
-    
-#    guess_timings = { #stat delays 2
-#'CS002':  0.0,
-#'CS003':  1.40436380151e-06 ,
-#'CS004':  4.31343360778e-07 ,
-#'CS005':  -2.18883924536e-07 ,
-#'CS006':  4.33532992523e-07 ,
-#'CS007':  3.99644095007e-07 ,
-#'CS011':  -5.85451477265e-07 ,
-#'CS013':  -1.81434735154e-06 ,
-#'CS017':  -8.4398374875e-06 ,
-#'CS021':  9.23663075135e-07 ,
-#'CS030':  -2.74255354078e-06,
-#'CS032':  -1.57305580305e-06,
-#'CS101':  -8.17154277682e-06,
-#'CS103':  -2.85194082718e-05,
-#'RS208':  6.97951240511e-06 ,
-#'CS301':  -7.15482701536e-07 ,
-#'CS302':  -5.35024064624e-06 ,
-#'RS306':  7.04283154727e-06,
-#'RS307':  6.96315727897e-06 ,
-#'RS310':  7.04140267551e-06,
-#'CS401':  -9.5064990747e-07 ,
-#'RS406':  6.96866309712e-06,
-#'RS409':  7.02251772331e-06,    
-#'CS501':  -9.61256584076e-06, 
-#'RS503':  6.93934919654e-06 ,
-#'RS508':  6.98208245779e-06 ,
-#'RS509':  7.01900854365e-06
-#        }
-    
-#    guess_timings = { ##incl. 70
-#    'CS003' :  1.40406621911e-06 , ## diff to guess: -2.97582399388e-10
-#'CS004' :  4.31385690892e-07 , ## diff to guess: 4.23301135518e-11
-#'CS005' :  -2.1859126247e-07 , ## diff to guess: 2.92662065886e-10
-#'CS006' :  4.33737447458e-07 , ## diff to guess: 2.04454935474e-10
-#'CS007' :  3.99653069882e-07 , ## diff to guess: 8.97487473944e-12
-#'CS011' :  -5.8495505038e-07 , ## diff to guess: 4.96426885262e-10
-#'CS013' :  -1.81520175476e-06 , ## diff to guess: -8.54403221457e-10
-#'CS017' :  -8.43959639123e-06 , ## diff to guess: 2.41096273183e-10
-#'CS021' :  9.22589892036e-07 , ## diff to guess: -1.07318309883e-09
-#'CS030' :  -2.74480264644e-06 , ## diff to guess: -2.24910565969e-09
-#'CS032' :  -1.57307500032e-06 , ## diff to guess: -1.91972721945e-11
-#'CS101' :  -8.17262937308e-06 , ## diff to guess: -1.08659626483e-09
-#'CS103' :  -2.85184469337e-05 , ## diff to guess: 9.61338126864e-10
-#'RS208' :  7.00240434182e-06 , ## diff to guess: 2.28919367117e-08
-#'CS301' :  -7.13604373643e-07 , ## diff to guess: 1.87832789252e-09
-#'CS302' :  -5.34835991794e-06 , ## diff to guess: 1.88072830146e-09
-#'RS306' :  7.03842827887e-06 , ## diff to guess: -4.40326840323e-09
-#'RS307' :  6.96945123387e-06 , ## diff to guess: 6.29395489957e-09
-#'RS310' :  7.01466477193e-06 , ## diff to guess: -2.67379035788e-08
-#'CS401' :  -9.51330977655e-07 , ## diff to guess: -6.81070184752e-10
-#'RS406' :  6.90112556039e-06 , ## diff to guess: -6.75375367306e-08
-#'RS409' :  6.95010394068e-06 , ## diff to guess: -7.24137826317e-08
-#'CS501' :  -9.61540017339e-06 , ## diff to guess: -2.83433262773e-09
-#'RS503' :  6.93000222477e-06 , ## diff to guess: -9.34697176934e-09
-#'RS508' :  6.93106911104e-06 , ## diff to guess: -5.10133467456e-08
-#'RS509' :  6.951187713e-06 , ## diff to guess: -6.78208306452e-08
-#}
-    
-#    guess_timings = { ##incl. 80
-#    'CS003' :  1.40421212443e-06 , ## diff to guess: 1.45905323785e-10
-#'CS004' :  4.31476626482e-07 , ## diff to guess: 9.09355901378e-11
-#'CS005' :  -2.18644873592e-07 , ## diff to guess: -5.36111219721e-11
-#'CS006' :  4.33642073207e-07 , ## diff to guess: -9.53742505377e-11
-#'CS007' :  3.99567203241e-07 , ## diff to guess: -8.58666412326e-11
-#'CS011' :  -5.85176003945e-07 , ## diff to guess: -2.20953564802e-10
-#'CS013' :  -1.81476263252e-06 , ## diff to guess: 4.39122237939e-10
-#'CS017' :  -8.43968557631e-06 , ## diff to guess: -8.91850772514e-11
-#'CS021' :  9.23141209733e-07 , ## diff to guess: 5.51317696771e-10
-#'CS030' :  -2.74368600917e-06 , ## diff to guess: 1.11663726943e-09
-#'CS032' :  -1.57282881181e-06 , ## diff to guess: 2.46188505452e-10
-#'CS101' :  -8.17238302702e-06 , ## diff to guess: 2.4634606036e-10
-#'CS103' :  -2.85191140031e-05 , ## diff to guess: -6.67069383516e-10
-#'RS208' :  6.99245574092e-06 , ## diff to guess: -9.94860090402e-09
-#'CS301' :  -7.14120995008e-07 , ## diff to guess: -5.16621364673e-10
-#'CS302' :  -5.34875595775e-06 , ## diff to guess: -3.96039814521e-10
-#'RS306' :  7.04094171439e-06 , ## diff to guess: 2.51343552499e-09
-#'RS307' :  6.96606917708e-06 , ## diff to guess: -3.38205679167e-09
-#'RS310' :  7.01572098334e-06 , ## diff to guess: 1.05621141033e-09
-#'CS401' :  -9.50847114833e-07 , ## diff to guess: 4.8386282209e-10
-#'RS406' :  6.92543926746e-06 , ## diff to guess: 2.43137070715e-08
-#'RS409' :  6.96613970787e-06 , ## diff to guess: 1.60357671861e-08
-#'CS501' :  -9.61421061808e-06 , ## diff to guess: 1.18955531296e-09
-#'RS503' :  6.93372265995e-06 , ## diff to guess: 3.72043518085e-09
-#'RS508' :  6.94119719961e-06 , ## diff to guess: 1.01280885735e-08
-#'RS509' :  6.96395578682e-06 , ## diff to guess: 1.27680738193e-08
-#}
-    
-#    guess_timings = { ##incl. 90
-#    'CS003' :  1.40433044347e-06 , ## diff to guess: 1.18319036699e-10
-#'CS004' :  4.31943207728e-07 , ## diff to guess: 4.66581246497e-10
-#'CS005' :  -2.18443505428e-07 , ## diff to guess: 2.01368163929e-10
-#'CS006' :  4.33757338521e-07 , ## diff to guess: 1.15265313632e-10
-#'CS007' :  3.99692113558e-07 , ## diff to guess: 1.24910316831e-10
-#'CS011' :  -5.84956359991e-07 , ## diff to guess: 2.1964395439e-10
-#'CS013' :  -1.81429034028e-06 , ## diff to guess: 4.72292240749e-10
-#'CS017' :  -8.43955579972e-06 , ## diff to guess: 1.29776591566e-10
-#'CS021' :  9.23414452423e-07 , ## diff to guess: 2.73242690094e-10
-#'CS030' :  -2.74333318147e-06 , ## diff to guess: 3.52827699726e-10
-#'CS032' :  -1.57273568113e-06 , ## diff to guess: 9.31306827023e-11
-#'CS101' :  -8.17190662339e-06 , ## diff to guess: 4.76403631906e-10
-#'CS103' :  -2.85188458982e-05 , ## diff to guess: 2.68104873575e-10
-#'RS208' :  6.98776026878e-06 , ## diff to guess: -4.69547213655e-09
-#'CS301' :  -7.14432948322e-07 , ## diff to guess: -3.1195331374e-10
-#'CS302' :  -5.34887182438e-06 , ## diff to guess: -1.15866626379e-10
-#'RS306' :  7.03856487269e-06 , ## diff to guess: -2.37684169666e-09
-#'RS307' :  6.96056645903e-06 , ## diff to guess: -5.50271804922e-09
-#'RS310' :  7.00673018169e-06 , ## diff to guess: -8.99080165234e-09
-#'CS401' :  -9.5077618853e-07 , ## diff to guess: 7.09263026434e-11
-#'RS406' :  6.93192024438e-06 , ## diff to guess: 6.48097691801e-09
-#'RS409' :  6.96030515155e-06 , ## diff to guess: -5.83455632346e-09
-#'CS501' :  -9.61352286266e-06 , ## diff to guess: 6.87755416147e-10
-#'RS503' :  6.93514290261e-06 , ## diff to guess: 1.42024266275e-09
-#'RS508' :  6.94635371243e-06 , ## diff to guess: 5.15651281721e-09
-#'RS509' :  6.96778730878e-06 , ## diff to guess: 3.8315219551e-09
-#}
-    
-#    guess_timings = { ## Olaf's farorites
-#    'CS003' :  1.4042163013e-06 , ## diff to guess: -1.14142167168e-10
-#'CS004' :  4.31491732703e-07 , ## diff to guess: -4.51475025084e-10
-#'CS005' :  -2.18688092672e-07 , ## diff to guess: -2.44587243874e-10
-#'CS006' :  4.33633641144e-07 , ## diff to guess: -1.23697376933e-10
-#'CS007' :  3.99583732343e-07 , ## diff to guess: -1.08381214875e-10
-#'CS011' :  -5.85199559216e-07 , ## diff to guess: -2.43199224813e-10
-#'CS013' :  -1.8147630918e-06 , ## diff to guess: -4.72751522454e-10
-#'CS017' :  -8.43989595123e-06 , ## diff to guess: -3.40151513264e-10
-#'CS021' :  9.23188743313e-07 , ## diff to guess: -2.25709109864e-10
-#'CS030' :  -2.74366262143e-06 , ## diff to guess: -3.29439957314e-10
-#'CS032' :  -1.57259636164e-06 , ## diff to guess: 1.39319494223e-10
-#'CS101' :  -8.17257920552e-06 , ## diff to guess: -6.7258213271e-10
-#'CS103' :  -2.85190817028e-05 , ## diff to guess: -2.35804637477e-10
-#'RS208' :  6.99818676139e-06 , ## diff to guess: 1.04264926079e-08
-#'CS301' :  -7.14031248782e-07 , ## diff to guess: 4.01699540062e-10
-#'CS302' :  -5.34786808017e-06 , ## diff to guess: 1.00374420585e-09
-#'RS306' :  7.04712650703e-06 , ## diff to guess: 8.56163434299e-09
-#'RS307' :  6.9780725263e-06 , ## diff to guess: 1.75060672712e-08
-#'RS310' :  7.05219954302e-06 , ## diff to guess: 4.54693613315e-08
-#'CS401' :  -9.50484502263e-07 , ## diff to guess: 2.91686267432e-10
-#'RS406' :  6.93089620534e-06 , ## diff to guess: -1.0240390396e-09
-#'RS409' :  7.01056175752e-06 , ## diff to guess: 5.02566059676e-08
-#'CS501' :  -9.6145851877e-06 , ## diff to guess: -1.06232503527e-09
-#'RS503' :  6.93299835701e-06 , ## diff to guess: -2.14454560191e-09
-#'RS508' :  6.95755989836e-06 , ## diff to guess: 1.12061859289e-08
-#'RS509' :  6.98948454237e-06 , ## diff to guess: 2.16972335925e-08
-#}
-
-
-        
     if referance_station in guess_timings:
-        del guess_timings[referance_station]
-    
-    
-#    #### these are sources whose location have been fitted, and stations are associated
-#    known_sources = [0,30,40,50,60,70]#,80,90, 100]
-##    known_sources = [0,30]
-##    known_sources = [40,50,60]
-##    known_sources = [70]
-#    
-#    ### locations of fitted sources
-#    known_source_locations = {
-#0 :[ -15693.542761 , 10614.7690102 , 4833.01819705 , 1.22363744148 ],
-#10 :[ -14746.6987709 , 10164.4935227 , 5153.23554352 , 1.22778566789 ],
-#20 :[ -14837.260161 , 10240.4210371 , 5200.02019411 , 1.2307873997 ],
-#30 :[ -15728.0633707 , 10828.3878524 , 4930.20022273 , 1.24428590365 ],
-#40 :[ -15176.5061353 , 8481.5636753 , 4742.15114273 , 1.3357053429 ],
-#50 :[ -1.60622566e+04 ,  1.00105856e+04 ,  3.82465424e+03 ,  1.17760563e+00],
-#60 :[ -1.58093802e+04,   8.19398319e+03,   1.18307602e+03 ,  1.21527513e+00],
-#70 :[ -1.57274095e+04,   1.07813916e+04 ,  4.84121261e+03 ,  1.23034882e+00],
-#80 :[ -17713.36726129,   9953.00658086,   3476.37485781, 1.2690714758],
-#90 :[-15684.61938993 ,  8999.12262615,   2934.83549653, 1.15655002631],
-#100 :[-15254.54018532 ,  8836.1191801,    3126.99536402, 1.17993760262],
-#    }
-#    
-#    ### polarization of fitted sources
-#    known_polarizations = {
-#0 : 1 ,
-#10 : 1 ,
-#20 : 1 ,
-#30 : 1 ,
-#40 : 1 ,
-#50 : 1 ,
-#60:  1 ,
-#70:  1 ,
-#80:  1,
-#90:  1,
-#100: 1,
-#    }
-#    
-#    
-#    ## these are stations to exclude
-#    stations_to_exclude = {
-#            0:['RS406'], ## why is RS306 such a bad fit? RS406 is saturated
-#            10:["RS406"], ##RS 406 is TERRIBLE fit, probably wrong pulse. Maybe there was saturation
-#            20:['RS409', 'RS509'], ## RS409 seems to be wrong pulse. Don't understand why RS509 is such a bad fit
-#            30:[],
-#            40:['RS310', 'RS509'], ## RS310 has pulses moving through it. RS509 does not have pulse
-#            50:['CS002', 'CS003', 'CS004', 'CS005', 'CS006', 'CS007', 'CS011'], ##event is weak on the core
-#            60:['RS406'], ##probably got wrong pulse. May saturation issues?
-#            70:['RS406', "RS508"],##RS406: wrong pulse, RS508 has complex structure. RERUN FIND PULSES
-#            80:['RS406'], ## RS406 has wrong pulse.RERUN FIND PULSES
-#            90:['RS406', 'RS306', 'RS409'],#wrong pulse.RERUN FIND PULSES RS409 has very complicated pulse
-#            100:['RS307', 'RS406'],
-#            }
-#    
-#    antennas_to_exclude = {
-#            0:['146007060', '146007062'],
-#            10:['188008064', '188005044'],
-#            20:['150007062', '150007060', '150005044'],
-#            30:[],
-#            40:['188007062', '188005044'],
-#            50:['017007060', '101004032', '141006048', 
-#                '166002016', '166001012', '166006050', '166003028', '166003030', '166005044', 
-#                '166005046', '166007060', '166007062', '166009076', '166011094',
-#                '188006050'],
-#            60:['021009078'],
-#            70:['188008064','188001014','188011092'],
-#            80:['146000000', '146010080', '146007060', '146009078'],
-#            90:[],
-#            100:['146010080', '146005046', '146007062', '146009076', '146009078', '146011094', '183002016',
-#                 '183004032', '183006048', '183008064', '183001012', '183001014', '183003028', '183009076',
-#                 '183011094', '002001014', '003008064', '003010080', '007008064', '007007062', '013008064',
-#                 '013001014', '013003028', '013007062', '013007060', '021008064', '021001014', '021007062',
-#                 '021009076', '021009078', '030006048', '030008064', '030007062', '030001012', '032002016', '032004032',
-#                 '141006048', '161010080', '161009076', '161011092', '161011094', '181000000', '181003028'], ## a lot of weak pulses....
-#            }
-#    
-#    bad_antennas = [
-#            ##CS002
-#            '003008064', ##CS003
-#            ##CS004
-#            ##CS005
-#            ##CS006
-#            ##CS007
-#            ##CS011
-#            ##CS013
-#            ##CS017
-#            '021009078', '021011092', ##CS021
-#            '030003028', ##CS030
-#            '032010080',##CS032
-#            ##CS101
-#            ##CS103
-#            ##CS301
-#            ##CS302
-#            ##CS401
-#            '181006048', ##CS501
-#            ##RS208
-#            ##RS306
-#            ##RS307
-#            ##RS310
-#            ##RS406
-#            '169005046', '169009076',##RS409
-#            ##RS503  check 183006048, 183003030
-#            '188011094',##RS508
-#            ##RS509
-#                    ]
+        ref_T = guess_timings[referance_station]
+        guess_timings = {station:T-ref_T for station,T in guess_timings.items() if station != referance_station}
         
-        
-        
-            #### these are sources whose location have been fitted, and stations are associated
-#    known_sources = [0,30,40,50,60,70,80,90, 100]
-    known_sources = [100]
+    processed_data_folder = processed_data_dir(timeID)
     
-#    known_sources = [0,30]
-#    known_sources = [40,50,60]
-#    known_sources = [70]
-    
-    ### locations of fitted sources
-    known_source_locations = {
-0 :[ -15693.542761 , 10614.7690102 , 4833.01819705 , 1.22363744148 ],
-10 :[ -14746.6987709 , 10164.4935227 , 5153.23554352 , 1.22778566789 ],
-20 :[ -14837.260161 , 10240.4210371 , 5200.02019411 , 1.2307873997 ],
-30 :[ -15728.0633707 , 10828.3878524 , 4930.20022273 , 1.24428590365 ],
-40 :[ -15176.5061353 , 8481.5636753 , 4742.15114273 , 1.3357053429 ],
-50 :[ -1.60622566e+04 ,  1.00105856e+04 ,  3.82465424e+03 ,  1.17760563e+00],
-60 :[ -1.58093802e+04,   8.19398319e+03,   1.18307602e+03 ,  1.21527513e+00],
-70 :[ -1.57274095e+04,   1.07813916e+04 ,  4.84121261e+03 ,  1.23034882e+00],
-80 :[ -17713.36726129,   9953.00658086,   3476.37485781, 1.2690714758],
-90 :[-15684.61938993 ,  8999.12262615,   2934.83549653, 1.15655002631],
-100 :[-15254.54018532 ,  8836.1191801,    3126.99536402, 1.17993760262],
-    }
-    
-    ### polarization of fitted sources
-    known_polarizations = {
-0 : 1 ,
-10 : 1 ,
-20 : 1 ,
-30 : 1 ,
-40 : 1 ,
-50 : 1 ,
-60:  1 ,
-70:  1 ,
-80:  1,
-90:  1,
-100: 1,
-    }
-    
-    
-    ## these are stations to exclude
-    stations_to_exclude = {
-            0:['RS406'], ## why is RS306 such a bad fit? RS406 is saturated
-            10:["RS406"], ##RS 406 is TERRIBLE fit, probably wrong pulse. Maybe there was saturation
-            20:['RS409', 'RS509'], ## RS409 seems to be wrong pulse. Don't understand why RS509 is such a bad fit
-            30:[],
-            40:['RS310', 'RS509','RS508'], ## RS310 has pulses moving through it. RS509 does not have pulse
-            50:['CS002', 'CS003', 'CS004', 'CS005', 'CS006', 'CS007', 'CS011','RS503'], ##event is weak on the core
-            60:['RS406'], ##probably got wrong pulse. May saturation issues?
-            70:['RS406', "RS508"],##RS406: wrong pulse, RS508 has complex structure. RERUN FIND PULSES
-            80:['RS406'], ## RS406 has wrong pulse.RERUN FIND PULSES
-            90:['RS406', 'RS306', 'RS409'],#wrong pulse.RERUN FIND PULSES RS409 has very complicated pulse
-            100:['RS307', 'RS406'],
-            }
-    
-    antennas_to_exclude = {
-            0:['146007060', '146007062'],
-            10:['188008064', '188005044'],
-            20:['150007062', '150007060', '150005044'],
-            30:[],
-            40:['188007062', '188005044'],
-            50:['017007060', '101004032', '141006048', 
-                '166002016', '166001012', '166006050', '166003028', '166003030', '166005044', 
-                '166005046', '166007060', '166007062', '166009076', '166011094',
-                '188006050'],
-            60:['021009078'],
-            70:['188008064','188001014','188011092'],
-            80:['146000000', '146010080', '146007060', '146009078'],
-            90:[],
-            100:['146010080', '146005046', '146007062', '146009076', '146009078', '146011094', '183002016',
-                 '183004032', '183006048', '183008064', '183001012', '183001014', '183003028', '183009076',
-                 '183011094', '002001014', '003008064', '003010080', '007008064', '007007062', '013008064',
-                 '013001014', '013003028', '013007062', '013007060', '021008064', '021001014', '021007062',
-                 '021009076', '021009078', '030006048', '030008064', '030007062', '030001012', '032002016', '032004032',
-                 '141006048', '161010080', '161009076', '161011092', '161011094', '181000000', '181003028'], ## a lot of weak pulses....
-            }
-    
-    bad_antennas = [
-            ##CS002
-            '003008064', ##CS003
-            ##CS004
-            ##CS005
-            ##CS006
-            ##CS007
-            ##CS011
-            ##CS013
-            ##CS017
-            '021009078', '021011092', ##CS021
-            '030003028', ##CS030
-            '032010080',##CS032
-            ##CS101
-            ##CS103
-            ##CS301
-            ##CS302
-            ##CS401
-            '181006048', ##CS501
-            ##RS208
-            ##RS306
-            ##RS307
-            ##RS310
-            ##RS406
-            '169005046', '169009076',##RS409
-            '183006048', '183003030', ##RS503  check 183006048, 183003030
-            '188011094',##RS508
-            ##RS509
-                    ]
-
-    antenna_calibrator = LBA_ant_calibrator(timeID)
-    
-    #### setup directory variables ####
-    processed_data_dir = processed_data_dir(timeID)
-    
-    data_dir = processed_data_dir + "/" + output_folder
+    data_dir = processed_data_folder + "/" + output_folder
     if not isdir(data_dir):
         mkdir(data_dir)
         
@@ -1901,9 +1380,6 @@ if __name__ == "__main__":
     raw_fpaths = filePaths_by_stationName(timeID)
     raw_data_files = {sname:MultiFile_Dal1(fpaths, force_metadata_ant_pos=True) for sname,fpaths in raw_fpaths.items() if sname in chain(guess_timings.keys(), [referance_station]) }
     
-    data_filters = {sname:window_and_filter(timeID=timeID,sname=sname) for sname in  chain(guess_timings.keys(), [referance_station]) }
-    
-    antenna_calibrator = LBA_ant_calibrator(timeID)
     
     
     
@@ -1932,7 +1408,7 @@ if __name__ == "__main__":
         ant_locs[i] = ant_loc_dict[ant_name]
     
     station_locations = {sname:ant_locs[station_to_antenna_index_dict[sname][0]] for sname in station_order + [referance_station]}
-    station_to_antenna_index_list = [station_to_antenna_index_dict[sname] for sname in station_order]
+    station_to_antenna_index_list = [station_to_antenna_index_dict[sname] for sname in station_order + [referance_station]]
     
     
     #### sort the delays guess, and account for station locations ####
@@ -1944,28 +1420,28 @@ if __name__ == "__main__":
     
     #### open info from part 1 ####
 
-    input_manager = Part1_input_manager( part1_inputs )
+    input_manager = Part1_input_manager( pulse_input_folders )
 
 
 
     #### first we fit the known sources ####
     current_sources = []
 #    next_source = 0
-    for knownID in known_sources:
+    for knownID in souces_to_fit:
         
         source_ID, input_name = input_manager.known_source( knownID )
         
         print("prep fitting:", source_ID)
             
             
-        location = known_source_locations[source_ID]
+        location = guess_source_locations[source_ID]
         
         ## make source
-        source_to_add = source_object(source_ID, input_name, location, stations_to_exclude[source_ID], antennas_to_exclude[source_ID] )
+        source_to_add = source_object(source_ID, input_name, location, source_stations_to_exclude[source_ID], source_antennas_to_exclude[source_ID] )
         current_sources.append( source_to_add )
 
 
-        polarity = known_polarizations[source_ID]
+        polarity = source_polarizations[source_ID]
 
             
         source_to_add.prep_for_fitting(polarity)
@@ -1973,8 +1449,8 @@ if __name__ == "__main__":
     print()
     print("fitting known sources")
 #    fitter = stochastic_fitter(current_sources)
-#    fitter = stochastic_fitter_dt(current_sources)
-    fitter = stochastic_fitter_FitLocs(current_sources)
+    fitter = stochastic_fitter_dt(current_sources)
+#    fitter = stochastic_fitter_FitLocs(current_sources)
     
     fitter.employ_result( current_sources )
     stations_with_fits = fitter.get_stations_with_fits()
@@ -1982,7 +1458,7 @@ if __name__ == "__main__":
     print()
     fitter.print_locations( current_sources )
     print()
-    fitter.print_station_fits( current_sources )
+    fitter.print_station_fits( current_sources, num_stat_per_table )
     print()
     fitter.print_delays( original_delays )
     print()
@@ -1999,6 +1475,248 @@ if __name__ == "__main__":
     for source in current_sources:
         print(source.ID, rel_loc-source.guess_XYZT)
     
+    
+    
+#if __name__ == "__main__": 
+#    timeID = "D20180813T153001.413Z"
+#    output_folder = "autoCorrelator_fitter"
+#    
+#    part1_inputs = ["correlate_foundPulses"]
+#    
+#    
+#    #### fitter settings ####
+#    max_itters_per_loop = 2000
+#    itters_till_convergence = 100
+#    max_jitter_width = 100000E-9
+#    min_jitter_width = 1E-9
+#    cooldown = 10.0 ## 10.0
+#    strong_cooldown = 100.0
+#    
+##    ## quality control
+#    min_antenna_amplitude = 10
+#    
+#    #### initial guesses ####
+#    referance_station = "CS002"
+#    
+#    guess_timings = {
+##'RS305' :  7.20258598963e-06 , ## diff to guess: 1.37699440122e-09 ## station has issues
+#
+#'CS001' :  2.24401370043e-06 , ## diff to guess: 1.29235299643e-11
+#'CS003' :  1.40707229239e-06 , ## diff to guess: 7.82040168843e-12
+#'CS004' :  4.40099666751e-07 , ## diff to guess: 9.61678512336e-12
+#'CS005' :  -2.17656598125e-07 , ## diff to guess: 4.84705827503e-12
+#'CS006' :  4.3066400857e-07 , ## diff to guess: 4.14197713031e-12
+#'CS007' :  3.99397678429e-07 , ## diff to guess: 5.94789283395e-12
+#'CS011' :  -5.89552623913e-07 , ## diff to guess: 7.1660845422e-12
+#'CS013' :  -1.81291223725e-06 , ## diff to guess: 1.51169225377e-11
+#'CS017' :  -8.4552014264e-06 , ## diff to guess: 2.2686025574e-11
+#'CS021' :  9.23663075135e-07 , ## diff to guess: 0.0
+#'CS024' :  2.33044421347e-06 , ## diff to guess: 1.05806343653e-11
+#'CS026': 0.0,
+#'CS030' :  -2.73967591383e-06 , ## diff to guess: 5.67213694396e-11
+#'CS031':    0.0,
+#'CS032' :  8.13571009217e-07 , ## diff to guess: 7.6275878917e-11
+#'CS101' :  -8.21547824735e-06 , ## diff to guess: 5.62878278313e-11
+#'CS103' :  -2.85886460604e-05 , ## diff to guess: 3.66485536647e-10
+#'CS201' :  -1.0510490799e-05 , ## diff to guess: 7.84117944321e-11
+#'CS301' :  -6.87213017423e-07 , ## diff to guess: 1.12597989423e-11
+#'CS302' :  -5.26869559665e-06 , ## diff to guess: 2.91420217558e-10
+#'CS501' :  -9.63030140489e-06 , ## diff to guess: 1.96524840723e-11
+#'RS106' :  6.77057764028e-06 , ## diff to guess: 8.64777505687e-09
+#'RS205' :  7.09038531806e-06 , ## diff to guess: 4.90898285216e-10
+#'RS306' :  7.39624369246e-06 , ## diff to guess: 1.00577633859e-08
+#'RS307' :  7.75277120373e-06 , ## diff to guess: 3.30790236347e-08
+#'RS310' :  7.48047034028e-06 , ## diff to guess: 2.75667095084e-07
+#'RS406' :  6.95643701513e-06 , ## diff to guess: 5.33683986172e-09
+#'RS407' :  6.82677458363e-06 , ## diff to guess: 2.2068065121e-09
+#'RS409' :  7.27907399068e-06 , ## diff to guess: 8.93964436744e-08
+#'RS503' :  6.92357363203e-06 , ## diff to guess: 2.13873992035e-10
+#'RS508' :  6.36091523007e-06 , ## diff to guess: 0.000429378832772
+#        }
+#
+#        
+#    if referance_station in guess_timings:
+#        ref_T = guess_timings[referance_station]
+#        guess_timings = {station:T-ref_T for station,T in guess_timings.items() if station != referance_station}
+#        
+##        del guess_timings[referance_station]
+#    
+#    
+#    known_sources = [0, 10] ## note that the index here is file_index + source_index*10
+#    
+#    ### locations of fitted sources
+#    known_source_locations = {
+# 0 :[ 2.82860910223 , -50739.3349291 , 0.0 , 1.56124937368 ],
+#10 :[ 2.82860910223 , -50739.3349291 , 0.0 , 1.56124937368 ],
+#    }
+#    
+#    ### polarization of fitted sources
+#    known_polarizations = {
+# 0 : 0 ,
+#10 : 0 ,
+#    }
+#    
+#    
+#    ## these are stations to exclude
+#    stations_to_exclude = {
+#            0:[],
+#           10:["CS302", "CS301", "CS031", "CS026","RS106","RS205","RS306","RS307","RS310","RS406","RS407","RS409","RS503","RS508", "CS101", "CS032", "CS030"],
+#            }
+#    
+#    antennas_to_exclude = {
+#            0:[],
+#           10:[],
+#            }
+#    
+#    
+#    bad_antennas = [
+#            ##CS002
+#            ##CS003
+#            ##CS004
+#            ##CS005
+#            ##CS006
+#            ##CS007
+#            ##CS011
+#            ##CS013
+#            ##CS017
+#            ##CS021
+#            ##CS030
+#            ##CS032
+#            ##CS101
+#            ##CS103
+#            ##CS301
+#            ##CS302
+#            ##CS401
+#            ##CS501
+#            ##RS208
+#            ##RS306
+#            ##RS307
+#            ##RS310
+#            ##RS406
+#            ##RS409
+#            ##RS503  
+#            ##RS508
+#            ##RS509
+#                    ]
+#    
+#    #### setup directory variables ####
+#    processed_data_dir = processed_data_dir(timeID)
+#    
+#    data_dir = processed_data_dir + "/" + output_folder
+#    if not isdir(data_dir):
+#        mkdir(data_dir)
+#        
+#    logging_folder = data_dir + '/logs_and_plots'
+#    if not isdir(logging_folder):
+#        mkdir(logging_folder)
+#
+#
+#
+#    #Setup logger and open initial data set
+#    log.set(logging_folder + "/log_out.txt") ## TODo: save all output to a specific output folder
+#    log.take_stderr()
+#    log.take_stdout()
+#    
+#        #### open data and data processing stuff ####
+#    print("loading data")
+#    raw_fpaths = filePaths_by_stationName(timeID)
+#    raw_data_files = {sname:MultiFile_Dal1(fpaths, force_metadata_ant_pos=True) for sname,fpaths in raw_fpaths.items() if sname in chain(guess_timings.keys(), [referance_station]) }
+#    
+#    
+#    
+#    
+#    #### sort antennas and stations ####
+#    station_order = list(guess_timings.keys())## note this doesn't include reference station
+#    sorted_antenna_names = []
+#    station_to_antenna_index_dict = {}
+#    ant_loc_dict = {}
+#    
+#    for sname in station_order + [referance_station]:
+#        first_index = len(sorted_antenna_names)
+#        
+#        stat_data = raw_data_files[sname]
+#        even_ant_names = stat_data.get_antenna_names()[::2]
+#        even_ant_locs = stat_data.get_LOFAR_centered_positions()[::2]
+#        
+#        sorted_antenna_names += even_ant_names
+#        
+#        for ant_name, ant_loc in zip(even_ant_names,even_ant_locs):
+#            ant_loc_dict[ant_name] = ant_loc
+#                
+#        station_to_antenna_index_dict[sname] = (first_index, len(sorted_antenna_names))
+#    
+#    ant_locs = np.zeros( (len(sorted_antenna_names), 3))
+#    for i, ant_name in enumerate(sorted_antenna_names):
+#        ant_locs[i] = ant_loc_dict[ant_name]
+#    
+#    station_locations = {sname:ant_locs[station_to_antenna_index_dict[sname][0]] for sname in station_order + [referance_station]}
+#    station_to_antenna_index_list = [station_to_antenna_index_dict[sname] for sname in station_order + [referance_station]]
+#    
+#    
+#    #### sort the delays guess, and account for station locations ####
+#    current_delays_guess = np.array([guess_timings[sname] for sname in station_order])
+#    original_delays = np.array( current_delays_guess )        
+#    
+#    
+#    
+#    
+#    #### open info from part 1 ####
+#
+#    input_manager = Part1_input_manager( part1_inputs )
+#
+#
+#
+#    #### first we fit the known sources ####
+#    current_sources = []
+##    next_source = 0
+#    for knownID in known_sources:
+#        
+#        source_ID, input_name = input_manager.known_source( knownID )
+#        
+#        print("prep fitting:", source_ID)
+#            
+#            
+#        location = known_source_locations[source_ID]
+#        
+#        ## make source
+#        source_to_add = source_object(source_ID, input_name, location, stations_to_exclude[source_ID], antennas_to_exclude[source_ID] )
+#        current_sources.append( source_to_add )
+#
+#
+#        polarity = known_polarizations[source_ID]
+#
+#            
+#        source_to_add.prep_for_fitting(polarity)
+#        
+#    print()
+#    print("fitting known sources")
+##    fitter = stochastic_fitter(current_sources)
+#    fitter = stochastic_fitter_dt(current_sources)
+##    fitter = stochastic_fitter_FitLocs(current_sources)
+#    
+#    fitter.employ_result( current_sources )
+#    stations_with_fits = fitter.get_stations_with_fits()
+#    
+#    print()
+#    fitter.print_locations( current_sources )
+#    print()
+#    fitter.print_station_fits( current_sources, num_stat_per_table )
+#    print()
+#    fitter.print_delays( original_delays )
+#    print()
+#    print()
+#    
+#    print("locations")
+#    for source in current_sources:
+#        print(source.ID,':[', source.guess_XYZT[0], ',', source.guess_XYZT[1], ',', source.guess_XYZT[2], ',', source.guess_XYZT[3], '],')
+#    
+#    print()
+#    print()
+#    print("REL LOCS")
+#    rel_loc = current_sources[0].guess_XYZT
+#    for source in current_sources:
+#        print(source.ID, rel_loc-source.guess_XYZT)
+#    
         
         
     

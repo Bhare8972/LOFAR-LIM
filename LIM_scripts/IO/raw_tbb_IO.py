@@ -595,7 +595,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     
     timeID =  "D20170929T202255.000Z"
-    station = "CS002"
+    station = "RS406"
     antenna_id = 0
     
     block_size = 2**16
@@ -605,6 +605,8 @@ if __name__ == "__main__":
     
     infile = MultiFile_Dal1(raw_fpaths[station])
 #    infile = MultiFile_Dal1(["./new_file.h5"])
+    
+    print( infile.get_LOFAR_centered_positions() )
     
     data = infile.get_data(block_number*block_size, block_size, antenna_index=antenna_id)
     

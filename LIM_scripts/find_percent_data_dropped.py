@@ -3,20 +3,33 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from LoLIM.utilities import processed_data_dir
+from LoLIM.utilities import processed_data_dir, log
 from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 from LoLIM.signal_processing import num_double_zeros
 
+from os import mkdir
+from os.path import isdir
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20180813T153001.413Z"
     block_size = 2**16
-    
+    output_folder = "/find_percent_data_dropped"
+    out_fname = "/findRFI_results"
     initial_block = 5000
     final_block = 6000
     
     raw_fpaths = filePaths_by_stationName(timeID)
+ 
+    processed_data_dir = processed_data_dir(timeID)
     
+    output_fpath = processed_data_dir + output_folder
+    if not isdir(output_fpath):
+        mkdir(output_fpath)
+        
+    log.set(output_fpath+'/log.txt', True)
+    log.take_stdout()
+        
+   
     for station, fpaths in raw_fpaths.items():
         print( station )
         

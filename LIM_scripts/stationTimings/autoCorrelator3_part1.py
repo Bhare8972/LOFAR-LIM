@@ -54,16 +54,16 @@ def find_subsection_pulse_list(pulse_list, start_T, end_T, search_start_i=0):
 
 if __name__=="__main__":
     
-    timeID = "D20170929T202255.000Z"
-    output_folder = "autoCorrelator3_part1C"
+    timeID = "D20180728T135703.246Z"
+    output_folder = "autoCorrelator3_part1A"
     
     plot_station_map = True
     
     stations_to_exclude =  ["CS028","RS106", "RS305", "RS205", "CS201", "RS407"]
     
     num_blocks_per_step = 100
-    initial_block = 3500
-    num_steps = 100
+    initial_block = 1000
+    num_steps = 30
     
     ant_timing_calibrations = "cal_tables/TxtAntDelay"
     polarization_flips = "polarization_flips.txt"
@@ -76,39 +76,43 @@ if __name__=="__main__":
     planewave_width = 300E-9
     
     guess_station_offsets = { ##these should be from lineing up planewaves, not accounting for source location
-        "CS002":0.0,
-        "CS003":1.0E-6,
-        "CS004":0.0,
-        "CS005":0.0,
-        "CS006":0.0,
-        "CS007":0.0,
-        "CS011":0.0,
-        "CS013":-0.000003,
-        "CS017":-7.0E-6,
-        "CS021":-8E-7,
-        "CS026":-7E-6,
-        "CS030":-5.5E-6,
-        "CS032":-5.5E-6 + 2E-6 + 1E-7,
-        "CS101":-7E-6,
-        "CS103":-22.5E-6-20E-8,
-        "RS106":35E-6 +30E-8 +12E-7,
-        "CS201":-7.5E-6,
-        "RS205":25E-6,
-        "RS208":8E-5+3E-6,
-        "CS301":6.5E-7,
-        "CS302":-3.0E-6-35E-7,
-        "RS305":-6E-6,
-        "RS306":-7E-6,
-        "RS307":175E-7+8E-7,
-        "RS310":8E-5+6E-6,
-        "CS401":-3E-6,
-        "RS406":-25E-6,
-        "RS407":5E-6 -8E-6 -15E-7,
-        "RS409":8E-6,
-        "CS501":-12E-6,
-        "RS503":-30.0E-8-10E-7,
-        "RS508":6E-5+5E-7,
-        "RS509":10E-5+15E-7,
+        "CS001":0.5036613,
+        "CS002":0.5036603,
+        "CS003":0.5036617 ,
+        "CS004":0.5036603,
+        "CS005":0.5036659,
+#        "CS006":0.0,
+#        "CS007":0.0,
+        "CS011":0.5036600,
+        "CS013":0.5036597,
+        "CS017":0.5036533,
+        "CS021":0.5036607,
+        "CS024":0.5036617,
+        "CS026":0.5036534,
+        "CS028":0.5036538,
+        "CS030":0.5036580,
+        "CS032":0.5036565,
+#        "CS101":-7E-6,
+        "CS103":0.5036365,
+        "RS106":0.5033261,
+        "CS201":0.5036514,
+        "RS205":0.5036237,
+#        "RS208":8E-5+3E-6,
+        "RS210":0.5038797,
+        "CS301":0.5036571,
+        "CS302":0.5036482,
+#        "RS305":-6E-6,
+        "RS306":0.5034770,
+#        "RS307":175E-7+8E-7,
+        "RS310":0.5037734,
+#        "CS401":-3E-6,
+#        "RS406":-25E-6,
+        "RS407":0.5015300,
+#        "RS409":8E-6,
+        "CS501":0.5036528,
+#        "RS503":-30.0E-8-10E-7,
+        "RS508":0.5012425,
+        "RS509":0.4959012,
     }
     
     

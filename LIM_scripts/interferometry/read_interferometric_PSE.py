@@ -108,6 +108,28 @@ class Ipse:
     def set_header(self, header):
         self.header = header
         
+    def plot(self, station_set="all"):
+        """station_set should be "all", "CS", "RS" """
+        
+        station_ant_info = self.header.antenna_info_by_station()
+        for stat_i, (sname, ant_list) in enumerate(station_ant_info.items()):
+            if station_set=="all" or station_set==sname[:2]:
+                traces = []
+                max = 0.0
+                for ant in ant_list:
+                    traces.append( np.abs(self.file_dataset[ ant.antenna_index ] ) )
+                    tmax = np.max( traces[-1] )
+                    if tmax > max:
+                        max = tmax
+                    
+                for t in traces:
+                    plt.plot( np.abs(t)/max+stat_i*1.1, linewidth=3 )
+                plt.annotate(sname, (0.0,stat_i*1.1+0.5))
+                
+        plt.axvline(x=25)
+        plt.show()
+
+        
 def load_interferometric_PSE(folder, blocks_to_open=None):
     print("reading PSE")
     
@@ -186,6 +208,13 @@ def filter_IPSE( IPSE_list, bounds ):
     """filter IPSE by XYZT bounds."""
     return [IPSE for IPSE in IPSE_list if bounds[0][0]<IPSE.loc[0]<bounds[0][1] and bounds[1][0]<IPSE.loc[1]<bounds[1][1] \
             and bounds[2][0]<IPSE.loc[2]<bounds[2][1] and bounds[3][0]<IPSE.T<bounds[3][1] ]
+    
+def get_IPSE( IPSE_list, unique_index):
+    for IPSE in IPSE_list:
+        if IPSE.unique_index == unique_index:
+            return IPSE
+    return None
+    
 
 def IPSE_to_txt(IPSE_list, out_file):
     for ipse in IPSE_list:

@@ -56,7 +56,7 @@ if __name__ == "__main__":
     from os import mkdir
     from os.path import isdir
     
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20180813T153001.413Z"
     history_folder = "./svn_phase_cal_history"
     
     skip = []#['RS407'] ##stations to skip

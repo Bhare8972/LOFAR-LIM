@@ -1122,18 +1122,18 @@ def multi_planewave_intersections(planewave_dict, referance_station=None, do_sta
     
 def plot_planewaves():
     
-    timeID = "D20180308T165753.250Z"
-    input_folder_name = "/SSPW"
+    timeID = "D20180728T135703.246Z"
+    input_folder_name = "/SSPWA"
     
-    first_block = 700
+    first_block = 2500
     num_blocks = 100
     
-    filter_first_block = 700
+    filter_first_block = 2500
     actual_num_blocks = 50
     
     min_time_between_SSPW_events = 0.0#6*25E-7
     
-    stations_to_exclude = ["RS407", "CS028", "CS007", "CS101", "RS210", "RS310", "CS401"]
+    stations_to_exclude = ["CS006", "CS101", "CS401", "RS305", "RS503", "CS307", "CS026"]
     
     station_offsets = {
         }
@@ -1263,8 +1263,8 @@ def plot_planewaves():
     
 def histogram_RMS_fits():
     
-    timeID = "D20180728T135703.246Z"
-    input_folder_name = "SSPWB"
+    timeID = "D20180809T141413.250Z"
+    input_folder_name = "SSPW"
     
     
     SSPW_data = read_SSPW_timeID(timeID, input_folder_name, load_timeseries=False)
@@ -1279,15 +1279,15 @@ def histogram_RMS_fits():
 def antenna_health():
     ## check timing error by antnenna, and fraction of time an antenna is used.
     
-    timeID = "D20180728T135703.246Z"
-    input_folder_name = "SSPWB"
+    timeID = "D20180809T141413.250Z"
+    input_folder_name = "SSPW"
     
     
     SSPW_data = read_SSPW_timeID(timeID, input_folder_name, load_timeseries=False)
     SSPW_dict = SSPW_data["SSPW_dict"]
     
     for sname, SSPW_list in SSPW_dict.items():
-        print("Processing", sname)
+        print("Processing", sname, len("CS401"))
         
         num_ant_used = {}
         
@@ -1317,7 +1317,7 @@ def antenna_health():
 def plot_planewave_directions():
     
     timeID = "D20180728T135703.246Z"
-    input_folder_name = "SSPWB"
+    input_folder_name = "SSPWA"
     
     stations_to_exclude = []#["RS106", "RS305", "RS205", "CS201", "RS407"]
     
@@ -1380,8 +1380,8 @@ if __name__=="__main__":
     from LoLIM.read_pulse_data import curtain_plot, read_station_info
     from matplotlib import pyplot as plt
     
-    histogram_RMS_fits()
-#    plot_planewave_directions()
+#    histogram_RMS_fits()
+    plot_planewave_directions()
 #    plot_planewaves()
 #    antenna_health()
     

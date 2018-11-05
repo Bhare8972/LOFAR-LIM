@@ -16,15 +16,15 @@ from os.path import isdir
 from pickle import dump
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20180813T153001.413Z"
     output_folder = "/findRFI"
     out_fname = "/findRFI_results"
     block_size = 2**16
-    initial_block = 100
+    initial_block = 1500
     num_blocks = 20
     max_blocks = 500
     
-    skip_stations = ["CS021", "RS305", "RS409", "RS503", "CS501"]
+    skip_stations = ["CS401"]
     
     
     processed_data_dir = processed_data_dir(timeID)

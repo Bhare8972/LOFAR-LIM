@@ -52,7 +52,7 @@ class getTrace_fromLoc():
         
         return data_start_sample+local_data_index-width_before, total_time_offset, predicted_arrival_time, data
     
-    def get_trace_fromIndex(self, starting_index, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, half_hann_length=50):
+    def get_trace_fromIndex(self, starting_index, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, saturation_half_hann_length=50):
         """similar to previous, but now retrieve trace based on location in file. For repeatability.
         Has same returns. predicted arrival time is just the time in middle of trace"""
         
@@ -69,7 +69,7 @@ class getTrace_fromLoc():
         input_data = station_data.get_data(starting_index-local_data_index , data_filter.blocksize, antenna_index=file_antenna_index  )
         input_data = np.array( input_data, dtype=np.double )
         if do_remove_saturation:
-            remove_saturation( input_data, positive_saturation, negative_saturation, removal_length, half_hann_length )
+            remove_saturation( input_data, positive_saturation, negative_saturation, removal_length, saturation_half_hann_length )
         
         
         if do_remove_RFI:

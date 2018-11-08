@@ -304,24 +304,51 @@ class stochastic_fitter:
             print("  loc:", self.solution[param_i:param_i+4])
             param_i += 4
     
-    def print_station_fits(self, source_object_list):
+#    def print_station_fits(self, source_object_list):
+#        
+#        fit_table = PrettyTable()
+#        fit_table.field_names = ['id'] + station_order + [referance_station] + ['total']
+#        fit_table.float_format = '.2E'
+#        
+#        for source, RMSfit, stationfits in zip(source_object_list, self.PSE_RMS_fits, self.PSE_fits):
+#            new_row = ['']*len(fit_table.field_names)
+#            new_row[0] = source.ID
+#            new_row[-1] = RMSfit
+#            
+#            for i,stat_fit in enumerate(stationfits):
+#                if stat_fit is not None:
+#                    new_row[i+1] = stat_fit
+#                    
+#            fit_table.add_row( new_row )
+#            
+#        print( fit_table )
         
-        fit_table = PrettyTable()
-        fit_table.field_names = ['id'] + station_order + [referance_station] + ['total']
-        fit_table.float_format = '.2E'
+    def print_station_fits(self, source_object_list, num_stat_per_table):
         
-        for source, RMSfit, stationfits in zip(source_object_list, self.PSE_RMS_fits, self.PSE_fits):
-            new_row = ['']*len(fit_table.field_names)
-            new_row[0] = source.ID
-            new_row[-1] = RMSfit
+        stations_to_print = station_order + [referance_station]
+        current_station_i = 0
+        while len(stations_to_print) > 0:
+            stations_this_run = stations_to_print[:num_stat_per_table]
+            stations_to_print = stations_to_print[len(stations_this_run):]
             
-            for i,stat_fit in enumerate(stationfits):
-                if stat_fit is not None:
-                    new_row[i+1] = stat_fit
-                    
-            fit_table.add_row( new_row )
+            fit_table = PrettyTable()
+            fit_table.field_names = ['id'] + stations_this_run + ['total']
+            fit_table.float_format = '.2E'
             
-        print( fit_table )
+            for source, RMSfit, stationfits in zip(source_object_list, self.PSE_RMS_fits, self.PSE_fits):
+                new_row = ['']*len(fit_table.field_names)
+                new_row[0] = source.ID
+                new_row[-1] = RMSfit
+                
+                for i,stat_fit in enumerate(stationfits[current_station_i:current_station_i+len(stations_this_run)]):
+                    if stat_fit is not None:
+                        new_row[i+1] = stat_fit
+                        
+                fit_table.add_row( new_row )
+                
+            print( fit_table )
+            print()
+            current_station_i += len(stations_this_run)
                     
     def print_delays(self, original_delays):
         for sname, delay, original in zip(station_order, self.solution[:self.num_delays], original_delays):
@@ -1336,7 +1363,8 @@ num_stat_per_table = 10
 def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
                ref_station="CS002", min_ant_amplitude=10, max_stoch_loop_itters = 2000, min_itters_till_convergence = 100,
-               initial_jitter_width = 100000E-9, final_jitter_width = 1E-9, cooldown_fraction = 10.0, strong_cooldown_fraction = 100.0):
+               initial_jitter_width = 100000E-9, final_jitter_width = 1E-9, cooldown_fraction = 10.0, strong_cooldown_fraction = 100.0,
+               fitter = "dt"):
     
     ##### holdovers. These globals need to be fixed, so not global....
     global station_locations, station_to_antenna_index_list, stations_with_fits, station_to_antenna_index_dict
@@ -1448,9 +1476,18 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
         
     print()
     print("fitting known sources")
-#    fitter = stochastic_fitter(current_sources)
-    fitter = stochastic_fitter_dt(current_sources)
-#    fitter = stochastic_fitter_FitLocs(current_sources)
+    if fitter=='dt':
+        fitter = stochastic_fitter_dt(current_sources)
+    elif fitter=='dt2':
+        fitter = stochastic_fitter(current_sources)
+    elif fitter=='locs':
+        fitter = stochastic_fitter_FitLocs(current_sources)
+    elif fitter=="solve":
+        print("Pro tip: you shouldn't take advice from bad error messages. Would you have typed in your password if I asked?")
+        return
+    else:
+        print("you choose a bad fitter. Now the fit will be bad. Guess I shouldn't even try. Do better next time, please. 'fitter' can be 'dt', 'dt2', 'locs', or 'solve'")
+        return
     
     fitter.employ_result( current_sources )
     stations_with_fits = fitter.get_stations_with_fits()

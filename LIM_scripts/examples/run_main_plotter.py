@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 
 from LoLIM.main_plotter import *
-
-
-    from LoLIM.interferometry import read_interferometric_PSE as R_IPSE
+from LoLIM.interferometry import read_interferometric_PSE as R_IPSE
 
 if __name__=="__main__":
     

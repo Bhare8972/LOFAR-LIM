@@ -2,6 +2,11 @@
 
 from LoLIM.stationTimings.autoCorrelator3_part1_selfPeakFind2 import save_Pulse
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
+
 if __name__=="__main__":
     
     timeID = "D20180813T153001.413Z"

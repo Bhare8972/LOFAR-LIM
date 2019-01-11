@@ -596,7 +596,26 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     
     return ret
     
+def geoditic_to_ITRF(latLonAlt):
+    """for a latLonAlt, (can be list of three numpy arrays), convert to ITRF coordinates. Using information at: https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#Geodetic_to/from_ENU_coordinates and 
+    http://itrf.ensg.ign.fr/faq.php?type=answer"""
+    
+    a = 6378137.0  #### semi-major axis, m
+    e2 = 0.00669438002290 ## eccentricity squared
+    
+    def N(lat):
+        return a/np.sqrt( 1 - e2*(np.sin(lat)**2) )
+    
+    lat = latLonAlt[0]/RTD
+    lon = latLonAlt[1]/RTD
+    
+    X = ( N(lat) + latLonAlt[2] ) *np.cos(lat) *np.cos(lon)
+    Y = ( N(lat) + latLonAlt[2] ) *np.cos(lat) *np.sin(lon)
 
+    b2_a2 =  1-e2
+    Z = ( b2_a2*N(lat) + latLonAlt[2] ) *np.sin(lat)
+    
+    return np.array( [X,Y,Z] )
 
 
 

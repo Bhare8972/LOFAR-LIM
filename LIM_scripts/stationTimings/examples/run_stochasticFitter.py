@@ -2,6 +2,11 @@
 
 from LoLIM.stationTimings.autoCorrelator3_stochastic_fitter import run_fitter   
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
+
 guess_timings = {
 #'RS305' :  7.20258598963e-06 , ## diff to guess: 1.37699440122e-09 ## station has issues
 

@@ -12,8 +12,9 @@ import weakref
 from scipy import fftpack
 import numpy as np
 
-default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
-default_processed_data_loc = "/home/brian/processed_files"
+## some global variables, this needs to be fixed at some point
+default_raw_data_loc = None#"/exp_app2/appexp1/public/raw_data"
+default_processed_data_loc = None#"/home/brian/processed_files"
 
 MetaData_directory =  dirname(abspath(__file__)) + '/data' ## change this if antenna_response_model is in a folder different from this module
 
@@ -44,17 +45,19 @@ class logger(object):
     
     
     def __init__(self):
-        self.set("out_log")
         
-    def set(self, fname, to_screen=True):
-        self.out_file = open(fname, 'w')
         self.has_stderr = False
         self.has_stdout = False
         
         self.old_stderr = sys.stderr
         self.old_stdout = sys.stdout
         
-        self.to_screen = to_screen
+        self.set("out_log")
+        
+    def set(self, fname, to_screen=True):
+        self.out_file = open(fname, 'w')
+        
+        self.set_to_screen( to_screen )
         
         
     def __call__(self, *args):
@@ -101,11 +104,11 @@ class logger(object):
     def flush(self):
         self.out_file.flush()
             
-    def __del__(self):
-        self.restore_stderr()
-        self.restore_stdout()
+#    def __del__(self):
+#        self.restore_stderr()
+#        self.restore_stdout()
         
-log = logger()
+#log = logger()
         
 def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
     """returns an iterator that loops over all pairs of the two lists"""

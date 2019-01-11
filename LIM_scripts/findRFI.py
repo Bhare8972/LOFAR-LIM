@@ -17,11 +17,12 @@ from LoLIM.utilities import processed_data_dir
 from LoLIM.signal_processing import half_hann_window, num_double_zeros
 
 
-def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None, verbose=False, figure_location=None, lower_frequency=10E6, upper_frequency=90E6):
+def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None, verbose=False, figure_location=None, lower_frequency=10E6, upper_frequency=90E6, num_dbl_z=100):
     """ use phase-variance to find RFI in data. TBB_in_file should be a MultiFile_Dal1, encompassing the data for one station. block_size should be around 65536 (2^16). 
     num_blocks should be at least 20. Sometimes a block needs to be skipped, so max_blocks shows the maximum number of blocks used (after initial block) used to find num_blocks 
     number of good blocks. initial block should be such that there is no lightning in the max_blocks number of blocks. If max_blocks is None (default), it is set to num_blocks
-    figure_location should be a folder to save relavent figures, default is None (do not save figures).
+    figure_location should be a folder to save relavent figures, default is None (do not save figures). num_dbl_z is number of double zeros allowed in a block, if there are too
+    many, then there could be data loss.
     
     returns a dictionary with the following key-value pairs:
         "ave_spectrum_magnitude":a numpy array that contains the average of the magnitude of the frequency spectrum
@@ -37,109 +38,201 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     num_antennas = len(TBB_in_file.get_antenna_names())
     
     if figure_location is not None:
-        max_over_blocks = np.zeros((num_antennas, num_blocks), dtype=np.double)
+        max_over_blocks = np.zeros((num_antennas, max_blocks), dtype=np.double)
         
+        
+        
+        
+    #### step one: find which blocks are good, and find average power ####
+    oneAnt_data = np.empty( block_size, dtype=np.double )
     
-    ## filter analysis by frequency ###
-    frequencies = np.fft.fftfreq(block_size, 1.0/TBB_in_file.get_sample_frequency())
+    if verbose:
+        print( 'finding good blocks' )
+    blocks_good = np.zeros((num_antennas, max_blocks), dtype=bool)
+    num_good_blocks = np.zeros(num_antennas, dtype=int)
+    average_power = np.zeros(num_antennas, dtype=np.double)
+    for block_i in range(max_blocks):
+        block = block_i + initial_block
+        
+        for ant_i in range(num_antennas):
+            oneAnt_data[:] = TBB_in_file.get_data( block_size*block, block_size, antenna_index=ant_i )
+            
+            if num_double_zeros( oneAnt_data ) < num_dbl_z: ## this antenna on this block is good
+                blocks_good[ ant_i, block_i ] = True
+                num_good_blocks[ ant_i ] += 1
+                
+                oneAnt_data *= window_function
+                
+                FFT_data = np.fft.fft( oneAnt_data )
+                np.abs(FFT_data, out=FFT_data)
+                magnitude = FFT_data
+                magnitude *= magnitude 
+                average_power[ ant_i ] += np.real( np.sum( magnitude ) )
+            
+            if figure_location is not None:
+                max_over_blocks[ant_i, block_i] = np.max( oneAnt_data[ant_i] )
+                
+    average_power[num_good_blocks!=0] /= num_good_blocks[num_good_blocks!=0]
+    
+    
+    #### now we try to find the best referance antenna, Require that antenan allows for maximum number of good antennas, and has **best** average recieved power
+    allowed_num_antennas = np.empty( num_antennas, dtype=np.int) ## if ant_i is choosen to be your referance antnena, then allowed_num_antennas[ ant_i ] is the number of antennas with num_blocks good blocks
+    for ant_i in range(num_antennas):### fill allowed_num_antennas
+        
+        blocks_can_use = np.where( blocks_good[ ant_i ] )[0]
+        num_good_blocks_per_antenna = np.sum( blocks_good[:,blocks_can_use], axis=1 )
+        allowed_num_antennas[ ant_i ] = np.sum( num_good_blocks_per_antenna >= num_blocks )
+    
+    max_allowed_antennas = np.max(allowed_num_antennas)
+    
+    if max_allowed_antennas < 2:
+        print("ERROR: station", TBB_in_file.get_station_name(), "cannot find RFI")
+        return
+    
+    ## pick ref antenna that allows max number of atnennas, and has most median amount of power
+    can_be_ref_antenna = (allowed_num_antennas == max_allowed_antennas )
+#    print(allowed_num_antennas)
+#    print(average_power)
+    
+    sorted_by_power = np.argsort( average_power )
+    
+    for ant_i in sorted_by_power[int(len(sorted_by_power)*0.5):]:
+        if can_be_ref_antenna[ant_i]:
+            ref_antenna = ant_i
+            break
+     
+#    median = len(sorted_by_power)*0.5
+#    lowest_medianity = np.inf
+#    ref_antenna = None
+#    for order,ant_i in enumerate(sorted_by_power):
+#        if can_be_ref_antenna[ant_i]:
+#            medianity = np.abs( order-median )
+#            if medianity < lowest_medianity:
+#                lowest_medianity = medianity
+#                ref_antenna = ant_i
+                
+    ## take ref antenna with lowest power
+#    can_be_ref_antenna = np.where( allowed_num_antennas == np.max(allowed_num_antennas) )[0]
+#    ref_antenna = can_be_ref_antenna[  np.argmin( average_power[can_be_ref_antenna] )  ] 
+    
+#    return
+                
+#    ref_antenna = np.argmax( num_good_blocks )
+#    ref_antenna = 5
+    if verbose:
+        print( 'Taking channel %d as reference antenna' % ref_antenna)
+    
+    ## define some helping variables ##
+    good_blocks = np.where( blocks_good[ ref_antenna ] )[0]
+    
+    num_good_blocks = np.sum( blocks_good[:,good_blocks], axis=1 )
+    antenna_is_good = num_good_blocks >= num_blocks
+    
+#    antenna_is_good[0] = False
+    
+    blocks_good[np.logical_not(antenna_is_good) , : ] = False
+    
+#    antenna_is_good[0] = False
+    
+    #### process data ####
+    num_processed_blocks = np.zeros(num_antennas, dtype=int)
+    frequencies = np.fft.fftfreq(block_size, 1.0/TBB_in_file.get_sample_frequency())    
     lower_frequency_index = np.searchsorted(frequencies[:int(len(frequencies)/2)], lower_frequency)
     upper_frequency_index = np.searchsorted(frequencies[:int(len(frequencies)/2)], upper_frequency)
     
-    refant = None # determine reference antenna from median power; do not rely on antenna 0 being alive...
-    phase_mean = None
-    spectrum_mean = None
-    antenna_is_good = np.ones(num_antennas, dtype=bool)
-    num_analyzed_blocks = 0
-    #### first step is to find average spectrum phase and magnitude for each antenna and each channel####
-    for block_i in range(max_blocks):
-    # accumulate list of arrays of phases, from spectrum of all antennas of every block
+    phase_mean =    np.zeros( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=complex  )
+    spectrum_mean = np.zeros( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=np.double)
+#    temp_mag_spectrum = np.empty( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=np.double)
+#    temp_phase_spectrum = np.empty( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=np.complex)
+#    
+#    data = np.empty( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=np.complex )
+    data = np.empty( (num_antennas, len(frequencies)), dtype=np.complex )
+    temp_mag_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.double)
+    temp_phase_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.complex)
+    for block_i in good_blocks:
         if verbose:
-            print( 'Doing block %d of %d' % (block_i, num_blocks) )
+            print( 'Doing block %d' % block_i )
         block = block_i + initial_block
-
-        ## get data from every antenna, check antennas are good
-        data = np.empty( (num_antennas, block_size), dtype=np.double )
+        
         for ant_i in range(num_antennas):
+            if num_processed_blocks[ant_i] == num_blocks or not blocks_good[ant_i, block_i]:
+                continue
+            oneAnt_data[:] = TBB_in_file.get_data( block_size*block, block_size, antenna_index=ant_i )
             
-            data[ant_i] = TBB_in_file.get_data( block_size*block, block_size, antenna_index=ant_i )
+            ##window the data
+            # Note: No hanning window if we want to measure power accurately from spectrum
+            # in the same units as power from timeseries. Applying a window gives (at least) a scale factor
+            # difference!
+            # But no window makes the cleaning less effective... :(
+            oneAnt_data *= window_function
+            data[ant_i] = np.fft.fft( oneAnt_data )#[lower_frequency_index:upper_frequency_index]
             
-            if num_double_zeros(data[ant_i])>(0.5*block_size):
-                antenna_is_good[ant_i] = False
-            else:
-                antenna_is_good[ant_i] = True
             
-            if figure_location is not None:
-                max_over_blocks[ant_i, num_analyzed_blocks] = np.max( data[ant_i] )
+        np.abs( data, out=temp_mag_spectrum )
+#        temp_phase_spectrum[:] = np.angle(data)
+        temp_phase_spectrum[:] = data
+        temp_phase_spectrum /= (temp_mag_spectrum + 1.0E-15)
+        temp_phase_spectrum[:,:] /= temp_phase_spectrum[ref_antenna,:]
         
-        num_good = np.sum(antenna_is_good)
-        if verbose:
-            print("  ",num_good, "good antennas out of", num_antennas)
-        if num_good<(0.5*num_antennas):
-            if verbose:
-                print("   skipping block (too few ant)")
-            continue
+        temp_mag_spectrum *= temp_mag_spectrum
+        
+        
+        for ant_i in range(num_antennas):
+            if num_processed_blocks[ant_i] == num_blocks or not blocks_good[ant_i, block_i]:
+                continue
             
-        ##window the data
-        # Note: No hanning window if we want to measure power accurately from spectrum
-        # in the same units as power from timeseries. Applying a window gives (at least) a scale factor
-        # difference!
-        # But no window makes the cleaning less effective... :(
-        data[:,...] *= window_function
-        
-        ### get FFT
-        fft_data = np.fft.fft( data, axis=1 )
-        
-        mag_spectrum = np.abs(fft_data)
-        phase = np.array(fft_data)
-        phase /= (mag_spectrum + 1.0E-15)
-        
-        mag_spectrum *= mag_spectrum
-        
-        if refant is None:
-            channel_power = np.sum( mag_spectrum, axis=1 )
-            antenna_is_good = np.logical_and( antenna_is_good, channel_power>1)
-            sorted_by_power = np.argsort( channel_power )
+#            temp_phase_spectrum[ant_i,:] /= temp_phase_spectrum[ref_antenna,:]
+            phase_mean[ant_i,:]    +=        temp_phase_spectrum[ant_i][lower_frequency_index:upper_frequency_index]
+#            temp_phase_spectrum[ant_i,:] -= temp_phase_spectrum[ref_antenna,:]
+#            phase_mean[ant_i,:]    +=    np.exp( temp_phase_spectrum[ant_i]*1j )
+            spectrum_mean[ant_i,:] += temp_mag_spectrum[ant_i][lower_frequency_index:upper_frequency_index]
             
-            for anti in sorted_by_power[int(len(sorted_by_power)*0.5):]:
-                if antenna_is_good[anti]:
-                    refant = anti
-                    break
-                
-            if verbose:
-                print( 'Taking channel %d as reference antenna' % refant, antenna_is_good[refant])
-            del channel_power ## obsesed about memory use
-        elif not antenna_is_good[refant]:
-            if verbose:
-                print("   skipping block (bad ref)")
-            continue
-        
-        num_analyzed_blocks += 1
-        
-        ### increment data ###
-        phase[antenna_is_good,2:] /= phase[refant,2:]
-        
-        if phase_mean is None:
-            phase_mean = np.zeros(   (fft_data.shape[0], upper_frequency_index-lower_frequency_index), dtype=complex)
-            spectrum_mean = np.zeros((fft_data.shape[0], upper_frequency_index-lower_frequency_index), dtype=np.double)
+#            print(ant_i, num_processed_blocks[ant_i])
             
-        phase_mean[antenna_is_good,:]    +=        phase[antenna_is_good,lower_frequency_index:upper_frequency_index]
-        spectrum_mean[antenna_is_good,:] += mag_spectrum[antenna_is_good,lower_frequency_index:upper_frequency_index]
-        
-        if num_analyzed_blocks==num_blocks:
+            num_processed_blocks[ant_i] += 1
+            
+#        plt.plot( np.real(phase_mean[2]) )
+#        plt.show()
+            
+        if np.min(num_processed_blocks[antenna_is_good]) == num_blocks:
             break
+        
     
     if verbose:
-        print(num_analyzed_blocks, "analyzed blocks, out of", block_i+1)
+        print(num_blocks, "analyzed blocks", np.sum(antenna_is_good), "analyzed antennas out of", len(antenna_is_good))
+        
+    ## get only good antennas
+    new_ref_ant_index = np.cumsum( antenna_is_good )[ref_antenna] - 1
+    spectrum_mean = spectrum_mean[antenna_is_good,:]
+
+    antenna_is_good[ref_antenna] = False ## we don't want to analyze the phase stability of the referance antenna
+    phase_mean = phase_mean[antenna_is_good]
+    antenna_is_good[ref_antenna] = True ## cause'.... ya know.... it is
+        
+    
     ### get mean and phase stability ###
-    spectrum_mean /= num_analyzed_blocks
+    spectrum_mean /= num_blocks
     
     phase_stability = np.abs(phase_mean)
-    phase_stability *= -1.0/num_analyzed_blocks
+    phase_stability *= -1.0/num_blocks
     phase_stability += 1.0
     
+#    plt.semilogy(spectrum_mean[1])
+#    plt.show()
+#    plt.plot(phase_stability[1])
+#    plt.show()
+#    
+#    for ps in phase_stability:
+#        plt.plot(ps)
+#    plt.show()
         
     #### get median of stability by channel, across each antenna ###
-    median_phase_spread_byChannel = np.median(phase_stability[antenna_is_good], axis=0)
+    median_phase_spread_byChannel = np.median(phase_stability, axis=0)
+#    ave_phase_spread_byChannel = np.average(phase_stability, axis=0)
+#    plt.plot(ave_phase_spread_byChannel, 'r')
+#    plt.plot(median_phase_spread_byChannel)
+#    plt.show()
+    
     #### get median across all chanells
     median_spread = np.median( median_phase_spread_byChannel )
     #### create a noise cuttoff###
@@ -156,10 +249,10 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     for i in dirty_channels:
         flag_min = i-half_flagwidth
         flag_max = i+half_flagwidth
-        if flag_min<0:
-            flag_min=0
-        if flag_max>= N:
-            flag_max=N-1
+        if flag_min < 0:
+            flag_min = 0
+        if flag_max >= N:
+            flag_max = N-1
         extend_dirty_channels[flag_min:flag_max] = True
     
     dirty_channels = np.where( extend_dirty_channels )
@@ -178,8 +271,8 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.close()
         
         plt.figure()
-        plt.plot(frequencies, spectrum_mean[refant])
-        plt.plot(frequencies[dirty_channels], spectrum_mean[refant][dirty_channels], 'ro')
+        plt.plot(frequencies, spectrum_mean[ new_ref_ant_index ])
+        plt.plot(frequencies[dirty_channels], spectrum_mean[ new_ref_ant_index ][dirty_channels], 'ro')
         plt.xlabel("Frequency [MHz]")
         plt.ylabel("magnitude")
         plt.yscale('log', nonposy='clip')
@@ -210,6 +303,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     
     output_dict["antenna_names"] = TBB_in_file.get_antenna_names()
     output_dict["timestamp"] = TBB_in_file.get_timestamp()
+    output_dict["antennas_good"] = antenna_is_good
    
     return output_dict
 
@@ -318,6 +412,10 @@ if __name__ == "__main__":
     station = "CS002"
     antenna_id = 0
         
+    ## these lines are anachronistic and should be fixed at some point
+    from LoLIM import utilities
+    utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+    utilities.default_processed_data_loc = "/home/brian/processed_files"
         
     block_size = 2**16
     block_number = 3600
@@ -326,15 +424,14 @@ if __name__ == "__main__":
     
     data_file = MultiFile_Dal1(raw_fpaths[station])
     
-    block_size = 2**16 ##FindRFI needs a fairly large block size
-    
     
     ### find the radio stations that make noise ####
     ### this searches the beginning of the data file, before the flash, for noise due to human radio stations ###
     initial_block = 1
     number_blocks = 20
-    RFI = FindRFI(data_file, block_size, initial_block, number_blocks, verbose=True, figure_location=None) ##set figure location to some folder to see output plots
+    RFI = FindRFI(data_file, block_size, initial_block, number_blocks, max_blocks=100, verbose=True, figure_location=None) ##set figure location to some folder to see output plots
 
+    quit()
 
     RFI_filter = window_and_filter(block_size, RFI, lower_filter=30E6, upper_filter=80E6)
     

@@ -330,7 +330,7 @@ class LBA_ant_calibrator:
         self.odd_pol_FFT *= np.exp( self.frequencies*(-1j*2*np.pi*odd_time_shift) )
         
     def apply_GalaxyCal(self):
-        """applies the galaxy calibration to this data. Can be applied independantly of unravelAntennaResponce"""
+        """applies the galaxy calibration to this data. Can be applied independantly of unravelAntennaResponce. Negative frequencies are set to zero."""
         
         ### first we apply the correction factors ###
         PolE_factor, PolO_factor = self.calibration_factors[self.even_ant_name]

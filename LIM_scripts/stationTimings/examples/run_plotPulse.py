@@ -2,6 +2,10 @@
 
 from LoLIM.stationTimings.autoCorrelator3_plotPulse import processed_data_dir, plot_stations, plot_one_station
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 timeID = "D20180813T153001.413Z"
 polarization = 0 ## 0 for even, 1 for odd

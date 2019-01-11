@@ -3,6 +3,11 @@
 from LoLIM.main_plotter import *
 from LoLIM.interferometry import read_interferometric_PSE as R_IPSE
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
+
 if __name__=="__main__":
     
     #### make color maps and coordinate systems ####

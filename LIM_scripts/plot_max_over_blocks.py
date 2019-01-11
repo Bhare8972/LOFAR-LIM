@@ -56,9 +56,9 @@ if __name__ == "__main__":
                 data[block_i] = antenna_block_max
                 
             plt.plot(data)
-#            plt.show()
+            plt.show()
         
         print("saving figure:", output_fpath+'/'+station+'.png')
 #        plt.savefig(output_fpath+'/'+station+'.png')
-        plt.show()
+#        plt.show()
 #        plt.close()

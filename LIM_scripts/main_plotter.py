@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 ## on APP machine
 
@@ -13,6 +13,7 @@ import matplotlib
 matplotlib.use('Qt5Agg')
 #matplotlib.use('svg')
 from PyQt5 import QtCore, QtWidgets
+from PyQt5.Qt import QApplication, QClipboard
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,6 +24,7 @@ import matplotlib.colors as colors
 
 ## mine
 from LoLIM.utilities import v_air, processed_data_dir
+from LoLIM.read_LMA import read_LMA_folder_data
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
     cmap = plt.get_cmap(cmap_name)
@@ -123,19 +125,14 @@ class DataSet_Type:
     def get_alt_lims(self):
         pass
     
-    
-    
     def get_all_properties(self):
         return {}
     
     def set_property(self, name, str_value):
         pass
     
-
-    
     def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes, ancillary_axes, coordinate_system):
         pass
-    
     
     
     def get_viewed_events(self):
@@ -166,319 +163,326 @@ class DataSet_Type:
     
     def text_output(self):
         print("not implemented")
-    
-class DataSet_simplePointSources(DataSet_Type):
-    """This represents a set of simple dual-polarized point sources"""
-    
-    def __init__(self, PSE_list, markers, marker_size, color_mode, name, cmap):
-        self.markers = markers
-        self.marker_size = marker_size
-        self.color_mode = color_mode
-        self.PSE_list = PSE_list
-        self.cmap = cmap
-        self.polarity = 0 ##0 is show both. 1 is show even, 2 is show odd
         
-        self.t_lims = [None, None]
-        self.x_lims = [None, None]
-        self.y_lims = [None, None]
-        self.z_lims = [None, None]
-        self.max_RMS = None
-        self.min_numAntennas = None
-        
-        ## probably should call previous constructor here
-        self.name = name
-        self.display = True
-        
-        
-        #### get the data ####
-        self.polE_loc_data = np.array([PSE.PolE_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2) ])
-        self.polO_loc_data = np.array([PSE.PolO_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1) ])
-
-        self.PolE_RMS_vals = np.array( [PSE.PolE_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)] )
-        self.PolO_RMS_vals = np.array( [PSE.PolO_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)] )
-        
-        self.PolE_numAntennas= np.array( [PSE.num_even_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)])
-        self.PolO_numAntennas= np.array( [PSE.num_odd_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)])
-        
-        
-        #### make maskes
-        bool_array = [True]*len(self.polE_loc_data)
-        self.PolE_mask_on_alt = np.array(bool_array, dtype=bool)
-        self.PolE_mask_on_X   = np.array(bool_array, dtype=bool)
-        self.PolE_mask_on_Y   = np.array(bool_array, dtype=bool)
-        self.PolE_mask_on_T   = np.array(bool_array, dtype=bool)
-        self.PolE_mask_on_RMS = np.array(bool_array, dtype=bool)
-        self.PolE_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
-        
-        self.PolE_total_mask = np.array(bool_array, dtype=bool)
-        self.PolE_total_mask = np.stack([self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask], -1)
-        
-        
-        bool_array = [True]*len(self.polO_loc_data)
-        self.PolO_mask_on_alt = np.array(bool_array, dtype=bool)
-        self.PolO_mask_on_X   = np.array(bool_array, dtype=bool)
-        self.PolO_mask_on_Y   = np.array(bool_array, dtype=bool)
-        self.PolO_mask_on_T   = np.array(bool_array, dtype=bool)
-        self.PolO_mask_on_RMS = np.array(bool_array, dtype=bool)
-        self.PolO_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
-        
-        self.PolO_total_mask = np.array(bool_array, dtype=bool)
-        self.PolO_total_mask = np.stack([self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask], -1)
-        
-        
-        self.PolE_masked_loc_data   = np.ma.masked_array(self.polE_loc_data, mask=self.PolE_total_mask, copy=False)
-        self.PolE_masked_RMS_vals  = np.ma.masked_array(self.PolE_RMS_vals, mask=self.PolE_total_mask[:,0], copy=False)
-        self.PolE_masked_numAntennas  = np.ma.masked_array(self.PolE_numAntennas, mask=self.PolE_total_mask[:,0], copy=False)
-        
-        self.PolO_masked_loc_data   = np.ma.masked_array(self.polO_loc_data, mask=self.PolO_total_mask, copy=False)
-        self.PolO_masked_RMS_vals  = np.ma.masked_array(self.PolO_RMS_vals, mask=self.PolO_total_mask[:,0], copy=False)
-        self.PolO_masked_numAntennas  = np.ma.masked_array(self.PolO_numAntennas, mask=self.PolO_total_mask[:,0], copy=False)
-    
-    
-        
-        self.set_show_all()
-    
-        #### some axis data ###
-        self.PolE_AltVsT_paths = None
-        self.PolE_AltVsEw_paths = None
-        self.PolE_NsVsEw_paths = None
-        self.PolE_NsVsAlt_paths = None
-        
-        self.PolO_AltVsT_paths = None
-        self.PolO_AltVsEw_paths = None
-        self.PolO_NsVsEw_paths = None
-        self.PolO_NsVsAlt_paths = None
-        
-        
-    def set_show_all(self):
-        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
-        
-        max_RMS = max( np.max(self.PolE_RMS_vals), np.max(self.PolO_RMS_vals) )
-        min_antennas = min( np.min(self.PolE_numAntennas), np.min(self.PolO_numAntennas) )
-        
-        self.set_max_RMS( max_RMS )
-        self.set_min_numAntennas( min_antennas )
-        
-        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
-        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
-        
-        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
-        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
-        
-        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
-        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
-        
-        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
-        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
-        
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
-        
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-    
-    def bounding_box(self):
-        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
-        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
-        
-        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
-        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
-        
-        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
-        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
-        
-        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
-        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
-        
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
-        
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-    
-    def set_T_lims(self, min, max):
-        self.t_lims = [min, max]
-        self.PolE_mask_on_T = np.logical_and( self.polE_loc_data[:,3]>min, self.polE_loc_data[:,3]<max )
-        self.PolO_mask_on_T = np.logical_and( self.polO_loc_data[:,3]>min, self.polO_loc_data[:,3]<max )
-    
-    def set_X_lims(self, min, max):
-        self.x_lims = [min, max]
-        self.PolE_mask_on_X = np.logical_and( self.polE_loc_data[:,0]>min, self.polE_loc_data[:,0]<max )
-        self.PolO_mask_on_X = np.logical_and( self.polO_loc_data[:,0]>min, self.polO_loc_data[:,0]<max )
-    
-    def set_Y_lims(self, min, max):
-        self.y_lims = [min, max]
-        self.PolE_mask_on_Y = np.logical_and( self.polE_loc_data[:,1]>min, self.polE_loc_data[:,1]<max )
-        self.PolO_mask_on_Y = np.logical_and( self.polO_loc_data[:,1]>min, self.polO_loc_data[:,1]<max )
-    
-    def set_alt_lims(self, min, max):
-        self.z_lims = [min, max]
-        self.PolE_mask_on_alt = np.logical_and( self.polE_loc_data[:,2]>min, self.polE_loc_data[:,2]<max )
-        self.PolO_mask_on_alt = np.logical_and( self.polO_loc_data[:,2]>min, self.polO_loc_data[:,2]<max )
-    
-    
-    def get_T_lims(self):
-        return list(self.t_lims)
-    
-    def get_X_lims(self):
-        return list(self.x_lims)
-    
-    def get_Y_lims(self):
-        return list(self.y_lims)
-    
-    def get_alt_lims(self):
-        return list(self.z_lims)
-    
-    
-    def get_all_properties(self):
-        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "max RMS (ns)":str(self.max_RMS*1.0E9),
-                "min. num. ant.":str(self.min_numAntennas), "polarity":int(self.polarity)}
-        ## need: marker type, color map
-    
-    def set_property(self, name, str_value):
-        
-        try:
-            if name == "marker size":
-                self.marker_size = int(str_value)
-            elif name == "color mode":
-                if str_value in ["time"] or str_value[0] =="*":
-                    self.color_mode = str_value
-            elif name == "max RMS (ns)":
-                self.set_max_RMS( float(str_value)*1.0E-9 )
-            elif name == "min. num. ant.":
-                self.set_min_numAntennas( int(str_value) )
-            elif name == "polarity":
-                self.polarity = int(str_value)
-            else:
-                print("do not have property:", name)
-        except:
-            print("error in setting property", name, str_value)
-            pass
-    
-    def set_max_RMS(self, max_RMS):
-        self.max_RMS = max_RMS
-        self.PolE_mask_on_RMS = self.PolE_RMS_vals<max_RMS
-        self.PolO_mask_on_RMS = self.PolO_RMS_vals<max_RMS
-    
-    def set_min_numAntennas(self, min_numAntennas):
-        self.min_numAntennas = min_numAntennas
-        self.PolE_mask_on_min_numAntennas = self.PolE_masked_numAntennas>min_numAntennas
-        self.PolO_mask_on_min_numAntennas = self.PolO_masked_numAntennas>min_numAntennas
-    
-    
-    
-    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-
-        ####  set total mask ####
-        if self.polarity == 0 or self.polarity == 1:
-            self.PolE_total_mask[:,0] = self.PolE_mask_on_alt
-            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_X, out=self.PolE_total_mask[:,0])
-            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_Y, out=self.PolE_total_mask[:,0])
-            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_T, out=self.PolE_total_mask[:,0])
-            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_RMS, out=self.PolE_total_mask[:,0])
-            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_min_numAntennas, out=self.PolE_total_mask[:,0])
-            np.logical_not(self.PolE_total_mask[:,0], out=self.PolE_total_mask[:,0]) ##becouse the meaning of the masks is flipped
-            self.PolE_total_mask[:,1] = self.PolE_total_mask[:,0]
-            self.PolE_total_mask[:,2] = self.PolE_total_mask[:,0]
-            self.PolE_total_mask[:,3] = self.PolE_total_mask[:,0]
-            
-        if self.polarity==0 or self.polarity==2:
-            self.PolO_total_mask[:,0] = self.PolO_mask_on_alt
-            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_X, out=self.PolO_total_mask[:,0])
-            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_Y, out=self.PolO_total_mask[:,0])
-            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_T, out=self.PolO_total_mask[:,0])
-            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_RMS, out=self.PolO_total_mask[:,0])
-            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_min_numAntennas, out=self.PolO_total_mask[:,0])
-            np.logical_not(self.PolO_total_mask[:,0], out=self.PolO_total_mask[:,0]) ##becouse the meaning of the masks is flipped
-            self.PolO_total_mask[:,1] = self.PolO_total_mask[:,0]
-            self.PolO_total_mask[:,2] = self.PolO_total_mask[:,0]
-            self.PolO_total_mask[:,3] = self.PolO_total_mask[:,0]
-    
-        #### random book keeping ####
-        self.clear()
-        
-        if not self.display:
-            return
-            
-        if self.color_mode == "time":
-            polE_color = self.PolE_masked_loc_data[:,3]
-            polO_color = self.PolO_masked_loc_data[:,3]
-            
-        elif self.color_mode[0] == '*':
-            polE_color = self.color_mode[1:]
-            polO_color = self.color_mode[1:]
-            
-            
-        #### plot ####
-        if self.polarity == 0 or self.polarity == 1:
-            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolE_masked_loc_data[:,0], Y=self.PolE_masked_loc_data[:,1],
-                                                                     Z=self.PolE_masked_loc_data[:,2],  T=self.PolE_masked_loc_data[:,3])
-            
-            self.PolE_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-            self.PolE_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-            self.PolE_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-            self.PolE_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-            
-        if self.polarity==0 or self.polarity==2:
-            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolO_masked_loc_data[:,0], Y=self.PolO_masked_loc_data[:,1],
-                                                                     Z=self.PolO_masked_loc_data[:,2],  T=self.PolO_masked_loc_data[:,3])
-            
-            self.PolO_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-            self.PolO_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-            self.PolO_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-            self.PolO_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-            
-            
-    def loc_filter(self, loc):
-        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
-            return True
-        else:
-            return False
-
-    def get_viewed_events(self):
-        return [PSE for PSE in self.PSE_list if 
-                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
-                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
-
-    
-    def clear(self):
-        if self.PolE_AltVsT_paths is not None:
-            self.PolE_AltVsT_paths.remove()
-            self.PolE_AltVsT_paths = None
-        if self.PolE_AltVsEw_paths is not None:
-            self.PolE_AltVsEw_paths.remove()
-            self.PolE_AltVsEw_paths = None
-        if self.PolE_NsVsEw_paths is not None:
-            self.PolE_NsVsEw_paths.remove()
-            self.PolE_NsVsEw_paths = None
-        if self.PolE_NsVsAlt_paths is not None:
-            self.PolE_NsVsAlt_paths.remove()
-            self.PolE_NsVsAlt_paths = None
-            
-        if self.PolO_AltVsT_paths is not None:
-            self.PolO_AltVsT_paths.remove()
-            self.PolO_AltVsT_paths = None
-        if self.PolO_AltVsEw_paths is not None:
-            self.PolO_AltVsEw_paths.remove()
-            self.PolO_AltVsEw_paths = None
-        if self.PolO_NsVsEw_paths is not None:
-            self.PolO_NsVsEw_paths.remove()
-            self.PolO_NsVsEw_paths = None
-        if self.PolO_NsVsAlt_paths is not None:
-            self.PolO_NsVsAlt_paths.remove()
-            self.PolO_NsVsAlt_paths = None
-            
-#    def search(self, index, marker, marker_size, color_mode, cmap=None):
-#        searched_PSE = [PSE for PSE in self.PSE_list if PSE.unique_index==index]
-#        return DataSet_simplePointSources( searched_PSE, [marker,marker], marker_size, color_mode, self.name+"_search", self.coordinate_system, cmap)
-
-    def use_ancillary_axes(self):
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            print("not implemented")
         return False
-
-    def print_info(self):
-        print( "not implemented" )
+    
+#class DataSet_simplePointSources(DataSet_Type):
+#    """This represents a set of simple dual-polarized point sources"""
+#    
+#    def __init__(self, PSE_list, markers, marker_size, color_mode, name, cmap):
+#        self.markers = markers
+#        self.marker_size = marker_size
+#        self.color_mode = color_mode
+#        self.PSE_list = PSE_list
+#        self.cmap = cmap
+#        self.polarity = 0 ##0 is show both. 1 is show even, 2 is show odd
+#        
+#        self.t_lims = [None, None]
+#        self.x_lims = [None, None]
+#        self.y_lims = [None, None]
+#        self.z_lims = [None, None]
+#        self.max_RMS = None
+#        self.min_numAntennas = None
+#        
+#        ## probably should call previous constructor here
+#        self.name = name
+#        self.display = True
+#        
+#        
+#        #### get the data ####
+#        self.polE_loc_data = np.array([PSE.PolE_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2) ])
+#        self.polO_loc_data = np.array([PSE.PolO_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1) ])
+#
+#        self.PolE_RMS_vals = np.array( [PSE.PolE_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)] )
+#        self.PolO_RMS_vals = np.array( [PSE.PolO_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)] )
+#        
+#        self.PolE_numAntennas= np.array( [PSE.num_even_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)])
+#        self.PolO_numAntennas= np.array( [PSE.num_odd_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)])
+#        
+#        
+#        #### make maskes
+#        bool_array = [True]*len(self.polE_loc_data)
+#        self.PolE_mask_on_alt = np.array(bool_array, dtype=bool)
+#        self.PolE_mask_on_X   = np.array(bool_array, dtype=bool)
+#        self.PolE_mask_on_Y   = np.array(bool_array, dtype=bool)
+#        self.PolE_mask_on_T   = np.array(bool_array, dtype=bool)
+#        self.PolE_mask_on_RMS = np.array(bool_array, dtype=bool)
+#        self.PolE_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
+#        
+#        self.PolE_total_mask = np.array(bool_array, dtype=bool)
+#        self.PolE_total_mask = np.stack([self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask], -1)
+#        
+#        
+#        bool_array = [True]*len(self.polO_loc_data)
+#        self.PolO_mask_on_alt = np.array(bool_array, dtype=bool)
+#        self.PolO_mask_on_X   = np.array(bool_array, dtype=bool)
+#        self.PolO_mask_on_Y   = np.array(bool_array, dtype=bool)
+#        self.PolO_mask_on_T   = np.array(bool_array, dtype=bool)
+#        self.PolO_mask_on_RMS = np.array(bool_array, dtype=bool)
+#        self.PolO_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
+#        
+#        self.PolO_total_mask = np.array(bool_array, dtype=bool)
+#        self.PolO_total_mask = np.stack([self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask], -1)
+#        
+#        
+#        self.PolE_masked_loc_data   = np.ma.masked_array(self.polE_loc_data, mask=self.PolE_total_mask, copy=False)
+#        self.PolE_masked_RMS_vals  = np.ma.masked_array(self.PolE_RMS_vals, mask=self.PolE_total_mask[:,0], copy=False)
+#        self.PolE_masked_numAntennas  = np.ma.masked_array(self.PolE_numAntennas, mask=self.PolE_total_mask[:,0], copy=False)
+#        
+#        self.PolO_masked_loc_data   = np.ma.masked_array(self.polO_loc_data, mask=self.PolO_total_mask, copy=False)
+#        self.PolO_masked_RMS_vals  = np.ma.masked_array(self.PolO_RMS_vals, mask=self.PolO_total_mask[:,0], copy=False)
+#        self.PolO_masked_numAntennas  = np.ma.masked_array(self.PolO_numAntennas, mask=self.PolO_total_mask[:,0], copy=False)
+#    
+#    
+#        
+#        self.set_show_all()
+#    
+#        #### some axis data ###
+#        self.PolE_AltVsT_paths = None
+#        self.PolE_AltVsEw_paths = None
+#        self.PolE_NsVsEw_paths = None
+#        self.PolE_NsVsAlt_paths = None
+#        
+#        self.PolO_AltVsT_paths = None
+#        self.PolO_AltVsEw_paths = None
+#        self.PolO_NsVsEw_paths = None
+#        self.PolO_NsVsAlt_paths = None
+#        
+#        
+#    def set_show_all(self):
+#        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
+#        
+#        max_RMS = max( np.max(self.PolE_RMS_vals), np.max(self.PolO_RMS_vals) )
+#        min_antennas = min( np.min(self.PolE_numAntennas), np.min(self.PolO_numAntennas) )
+#        
+#        self.set_max_RMS( max_RMS )
+#        self.set_min_numAntennas( min_antennas )
+#        
+#        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
+#        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
+#        
+#        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
+#        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
+#        
+#        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
+#        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
+#        
+#        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
+#        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
+#        
+#        self.set_T_lims(min_T, max_T)
+#        self.set_X_lims(min_X, max_X)
+#        self.set_Y_lims(min_Y, max_Y)
+#        self.set_alt_lims(min_Z, max_Z)
+#        
+#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
+#    
+#    def bounding_box(self):
+#        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
+#        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
+#        
+#        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
+#        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
+#        
+#        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
+#        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
+#        
+#        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
+#        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
+#        
+#        self.set_T_lims(min_T, max_T)
+#        self.set_X_lims(min_X, max_X)
+#        self.set_Y_lims(min_Y, max_Y)
+#        self.set_alt_lims(min_Z, max_Z)
+#        
+#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
+#    
+#    def set_T_lims(self, min, max):
+#        self.t_lims = [min, max]
+#        self.PolE_mask_on_T = np.logical_and( self.polE_loc_data[:,3]>min, self.polE_loc_data[:,3]<max )
+#        self.PolO_mask_on_T = np.logical_and( self.polO_loc_data[:,3]>min, self.polO_loc_data[:,3]<max )
+#    
+#    def set_X_lims(self, min, max):
+#        self.x_lims = [min, max]
+#        self.PolE_mask_on_X = np.logical_and( self.polE_loc_data[:,0]>min, self.polE_loc_data[:,0]<max )
+#        self.PolO_mask_on_X = np.logical_and( self.polO_loc_data[:,0]>min, self.polO_loc_data[:,0]<max )
+#    
+#    def set_Y_lims(self, min, max):
+#        self.y_lims = [min, max]
+#        self.PolE_mask_on_Y = np.logical_and( self.polE_loc_data[:,1]>min, self.polE_loc_data[:,1]<max )
+#        self.PolO_mask_on_Y = np.logical_and( self.polO_loc_data[:,1]>min, self.polO_loc_data[:,1]<max )
+#    
+#    def set_alt_lims(self, min, max):
+#        self.z_lims = [min, max]
+#        self.PolE_mask_on_alt = np.logical_and( self.polE_loc_data[:,2]>min, self.polE_loc_data[:,2]<max )
+#        self.PolO_mask_on_alt = np.logical_and( self.polO_loc_data[:,2]>min, self.polO_loc_data[:,2]<max )
+#    
+#    
+#    def get_T_lims(self):
+#        return list(self.t_lims)
+#    
+#    def get_X_lims(self):
+#        return list(self.x_lims)
+#    
+#    def get_Y_lims(self):
+#        return list(self.y_lims)
+#    
+#    def get_alt_lims(self):
+#        return list(self.z_lims)
+#    
+#    
+#    def get_all_properties(self):
+#        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "max RMS (ns)":str(self.max_RMS*1.0E9),
+#                "min. num. ant.":str(self.min_numAntennas), "polarity":int(self.polarity)}
+#        ## need: marker type, color map
+#    
+#    def set_property(self, name, str_value):
+#        
+#        try:
+#            if name == "marker size":
+#                self.marker_size = int(str_value)
+#            elif name == "color mode":
+#                if str_value in ["time"] or str_value[0] =="*":
+#                    self.color_mode = str_value
+#            elif name == "max RMS (ns)":
+#                self.set_max_RMS( float(str_value)*1.0E-9 )
+#            elif name == "min. num. ant.":
+#                self.set_min_numAntennas( int(str_value) )
+#            elif name == "polarity":
+#                self.polarity = int(str_value)
+#            else:
+#                print("do not have property:", name)
+#        except:
+#            print("error in setting property", name, str_value)
+#            pass
+#    
+#    def set_max_RMS(self, max_RMS):
+#        self.max_RMS = max_RMS
+#        self.PolE_mask_on_RMS = self.PolE_RMS_vals<max_RMS
+#        self.PolO_mask_on_RMS = self.PolO_RMS_vals<max_RMS
+#    
+#    def set_min_numAntennas(self, min_numAntennas):
+#        self.min_numAntennas = min_numAntennas
+#        self.PolE_mask_on_min_numAntennas = self.PolE_masked_numAntennas>min_numAntennas
+#        self.PolO_mask_on_min_numAntennas = self.PolO_masked_numAntennas>min_numAntennas
+#    
+#    
+#    
+#    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+#
+#        ####  set total mask ####
+#        if self.polarity == 0 or self.polarity == 1:
+#            self.PolE_total_mask[:,0] = self.PolE_mask_on_alt
+#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_X, out=self.PolE_total_mask[:,0])
+#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_Y, out=self.PolE_total_mask[:,0])
+#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_T, out=self.PolE_total_mask[:,0])
+#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_RMS, out=self.PolE_total_mask[:,0])
+#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_min_numAntennas, out=self.PolE_total_mask[:,0])
+#            np.logical_not(self.PolE_total_mask[:,0], out=self.PolE_total_mask[:,0]) ##becouse the meaning of the masks is flipped
+#            self.PolE_total_mask[:,1] = self.PolE_total_mask[:,0]
+#            self.PolE_total_mask[:,2] = self.PolE_total_mask[:,0]
+#            self.PolE_total_mask[:,3] = self.PolE_total_mask[:,0]
+#            
+#        if self.polarity==0 or self.polarity==2:
+#            self.PolO_total_mask[:,0] = self.PolO_mask_on_alt
+#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_X, out=self.PolO_total_mask[:,0])
+#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_Y, out=self.PolO_total_mask[:,0])
+#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_T, out=self.PolO_total_mask[:,0])
+#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_RMS, out=self.PolO_total_mask[:,0])
+#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_min_numAntennas, out=self.PolO_total_mask[:,0])
+#            np.logical_not(self.PolO_total_mask[:,0], out=self.PolO_total_mask[:,0]) ##becouse the meaning of the masks is flipped
+#            self.PolO_total_mask[:,1] = self.PolO_total_mask[:,0]
+#            self.PolO_total_mask[:,2] = self.PolO_total_mask[:,0]
+#            self.PolO_total_mask[:,3] = self.PolO_total_mask[:,0]
+#    
+#        #### random book keeping ####
+#        self.clear()
+#        
+#        if not self.display:
+#            return
+#            
+#        if self.color_mode == "time":
+#            polE_color = self.PolE_masked_loc_data[:,3]
+#            polO_color = self.PolO_masked_loc_data[:,3]
+#            
+#        elif self.color_mode[0] == '*':
+#            polE_color = self.color_mode[1:]
+#            polO_color = self.color_mode[1:]
+#            
+#            
+#        #### plot ####
+#        if self.polarity == 0 or self.polarity == 1:
+#            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolE_masked_loc_data[:,0], Y=self.PolE_masked_loc_data[:,1],
+#                                                                     Z=self.PolE_masked_loc_data[:,2],  T=self.PolE_masked_loc_data[:,3])
+#            
+#            self.PolE_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+#            self.PolE_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+#            self.PolE_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+#            self.PolE_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
+#            
+#        if self.polarity==0 or self.polarity==2:
+#            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolO_masked_loc_data[:,0], Y=self.PolO_masked_loc_data[:,1],
+#                                                                     Z=self.PolO_masked_loc_data[:,2],  T=self.PolO_masked_loc_data[:,3])
+#            
+#            self.PolO_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+#            self.PolO_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+#            self.PolO_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+#            self.PolO_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
+#            
+#            
+#    def loc_filter(self, loc):
+#        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
+#            return True
+#        else:
+#            return False
+#
+#    def get_viewed_events(self):
+#        return [PSE for PSE in self.PSE_list if 
+#                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
+#                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
+#
+#    
+#    def clear(self):
+#        if self.PolE_AltVsT_paths is not None:
+#            self.PolE_AltVsT_paths.remove()
+#            self.PolE_AltVsT_paths = None
+#        if self.PolE_AltVsEw_paths is not None:
+#            self.PolE_AltVsEw_paths.remove()
+#            self.PolE_AltVsEw_paths = None
+#        if self.PolE_NsVsEw_paths is not None:
+#            self.PolE_NsVsEw_paths.remove()
+#            self.PolE_NsVsEw_paths = None
+#        if self.PolE_NsVsAlt_paths is not None:
+#            self.PolE_NsVsAlt_paths.remove()
+#            self.PolE_NsVsAlt_paths = None
+#            
+#        if self.PolO_AltVsT_paths is not None:
+#            self.PolO_AltVsT_paths.remove()
+#            self.PolO_AltVsT_paths = None
+#        if self.PolO_AltVsEw_paths is not None:
+#            self.PolO_AltVsEw_paths.remove()
+#            self.PolO_AltVsEw_paths = None
+#        if self.PolO_NsVsEw_paths is not None:
+#            self.PolO_NsVsEw_paths.remove()
+#            self.PolO_NsVsEw_paths = None
+#        if self.PolO_NsVsAlt_paths is not None:
+#            self.PolO_NsVsAlt_paths.remove()
+#            self.PolO_NsVsAlt_paths = None
+#            
+##    def search(self, index, marker, marker_size, color_mode, cmap=None):
+##        searched_PSE = [PSE for PSE in self.PSE_list if PSE.unique_index==index]
+##        return DataSet_simplePointSources( searched_PSE, [marker,marker], marker_size, color_mode, self.name+"_search", self.coordinate_system, cmap)
+#
+#    def use_ancillary_axes(self):
+#        return False
+#
+#    def print_info(self):
+#        print( "not implemented" )
+        
+        
 
 class DataSet_interferometricPointSources(DataSet_Type):
     """This represents a set of simple dual-polarized point sources"""
@@ -489,6 +493,7 @@ class DataSet_interferometricPointSources(DataSet_Type):
         self.color_mode = color_mode
         self.IPSE_list = IPSE_list
         self.cmap = cmap
+        self._ignore_time = False
         
         self.t_lims = [None, None]
         self.x_lims = [None, None]
@@ -675,7 +680,8 @@ class DataSet_interferometricPointSources(DataSet_Type):
         self.total_mask[:,0] = self.mask_on_alt
         np.logical_and(self.total_mask[:,0], self.mask_on_X, out=self.total_mask[:,0])
         np.logical_and(self.total_mask[:,0], self.mask_on_Y, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
+        if not self._ignore_time:
+            np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
         np.logical_and(self.total_mask[:,0], self.mask_on_intensity, out=self.total_mask[:,0])
         np.logical_and(self.total_mask[:,0], self.mask_on_S1S2distance, out=self.total_mask[:,0])
         np.logical_and(self.total_mask[:,0], self.mask_on_amplitude, out=self.total_mask[:,0])
@@ -709,7 +715,8 @@ class DataSet_interferometricPointSources(DataSet_Type):
         X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.masked_loc_data[:,0], Y=self.masked_loc_data[:,1],
                                                                  Z=self.masked_loc_data[:,2],  T=self.masked_loc_data[:,3])
         
-        self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
+        if not self._ignore_time:
+            self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
         self.AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
         self.NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
         self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
@@ -812,6 +819,13 @@ class DataSet_interferometricPointSources(DataSet_Type):
     
     
     def text_output(self):
+        
+        header = self.IPSE_list[0].header
+        for ant_data in header.antenna_data:
+            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
+                pref_ant_loc = ant_data.location
+                break
+        
         with open("output.txt", 'w') as fout:
             for IPSE in self.IPSE_list:
                 if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
@@ -822,7 +836,289 @@ class DataSet_interferometricPointSources(DataSet_Type):
                     Z = IPSE.loc[2]
                     T = IPSE.T
                     I = IPSE.intensity
-                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+'\n' )
+                    
+                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
+                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
+                    
+                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
+        print("done writing")
+                    
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            self._ignore_time = ignore
+        return self._ignore_time
+                    
+class DataSet_LMA(DataSet_Type):
+    """This represents LMA data"""
+    
+    def __init__(self, folder, time_offset, marker, marker_size, color_mode, name, cmap):
+        self.marker = marker
+        self.marker_size = marker_size
+        self.color_mode = color_mode
+        self.LMA_list = read_LMA_folder_data( folder )
+        self.cmap = cmap
+        
+        self.t_lims = [None, None]
+        self.x_lims = [None, None]
+        self.y_lims = [None, None]
+        self.z_lims = [None, None]
+        self.min_power = 0.0
+        self.max_RedChi2 = 100.0
+        self.min_NumStat = 0.0
+        
+        ## probably should call previous constructor here
+        self.name = name
+        self.display = True
+        
+        
+        #### get the data ####
+        self.locations = np.array([ np.append( LMA.get_XYZ(), [LMA.time_of_day-time_offset] ) for LMA in self.LMA_list])
+
+        self.powers = np.array([ LMA.power  for LMA in self.LMA_list])
+        self.fits = np.array([ LMA.red_chi_squared  for LMA in self.LMA_list])
+        self.num_stations = np.array([ 8  for LMA in self.LMA_list]) ## needs improvement
+        
+        #### make masks
+        bool_array = [True]*len(self.locations)
+        self.mask_on_X   = np.array(bool_array, dtype=bool)
+        self.mask_on_Y   = np.array(bool_array, dtype=bool)
+        self.mask_on_alt = np.array(bool_array, dtype=bool)
+        self.mask_on_T   = np.array(bool_array, dtype=bool)
+        
+        self.mask_on_power   = np.array(bool_array, dtype=bool)
+        self.mask_on_fit = np.array(bool_array, dtype=bool)
+        self.mask_on_stations = np.array(bool_array, dtype=bool)
+        
+        self.total_mask = np.array(bool_array, dtype=bool)
+        self.total_mask = np.stack([self.total_mask,self.total_mask,self.total_mask,self.total_mask], -1)
+        
+        self.masked_loc_data   = np.ma.masked_array(self.locations, mask=self.total_mask, copy=False)
+        
+        self.set_show_all()
+    
+        #### some axis data ###
+        self.AltVsT_paths = None
+        self.AltVsEw_paths = None
+        self.NsVsEw_paths = None
+        self.NsVsAlt_paths = None
+        
+    def set_show_all(self):
+        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
+        
+        self.set_min_power( 0 )
+        self.set_max_RedChi2( 10.0 )
+        self.set_min_NumStat( 0 )
+        
+        min_X = np.min(self.locations[:,0])
+        max_X = np.max(self.locations[:,0])
+        
+        min_Y = np.min(self.locations[:,1])
+        max_Y = np.max(self.locations[:,1])
+        
+        min_Z = np.min(self.locations[:,2])
+        max_Z = np.max(self.locations[:,2])
+        
+        min_T = np.min(self.locations[:,3])
+        max_T = np.max(self.locations[:,3])
+        
+        self.set_T_lims(min_T, max_T)
+        self.set_X_lims(min_X, max_X)
+        self.set_Y_lims(min_Y, max_Y)
+        self.set_alt_lims(min_Z, max_Z)
+        
+        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
+    
+    
+    def bounding_box(self):
+        mask = np.logical_and(self.mask_on_power, self.mask_on_fit)
+        mask = np.logical_and(mask, self.mask_on_stations, out=mask)
+        
+        min_X = np.min(self.locations[mask,0])
+        max_X = np.max(self.locations[mask,0])
+        
+        min_Y = np.min(self.locations[mask,1])
+        max_Y = np.max(self.locations[mask,1])
+        
+        min_Z = np.min(self.locations[mask,2])
+        max_Z = np.max(self.locations[mask,2])
+        
+        min_T = np.min(self.locations[mask,3])
+        max_T = np.max(self.locations[mask,3])
+        
+        self.set_T_lims(min_T, max_T)
+        self.set_X_lims(min_X, max_X)
+        self.set_Y_lims(min_Y, max_Y)
+        self.set_alt_lims(min_Z, max_Z)
+        
+        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
+    
+        
+    def set_T_lims(self, min, max):
+        self.t_lims = [min, max]
+        self.mask_on_T = np.logical_and( self.locations[:,3]>min, self.locations[:,3]<max )
+    
+    def set_X_lims(self, min, max):
+        self.x_lims = [min, max]
+        self.mask_on_X = np.logical_and( self.locations[:,0]>min, self.locations[:,0]<max )
+    
+    def set_Y_lims(self, min, max):
+        self.y_lims = [min, max]
+        self.mask_on_Y = np.logical_and( self.locations[:,1]>min, self.locations[:,1]<max )
+    
+    def set_alt_lims(self, min, max):
+        self.z_lims = [min, max]
+        self.mask_on_alt = np.logical_and( self.locations[:,2]>min, self.locations[:,2]<max )
+    
+    
+    def get_T_lims(self):
+        return list(self.t_lims)
+    
+    def get_X_lims(self):
+        return list(self.x_lims)
+    
+    def get_Y_lims(self):
+        return list(self.y_lims)
+    
+    def get_alt_lims(self):
+        return list(self.z_lims)
+    
+    
+    
+    def get_all_properties(self):
+        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "max reduced chi-squared":str(self.max_RedChi2),
+                "min power":str(self.min_power), "min number stations":str(self.min_NumStat), 'magic':'more'}
+        ## need: marker type, color map
+    
+    def set_property(self, name, str_value):
+        
+        try:
+            if name == "marker size":
+                self.marker_size = int(str_value)
+            elif name == "color mode":
+                if str_value in ["time", "power"] or str_value[0] =="*":
+                    self.color_mode = str_value
+            elif name == "max reduced chi-squared":
+                self.set_max_RedChi2( float(str_value) )
+            elif name == "min power":
+                self.set_min_power( float(str_value) )
+            elif name == "min number stations":
+                self.set_min_NumStat( int(str_value) )
+            else:
+                print("do not have property:", name)
+        except:
+            print("error in setting property", name, str_value)
+            pass
+        
+    def set_max_RedChi2(self, max_redChi2):
+        self.max_RedChi2 = max_redChi2
+        self.mask_on_fit = self.fits < max_redChi2
+    
+    def set_min_power(self, min_power):
+        self.min_power = min_power
+        self.mask_on_power = self.powers > min_power
+    
+    def set_min_NumStat(self, min_stat):
+        self.min_NumStat = min_stat
+        self.mask_on_station = self.num_stations >= min_stat
+    
+    
+    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+
+        ####  set total mask ####
+        self.total_mask[:,0] = self.mask_on_alt
+        np.logical_and(self.total_mask[:,0], self.mask_on_X, out=self.total_mask[:,0])
+        np.logical_and(self.total_mask[:,0], self.mask_on_Y, out=self.total_mask[:,0])
+        np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
+        np.logical_and(self.total_mask[:,0], self.mask_on_power, out=self.total_mask[:,0])
+        np.logical_and(self.total_mask[:,0], self.mask_on_fit, out=self.total_mask[:,0])
+        np.logical_and(self.total_mask[:,0], self.mask_on_stations, out=self.total_mask[:,0])
+            
+        np.logical_not(self.total_mask[:,0], out=self.total_mask[:,0]) ##becouse the meaning of the masks is flipped
+        self.total_mask[:,1] = self.total_mask[:,0]
+        self.total_mask[:,2] = self.total_mask[:,0]
+        self.total_mask[:,3] = self.total_mask[:,0]
+    
+        #### random book keeping ####
+        self.clear()
+        
+        if not self.display:
+            return
+        
+        if self.color_mode == "time":
+            color = self.locations[:,3]
+            
+        elif self.color_mode == "power":
+            color = self.powers
+            
+        elif self.color_mode[0] == '*':
+            color = self.color_mode[1:]
+            
+            
+        #### plot ####
+        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.masked_loc_data[:,0], Y=self.masked_loc_data[:,1],
+                                                                 Z=self.masked_loc_data[:,2],  T=self.masked_loc_data[:,3])
+        
+        self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
+        self.AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
+        self.NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
+        self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
+        
+
+            
+    def loc_filter(self, loc):
+        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
+            return True
+        else:
+            return False
+
+    def get_viewed_events(self):
+        print("get viewed events not implemented")
+        return []
+#        return [PSE for PSE in self.PSE_list if 
+#                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
+#                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
+
+    
+    def clear(self):
+        pass
+#        if self.AltVsT_paths is not None:
+#            self.AltVsT_paths.remove()
+#            self.AltVsT_paths = None
+#        if self.AltVsEw_paths is not None:
+#            self.AltVsEw_paths.remove()
+#            self.AltVsEw_paths = None
+#        if self.NsVsEw_paths is not None:
+#            self.NsVsEw_paths.remove()
+#            self.NsVsEw_paths = None
+#        if self.NsVsAlt_paths is not None:
+#            self.NsVsAlt_paths.remove()
+#            self.NsVsAlt_paths = None
+        
+    def use_ancillary_axes(self):
+        return False
+                
+
+    def toggle_on(self):
+        self.display = True
+    
+    def toggle_off(self):
+        self.display = False
+        self.clear()
+        
+    def search(self, ID):
+        print("search not implemented")
+        return None
+
+    def print_info(self):
+        print("print info not implemented")
+        
+    
+    def copy_view(self):
+        print("copy view not imelemented")
+    
+    
+    def text_output(self):
+        print("text output not implemented")
     
         
             
@@ -1608,9 +1904,15 @@ class FigureArea(FigureCanvas):
         self.fig.subplots_adjust(top=0.97, bottom=0.07)
         
         #### setup axes. We need TWO grid specs to control heights properly
+        
+#        self.top_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.0)
+#        self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.top_gs[1], hspace=0.0, wspace=0.00)
+#        self.bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec =self.top_gs[2:], wspace=0.00)
+        
         self.top_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.3)
-        self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.top_gs[1], hspace=0.3, wspace=0.05)
-        self.bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec =self.top_gs[2:], wspace=0.05)
+        self.middle_N_bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(3, 1, subplot_spec =self.top_gs[1:], hspace=0.0, wspace=0.05)
+        self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.middle_N_bottom_gs[0], hspace=0.0, wspace=0.00)
+        self.bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec =self.middle_N_bottom_gs[1:], wspace=0.00)
         
         self.AltVsT_axes = self.fig.add_subplot(self.top_gs[0])
         
@@ -1626,18 +1928,18 @@ class FigureArea(FigureCanvas):
         
         
         self.AltVsEw_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
-        self.AltVsEw_axes.tick_params(labelsize = self.axis_tick_size)
-        self.AltVsEw_axes.get_xaxis().set_visible(False)
+        self.AltVsEw_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, labelbottom=False, direction='in')
+#        self.AltVsEw_axes.get_xaxis().set_visible(False)
         
         
         self.NsVsEw_axes.set_xlabel(self.coordinate_system.x_label, fontsize=self.axis_label_size)
         self.NsVsEw_axes.set_ylabel(self.coordinate_system.y_label, fontsize=self.axis_label_size)
-        self.NsVsEw_axes.tick_params(labelsize = self.axis_tick_size)
+        self.NsVsEw_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, direction='in')
         
         
         self.NsVsAlt_axes.set_xlabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
-        self.NsVsAlt_axes.tick_params(labelsize = self.axis_tick_size)
-        self.NsVsAlt_axes.get_yaxis().set_visible(False)
+        self.NsVsAlt_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, labelleft=False, direction='in')
+#        self.NsVsAlt_axes.get_yaxis().set_visible(False)
         
         
         self.ancillary_axes.get_yaxis().set_visible(False)
@@ -1914,6 +2216,8 @@ class FigureArea(FigureCanvas):
         self.NsVsEw_axes.cla()
         self.NsVsAlt_axes.cla()
         self.ancillary_axes.cla()
+        
+        self.ancillary_axes.set_axis_off() ## probably should test if this needs to be on at some point
         
         
         self.AltVsT_axes.set_xlabel(self.coordinate_system.t_label, fontsize=self.axis_label_size)
@@ -2327,6 +2631,22 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.deleteDS_button.resize(50,25)
         self.deleteDS_button.clicked.connect(self.deleteDSButtonPressed)
         
+        ## move data set up
+        self.DSup_button = QtWidgets.QPushButton(self)
+        self.DSup_button.move(250, 80)
+        self.DSup_button.setText("U")
+        self.DSup_button.resize(20,25)
+        self.DSup_button.clicked.connect(self.DSupButtonPressed)
+        
+        ## move data set down
+        self.DSdown_button = QtWidgets.QPushButton(self)
+        self.DSdown_button.move(280, 80)
+        self.DSdown_button.setText("D")
+        self.DSdown_button.resize(20,25)
+        self.DSdown_button.clicked.connect(self.DSdownButtonPressed)
+        
+        
+        
         ## list of variables in data set
         self.DS_variable_list = QtWidgets.QComboBox(self)
         self.DS_variable_list.move(5,120)
@@ -2350,6 +2670,20 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.get_button.move(125, 180)
         self.get_button.setText("get")
         self.get_button.clicked.connect(self.getButtonPressed)
+        
+        ##ignore time
+        self.ignoreTimeCheckBox = QtWidgets.QCheckBox("ignore time", self)
+        self.ignoreTimeCheckBox.stateChanged.connect( self.clickIgnoreTime )
+        self.ignoreTimeCheckBox.move(5, 215)
+        
+        
+        ##set button
+        self.showallTime_Button = QtWidgets.QPushButton(self)
+        self.showallTime_Button.move(125, 215)
+        self.showallTime_Button.setText("show all time")
+        self.showallTime_Button.resize(150,25)
+        self.showallTime_Button.clicked.connect( self.showAllTimePressed )
+        
 
 
         #### set and get position ####
@@ -2410,6 +2744,19 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.Tmax_txtBox.move(140, 340)
         self.Tmax_txtBox.resize(80,25)
         
+        ##clip board
+        self.toCB_button = QtWidgets.QPushButton(self)
+        self.toCB_button.move(230, 265)
+        self.toCB_button.setText("to CB")
+        self.toCB_button.resize(75,25)
+        self.toCB_button.clicked.connect(self.boundsToClipboard)
+        
+        self.fromCB_button = QtWidgets.QPushButton(self)
+        self.fromCB_button.move(230, 325)
+        self.fromCB_button.setText("from CB")
+        self.fromCB_button.resize(75,25)
+        self.fromCB_button.clicked.connect(self.boundsFromClipboard)
+        
         ##set postion button
         self.setPos_button = QtWidgets.QPushButton(self)
         self.setPos_button.move(5, 370)
@@ -2427,7 +2774,6 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
         
         #### SEARCH ####
-        
         self.search_txtBox = QtWidgets.QLineEdit(self)
         self.search_txtBox.move(5, 420)
         self.search_txtBox.resize(80,25)
@@ -2439,14 +2785,22 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.search_button.clicked.connect(self.searchButtonPressed)
         
         
+        ## zoom
+        self.zoom_button = QtWidgets.QPushButton(self)
+        self.zoom_button.move(5, 470)
+        self.zoom_button.setText("zoom: in")
+        self.zoom_button.resize(150,25)
+        self.zoom_button.clicked.connect(self.zoomButtonPressed)
         
-        ### zoom ###
         
-        self.search_button = QtWidgets.QPushButton(self)
-        self.search_button.move(5, 470)
-        self.search_button.setText("zoom: in")
-        self.search_button.resize(150,25)
-        self.search_button.clicked.connect(self.zoomButtonPressed)
+        ##aspect ratio
+        self.aspectRatioCheckBox = QtWidgets.QCheckBox("1:1 aspect ratio", self)
+        self.aspectRatioCheckBox.stateChanged.connect( self.clickAspectRatio )
+        self.aspectRatioCheckBox.move(5, 520)
+        self.aspectRatioCheckBox.setChecked( self.figure_space.rebalance_XY )
+        self.aspectRatioCheckBox.resize(200,25)
+        
+        
         
         ##TODO:
         #animation
@@ -2577,6 +2931,13 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.current_data_set = data_set_index
         self.refresh_DSvariable_list()
         
+        if self.current_data_set!=-1 and self.current_data_set<len(self.figure_space.data_sets):
+            DS = self.figure_space.data_sets[ self.current_data_set ]
+            self.ignoreTimeCheckBox.setChecked( DS.ignore_time() )
+            
+            self.DSvariable_get()
+            self.DSposition_get()
+        
     
     def refresh_DSvariable_list(self):
         if self.current_data_set != -1 :
@@ -2659,6 +3020,33 @@ class Active3DPlotter(QtWidgets.QMainWindow):
             self.figure_space.replot_data()
             self.figure_space.draw()
             
+            
+    def DSupButtonPressed(self):
+        DSL = self.figure_space.data_sets
+        
+        if self.current_data_set > 0:
+            DSL.insert(self.current_data_set-1, DSL.pop(self.current_data_set))
+            
+            self.refresh_analysis_list()
+            self.DS_drop_list_choose(self.current_data_set-1)
+            
+            self.figure_space.replot_data()
+            self.figure_space.draw()
+            
+            
+    def DSdownButtonPressed(self):
+        DSL = self.figure_space.data_sets
+        
+        if self.current_data_set != -1 and self.current_data_set< len(DSL)-1:
+            DSL.insert(self.current_data_set+1, DSL.pop(self.current_data_set))
+            
+            self.refresh_analysis_list()
+            self.DS_drop_list_choose(self.current_data_set+1)
+            
+            self.figure_space.replot_data()
+            self.figure_space.draw()
+            
+            
     def setButtonPressed(self):
         inputTXT = self.variable_txtBox.text()
         
@@ -2704,6 +3092,32 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.figure_space.replot_data()
         self.figure_space.draw()
         
+    def clickIgnoreTime(self):
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        DS.ignore_time( self.ignoreTimeCheckBox.isChecked() )
+        
+        self.figure_space.replot_data()
+        self.figure_space.draw()
+        
+    def showAllTimePressed(self):
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        X_bounds = DS.get_X_lims()
+        Y_bounds = DS.get_Y_lims()
+        Z_bounds = DS.get_alt_lims()
+        trash, trash, trash, T_bounds = DS.bounding_box()
+        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
+        
+        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
+        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
+        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
+        
+        self.DSvariable_get()
+        self.DSposition_get()
+        
+        self.figure_space.replot_data()
+        self.figure_space.draw()
+        
     def showAllPositionsButtonPressed(self):
         DS = self.figure_space.data_sets[ self.current_data_set ]
         X_bounds, Y_bounds, Z_bounds, T_bounds = DS.bounding_box()
@@ -2720,6 +3134,60 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.figure_space.replot_data()
         self.figure_space.draw()
         
+    def boundsToClipboard(self):
+        Xmin = self.Xmin_txtBox.text( )
+        Xmax = self.Xmax_txtBox.text( )
+            
+        Ymin = self.Ymin_txtBox.text( )
+        Ymax = self.Ymax_txtBox.text( )
+            
+        Zmin = self.Zmin_txtBox.text( )
+        Zmax = self.Zmax_txtBox.text( )
+            
+        Tmin = self.Tmin_txtBox.text( )
+        Tmax = self.Tmax_txtBox.text( )
+        
+        result = ''.join(['[[',Xmin,',',Xmax,'],[',Ymin,',',Ymax,'],[',Zmin,',',Zmax,'],[',Tmin,',',Tmax,']]'])
+        
+        QApplication.clipboard().setText( result )
+    
+    def boundsFromClipboard(self):
+        #### assume text is in same format as boundsToClipboard, but do not use python parsing (is dangerous)
+        
+        text = QApplication.clipboard().text()
+        bits = text.split(',')
+        if len(bits) != 8:
+            print("clipboard text is not compatible")
+            return
+        
+        try:
+            Xmin = bits[0][2:]
+            Xmax = bits[1][:-1]
+            
+            Ymin = bits[2][1:]
+            Ymax = bits[3][:-1]
+            
+            Zmin = bits[4][1:]
+            Zmax = bits[5][:-1]
+            
+            Tmin = bits[6][1:]
+            Tmax = bits[7][:-2]
+        except:
+            print("clipboard text is not compatible")
+            return
+        
+        self.Xmin_txtBox.setText( Xmin )
+        self.Xmax_txtBox.setText( Xmax )
+        
+        self.Ymin_txtBox.setText( Ymin )
+        self.Ymax_txtBox.setText( Ymax )
+        
+        self.Zmin_txtBox.setText( Zmin )
+        self.Zmax_txtBox.setText( Zmax )
+        
+        self.Tmin_txtBox.setText( Tmin )
+        self.Tmax_txtBox.setText( Tmax )
+        
         
     def searchButtonPressed(self):
         
@@ -2735,16 +3203,16 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         else:
             print("no dataset selected")
             
-            
     def zoomButtonPressed(self):
         if self.figure_space.z_button_pressed:
             self.figure_space.z_button_pressed = False
-            self.search_button.setText("zoom: in")
+            self.zoom_button.setText("zoom: in")
         else:
             self.figure_space.z_button_pressed = True
-            self.search_button.setText("zoom: out")
+            self.zoom_button.setText("zoom: out")
             
-        
+    def clickAspectRatio(self):
+        self.figure_space.rebalance_XY = self.aspectRatioCheckBox.isChecked()
         
         
     #### analysis
@@ -3151,82 +3619,82 @@ class histogram_amplitudes:
 #            np.save(fname, self.locs, allow_pickle=False)
 
 
-from scipy.stats import linregress
-class leader_speed_estimator:
-    def __init__(self, pol=0, RMS=2.0E-9):
-        self.polarization = pol
-        self.RMS_filter = RMS
-        
-    def __call__(self, PSE_list):
-        X = []
-        Y = []
-        Z = []
-        T = []
-        unique_IDs = []
-        
-        for PSE in PSE_list:
-            loc = PSE.PolE_loc
-            RMS = PSE.PolE_RMS
-            if self.polarization ==1:
-                loc = PSE.PolO_loc
-                RMS = PSE.PolO_RMS
-                
-            if RMS <= self.RMS_filter:
-                X.append(loc[0])
-                Y.append(loc[1])
-                Z.append(loc[2])
-                T.append(loc[3])
-                unique_IDs.append( PSE.unique_index )
-                
-        T = np.array(T)   
-        X = np.array(X)  
-        Y = np.array(Y)  
-        Z = np.array(Z)       
-        
-        sorter = np.argsort(T)
-        T = T[sorter]
-        X = X[sorter]
-        Y = Y[sorter]
-        Z = Z[sorter]
-        
-        Xslope, Xintercept, XR, P, stderr = linregress(T, X)
-        Yslope, Yintercept, YR, P, stderr = linregress(T, Y)
-        Zslope, Zintercept, ZR, P, stderr = linregress(T, Z)
-        
-        print("PSE IDs:", unique_IDs)
-        print("X vel:", Xslope, XR)
-        print("Y vel:", Yslope, YR)
-        print("Z vel:", Zslope, ZR)
-        print("3D speed:", np.sqrt(Xslope**2 + Yslope**2 + Zslope**2))
-        print("time:", T[-1]-T[0])
-        print("number sources", len(unique_IDs))
-        
-        X_ax = plt.subplot(311)
-        plt.setp(X_ax.get_xticklabels(), visible=False)
-        Y_ax = plt.subplot(312, sharex=X_ax)
-        plt.setp(Y_ax.get_xticklabels(), visible=False)
-        Z_ax = plt.subplot(313, sharex=X_ax)
-        
-        X_ax.scatter((T-3.819)*1000.0, X/1000.0)
-        Y_ax.scatter((T-3.819)*1000.0, Y/1000.0)
-        Z_ax.scatter((T-3.819)*1000.0, Z/1000.0)
-        
-        Xlow = Xintercept + Xslope*T[0]
-        Xhigh = Xintercept + Xslope*T[-1]
-        X_ax.plot( [ (T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Xlow/1000.0,Xhigh/1000.0] )
-        X_ax.tick_params('y', labelsize=25)
-        
-        Ylow = Yintercept + Yslope*T[0]
-        Yhigh = Yintercept + Yslope*T[-1]
-        Y_ax.plot( [(T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Ylow/1000.0,Yhigh/1000.0] )
-        Y_ax.tick_params('y', labelsize=25)
-        
-        Zlow = Zintercept + Zslope*T[0]
-        Zhigh = Zintercept + Zslope*T[-1]
-        Z_ax.plot( [(T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Zlow/1000.0,Zhigh/1000.0])
-        Z_ax.tick_params('both', labelsize=25)
-        
-        plt.show()
+#from scipy.stats import linregress
+#class leader_speed_estimator:
+#    def __init__(self, pol=0, RMS=2.0E-9):
+#        self.polarization = pol
+#        self.RMS_filter = RMS
+#        
+#    def __call__(self, PSE_list):
+#        X = []
+#        Y = []
+#        Z = []
+#        T = []
+#        unique_IDs = []
+#        
+#        for PSE in PSE_list:
+#            loc = PSE.PolE_loc
+#            RMS = PSE.PolE_RMS
+#            if self.polarization ==1:
+#                loc = PSE.PolO_loc
+#                RMS = PSE.PolO_RMS
+#                
+#            if RMS <= self.RMS_filter:
+#                X.append(loc[0])
+#                Y.append(loc[1])
+#                Z.append(loc[2])
+#                T.append(loc[3])
+#                unique_IDs.append( PSE.unique_index )
+#                
+#        T = np.array(T)   
+#        X = np.array(X)  
+#        Y = np.array(Y)  
+#        Z = np.array(Z)       
+#        
+#        sorter = np.argsort(T)
+#        T = T[sorter]
+#        X = X[sorter]
+#        Y = Y[sorter]
+#        Z = Z[sorter]
+#        
+#        Xslope, Xintercept, XR, P, stderr = linregress(T, X)
+#        Yslope, Yintercept, YR, P, stderr = linregress(T, Y)
+#        Zslope, Zintercept, ZR, P, stderr = linregress(T, Z)
+#        
+#        print("PSE IDs:", unique_IDs)
+#        print("X vel:", Xslope, XR)
+#        print("Y vel:", Yslope, YR)
+#        print("Z vel:", Zslope, ZR)
+#        print("3D speed:", np.sqrt(Xslope**2 + Yslope**2 + Zslope**2))
+#        print("time:", T[-1]-T[0])
+#        print("number sources", len(unique_IDs))
+#        
+#        X_ax = plt.subplot(311)
+#        plt.setp(X_ax.get_xticklabels(), visible=False)
+#        Y_ax = plt.subplot(312, sharex=X_ax)
+#        plt.setp(Y_ax.get_xticklabels(), visible=False)
+#        Z_ax = plt.subplot(313, sharex=X_ax)
+#        
+#        X_ax.scatter((T-3.819)*1000.0, X/1000.0)
+#        Y_ax.scatter((T-3.819)*1000.0, Y/1000.0)
+#        Z_ax.scatter((T-3.819)*1000.0, Z/1000.0)
+#        
+#        Xlow = Xintercept + Xslope*T[0]
+#        Xhigh = Xintercept + Xslope*T[-1]
+#        X_ax.plot( [ (T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Xlow/1000.0,Xhigh/1000.0] )
+#        X_ax.tick_params('y', labelsize=25)
+#        
+#        Ylow = Yintercept + Yslope*T[0]
+#        Yhigh = Yintercept + Yslope*T[-1]
+#        Y_ax.plot( [(T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Ylow/1000.0,Yhigh/1000.0] )
+#        Y_ax.tick_params('y', labelsize=25)
+#        
+#        Zlow = Zintercept + Zslope*T[0]
+#        Zhigh = Zintercept + Zslope*T[-1]
+#        Z_ax.plot( [(T[0]-3.819)*1000.0, (T[-1]-3.819)*1000.0], [Zlow/1000.0,Zhigh/1000.0])
+#        Z_ax.tick_params('both', labelsize=25)
+#        
+#        plt.show()
     
 #### IDEA:
     # add setting to ignore time cut (to overlay things from different times)

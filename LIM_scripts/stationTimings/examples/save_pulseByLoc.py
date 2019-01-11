@@ -2,6 +2,11 @@
 
 from LoLIM.stationTimings.autoCorrelator3_part1_fromLOC import save_EventByLoc
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
+
 if __name__=="__main__":
     
     station_delays = {

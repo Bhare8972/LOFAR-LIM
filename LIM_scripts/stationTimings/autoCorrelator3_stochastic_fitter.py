@@ -1403,6 +1403,22 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
     log.take_stderr()
     log.take_stdout()
     
+    
+    print("timeID:", timeID)
+    print("date and time run:", time.strftime("%c") )
+    print("input folders:", pulse_input_folders)
+    print("source IDs to fit:", souces_to_fit)
+    print("guess locations:", guess_source_locations)
+    print("polarization to use:", source_polarizations)
+    print("source stations to exclude:", source_stations_to_exclude)
+    print("source antennas to exclude:", source_antennas_to_exclude)
+    print("bad antennas:", bad_ants)
+    print("referance station:", ref_station)
+    print("fitter type:", fitter)
+    print("guess delays:", guess_timings)
+    print()
+    print()
+    
         #### open data and data processing stuff ####
     print("loading data")
     raw_fpaths = filePaths_by_stationName(timeID)

@@ -48,6 +48,8 @@ def download_phase_callibrations(station, history_folder, timestamp, folder):
     revision = get_latest_previous_revision( station, history_folder, timestamp )
     get_phase_callibration( station, revision, folder )
     
+    
+###### CODE BELOW IS NOW IN EXAMPLES #####
 if __name__ == "__main__":
     #### a full working example of opening a file, checking if it needs metadata, and downloading if necisary
     import LoLIM.utilities as utils
@@ -58,8 +60,9 @@ if __name__ == "__main__":
     
     timeID = "D20180813T153001.413Z"
     history_folder = "./svn_phase_cal_history"
+    get_all_timings = True ## if false, only gets ones needed
     
-    skip = []#['RS407'] ##stations to skip
+    skip = [] ##stations to skip
     
     
     if not isdir(history_folder):
@@ -67,16 +70,15 @@ if __name__ == "__main__":
         
     fpaths = filePaths_by_stationName(timeID)
     stations = fpaths.keys()
-#    stations = ["RS407"]
     
     for station in stations:
         if station in skip:
             continue
-        
+    
         TBB_data = MultiFile_Dal1( fpaths[station] )
         timestamp = datetime.fromtimestamp( TBB_data.get_timestamp() )
         
-        if TBB_data.needs_metadata():
+        if get_all_timings or TBB_data.needs_metadata():
             print("downloading for station:", station)
             download_phase_callibrations(station, history_folder, timestamp, utils.raw_data_dir(timeID) )
             

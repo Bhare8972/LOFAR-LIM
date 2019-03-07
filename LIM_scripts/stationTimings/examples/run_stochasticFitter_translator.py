@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import numpy as np
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
@@ -9,13 +10,7 @@ utilities.default_processed_data_loc = "/home/brian/processed_files"
 #refractivity = 0.000293*2
 #utilities.v_air = utilities.C/(1.0+refractivity)
 
-from LoLIM.stationTimings.autoCorrelator3_stochastic_fitter import run_fitter   
-
-## removed: 
-#'RS306' :  7.38143452038e-06 , ## diff to guess: -1.00074278429e-08
-#'RS305' :  7.1281919551e-06 , ## diff to guess: -1.01663179943e-08
-
-# caution for RS307
+from LoLIM.stationTimings.autoCorrelator3_stochastic_fitter_translater import run_fitter   
 guess_timings = {
 
 'CS001' :  2.22594112593e-06 , ## diff to guess: -2.03808220893e-11
@@ -129,9 +124,8 @@ bad_antennas = [
                 ]
 
 
-
 run_fitter(timeID="D20180921T194259.023Z", 
-           output_folder = "autoCorrelator_fitter",
+           output_folder = "autoCorrelator_fitter_translation_test",
            pulse_input_folders = ["pulse_finding"],
            guess_timings = guess_timings,
            souces_to_fit=known_sources, ## note that the index here is file_index + source_index*10
@@ -148,5 +142,8 @@ run_fitter(timeID="D20180921T194259.023Z",
            final_jitter_width = 1E-9,
            cooldown_fraction = 10.0,
            strong_cooldown_fraction = 100.0,
-           fitter = "dt" ##CHOOSE: dt, dt2, and locs,default is dt. Oscilate between dt and dt2 for best results. locs only fits locations and keeps delays constant
+           X_deviations = np.linspace(-1000,1000,50),
+           Y_deviations = np.linspace(-1000,1000,50),
+           Z_deviations = np.linspace(-2000,5000,100),
+           
            )

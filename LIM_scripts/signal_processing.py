@@ -8,7 +8,7 @@ from scipy import fftpack
 from matplotlib import pyplot as plt
 
 ### need to move these functions here
-from LoLIM.utilities import upsample_N_envelope
+#from LoLIM.utilities import upsample_N_envelope
 
 def simple_bandpass(frequencies, lower_freq=30.0E6, upper_freq=80.0E6, roll_width = 2.5E6):
     """create a simple bandpass filter between two frequencies. Sets all negative frequencies to zero, returns frequency response at 'frequencies'"""
@@ -89,6 +89,47 @@ class upsample_and_correlate:
         fftpack.ifft(self.output, overwrite_x=True)
         return self.output
         
+def upsample_N_envelope(timeseries_data, upsample_factor):
+    
+    x = timeseries_data
+    Nx = len(x)
+    num = int( Nx*upsample_factor )
+    
+    X = fftpack.fft(x)
+
+    sl = [slice(None)]
+    newshape = list(x.shape)
+    newshape[-1] = num
+    Y = np.zeros(newshape, 'D')
+    sl[-1] = slice(0, (Nx + 1) // 2)
+    Y[sl] = X[sl]
+    sl[-1] = slice(-(Nx - 1) // 2, None) ##probably don't need this line and next lint
+    Y[sl] = X[sl]
+
+    if Nx % 2 == 0:  # special treatment if low number of points is even. So far we have set Y[-N/2]=X[-N/2]
+        # upsampling
+        sl[-1] = slice(num-Nx//2,num-Nx//2+1,None)  # select the component at frequency -Nx/2
+        Y[sl] /= 2  # halve the component at -N/2
+        temp = Y[sl]
+        sl[-1] = slice(Nx//2,Nx//2+1,None)  # select the component at +Nx/2
+        Y[sl] = temp  # set that equal to the component at -Nx/2
+        
+    h = np.zeros(num)
+    if num % 2 == 0:
+        h[0] = h[num // 2] = 1
+        h[1:num // 2] = 2
+    else:
+        h[0] = 1
+        h[1:(num + 1) // 2] = 2
+
+    y = fftpack.ifft(Y*h, axis=-1) * (float(num) / float(Nx))
+
+    new_data = y.real**2
+    new_data += y.imag**2
+
+    return np.sqrt(y.real**2 + y.imag**2)
+    
+    
 def correlateFFT(FFTdata_i, FFTdata_j, out):
     """given two FFT data arrays, upsample, correlate, and inverse fourier transform."""
         #### upsample, and multiply A*conj(B), using as little memory as possible
@@ -202,6 +243,106 @@ class parabolic_fit:
         return parabolic_fit.fit_matrix[n_points]
 
 
+#def remove_saturation(data, positive_saturation, negative_saturation, post_removal_length=50, half_hann_length=50):
+#    """given some data, as a 1-D numpy array, remove areas where the signal saturates by multiplying with a half-hann filter. 
+#    Operates on input data. 
+#    positive saturation and negative saturation are the values that above and below which the data is considered to be in saturation
+#    
+#    post_remove_length is the number of data points to remove after the data comes out of saturation
+#    
+#    half_hann_length is the size of the hann-wings on either side of the zeroed data"""
+#    
+#    ## find where saturated
+#    is_saturated = np.logical_or(data>positive_saturation, data<negative_saturation)
+#    leaveSaturation_indexes = np.where(np.logical_and( is_saturated[:-1]==1, is_saturated[1:]==0)  ) [0]
+#    
+#    ## extend saturation areas by some length
+#    for i in leaveSaturation_indexes:
+#        is_saturated[i+1:i+1+post_removal_length] = 1
+#        
+#    ## make the hann window
+#    hann_window = 1.0 - hann(2*half_hann_length)
+#    pre_window = hann_window[:half_hann_length]
+#    post_window = hann_window[half_hann_length:]
+#    
+#    ## find the indeces where we need to remove data
+#    window_starts = np.where(np.logical_and( is_saturated[:-1]==0, is_saturated[1:]==1)  )[0]
+#    window_ends = np.where(np.logical_and( is_saturated[:-1]==1, is_saturated[1:]==0)  )[0] ##note that this is INCLUSIVE!
+#    
+#    ## remove the data!
+#    start_i = 0
+#    end_i = 0
+#    
+#    data_cut = []
+#    
+#    if len(window_ends)>0 and ( len(window_starts)==0 or window_ends[0]<window_starts[0]):
+#        ## the data starts saturatated
+#        win_end = window_ends[ end_i ]
+#        
+#        data[:end_i+1] = 0.0
+#        
+#        
+#        ## take care if we are near end of file
+#        N = half_hann_length
+#        end_i_end = end_i+1+half_hann_length
+#        if end_i_end >= len(data):
+#            end_i_end = len(data)
+#            N = end_i_end - (end_i+1)
+#        
+#        data[end_i+1 : end_i_end] *= post_window[:N]
+#        
+#        end_i += 1
+#        
+#        data_cut.append([0,end_i_end])
+#     
+#    for x in range(len(window_ends)-end_i):
+#        win_start = window_starts[ start_i ]
+#        win_end = window_ends[ end_i ]
+#        
+#        data[win_start:win_end+1] = 0.0
+#        
+#        ## take care at start
+#        win_start_start = win_start-half_hann_length
+#        N = half_hann_length
+#        if win_start_start<0:
+#            win_start_start = 0
+#            N = win_start - win_start_start
+#      
+#        data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
+#        
+#        
+#        ## take care if we are near end of file
+#        N = half_hann_length
+#        end_i_end = end_i+1+half_hann_length
+#        if end_i_end >= len(data):
+#            end_i_end = len(data)
+#            N = end_i_end - (end_i+1)
+#        
+#        data[end_i+1 : end_i_end] *= post_window[:N]
+#        
+#        
+#        start_i += 1
+#        end_i += 1
+#        data_cut.append([win_start_start,end_i_end])
+#        
+#    if start_i == len(window_starts)-1:
+#        ## the data ends saturated
+#        win_start = window_starts[ start_i ]
+#        
+#        data[win_start:] = 0.0
+#        
+#        ## take care at start
+#        win_start_start = win_start-half_hann_length
+#        N = half_hann_length
+#        if win_start_start<0:
+#            win_start_start = 0
+#            N = win_start - win_start_start
+#      
+#        data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
+#        data_cut.append([win_start_start,len(data)])
+#        
+#    return data_cut
+        
 def remove_saturation(data, positive_saturation, negative_saturation, post_removal_length=50, half_hann_length=50):
     """given some data, as a 1-D numpy array, remove areas where the signal saturates by multiplying with a half-hann filter. 
     Operates on input data. 
@@ -238,17 +379,17 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
         ## the data starts saturatated
         win_end = window_ends[ end_i ]
         
-        data[:end_i+1] = 0.0
+        data[:win_end+1] = 0.0
         
         
         ## take care if we are near end of file
         N = half_hann_length
-        end_i_end = end_i+1+half_hann_length
+        end_i_end = win_end+1+half_hann_length
         if end_i_end >= len(data):
             end_i_end = len(data)
-            N = end_i_end - (end_i+1)
+            N = end_i_end - (win_end+1)
         
-        data[end_i+1 : end_i_end] *= post_window[:N]
+        data[win_end+1 : end_i_end] *= post_window[:N]
         
         end_i += 1
         
@@ -272,12 +413,12 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
         
         ## take care if we are near end of file
         N = half_hann_length
-        end_i_end = end_i+1+half_hann_length
+        end_i_end = win_end+1+half_hann_length
         if end_i_end >= len(data):
             end_i_end = len(data)
-            N = end_i_end - (end_i+1)
+            N = end_i_end - (win_end+1)
         
-        data[end_i+1 : end_i_end] *= post_window[:N]
+        data[win_end+1 : end_i_end] *= post_window[:N]
         
         
         start_i += 1
@@ -312,9 +453,16 @@ def data_cut_at_index(data_cuts, index):
     return False
     
     
-def num_double_zeros(data):
+def num_double_zeros(data, threshold=None, ave_shift=False):
     """if data is a numpy array, give number of points that have  zero preceded by a zero"""
-    is_zero = (data==0)
+    
+    if ave_shift:
+        data = data - np.average(data)
+    
+    if threshold is None:
+        is_zero = (data==0)
+    else:
+        is_zero = np.abs(data) < threshold
     
     bad = np.logical_and( is_zero[:-1], is_zero[1:] )
     return np.sum(bad)

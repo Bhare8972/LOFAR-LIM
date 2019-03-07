@@ -16,12 +16,12 @@ ext = Extension("impulsive_imager_tools", ["impulsive_imager_tools.pyx"],
 setup(ext_modules=[ext],
     cmdclass = {'build_ext': build_ext})
 
-ext2 = Extension("impulsive_imager_tools_2", ["impulsive_imager_tools_2.pyx"],
-    include_dirs=[np.get_include(), 
-                  "/usr/local/include/"],
-    library_dirs=["/usr/local/lib/"],
-    libraries=["gsl"]
-)
+#ext2 = Extension("impulsive_imager_tools_2", ["impulsive_imager_tools_2.pyx"],
+#    include_dirs=[np.get_include(), 
+#                  "/usr/local/include/"],
+#    library_dirs=["/usr/local/lib/"],
+#    libraries=["gsl"]
+#)
 
 
 

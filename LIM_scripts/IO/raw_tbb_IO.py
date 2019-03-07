@@ -49,7 +49,7 @@ There are a few complications with reading the data.
 
 ##### TODO:
 ## add a way to combine event that is spread across close timeID  (is this necisary?)
-## add a way to not require antennas to be on same pair. 
+## add proper fitting phase vs frequency to lines, adn func to return the frequency independand phase offset
 
 
 
@@ -92,6 +92,39 @@ def eventData_filePaths(timeID, raw_data_loc=None):
     data_file_path = util.raw_data_dir(timeID, raw_data_loc)
     return [f for f in os.listdir(data_file_path) if f[-6:] == 'tbb.h5']
 
+########  The following four functions read what I call "correction files" these are corrections made to improve the data ##########
+def read_antenna_pol_flips(fname):
+    antennas_to_flip = []
+    with open(fname) as fin:
+        for line in fin:
+            ant_name = line.split()[0]
+            antennas_to_flip.append( ant_name )
+    return antennas_to_flip
+
+def read_bad_antennas(fname):
+    bad_antenna_data = []
+    with open(fname) as fin:
+        for line in fin:
+            ant_name, pol = line.split()[0:2]
+            bad_antenna_data.append((ant_name,int(pol)))
+    return bad_antenna_data
+
+def read_antenna_delays(fname):
+    additional_ant_delays = {}
+    with open(fname) as fin:
+        for line in fin:
+            ant_name, pol_E_delay, pol_O_delay = line.split()[0:3]
+            additional_ant_delays[ant_name] = [float(pol_E_delay), float(pol_O_delay)]
+    return additional_ant_delays
+
+def read_station_delays(fname):
+    station_delays = {}
+    with open(fname) as fin:
+        for line in fin:
+            sname, delay = line.split()[0:2]
+            station_delays[sname] = float(delay)
+    return station_delays
+
 #### data reading class ####
 # Note: ASTRON will "soon" release a new DAL (data )
     
@@ -99,9 +132,10 @@ class TBBData_Dal1:
     """a class for reading one station from one file. However, since one station is often spread between different files, 
     use filePaths_by_stationName combined with MultiFile_Dal1 below""" 
     
-    def __init__(self, filename, force_metadata_ant_pos=False):
+    def __init__(self, filename, force_metadata_ant_pos=False, forcemetadata_delays=True):
         self.filename = filename
         self.force_metadata_ant_pos = force_metadata_ant_pos
+        self.forcemetadata_delays = forcemetadata_delays
         
         #### open file and set some basic info####
         self.file = h5py.File(filename, "r")
@@ -144,19 +178,27 @@ class TBBData_Dal1:
         self.have_metadata = 'DIPOLE_CALIBRATION_DELAY_VALUE' in self.file[ self.stationKey ][ self.dipoleNames[0] ].attrs
         self.antenna_filter = md.make_antennaID_filter(self.dipoleNames)
         
+        
+        # load antenna locations from metadata and from file. IF they are too far apart, then give warning, and use metadata
+        self.ITRF_dipole_positions = md.getItrfAntennaPosition(self.StationName, self.antennaSet)[ self.antenna_filter ] ## load positions from metadata file
         if self.have_metadata and not self.force_metadata_ant_pos:
-            self.ITRF_dipole_positions = np.empty((len(self.dipoleNames), 3), dtype=np.double)
             
+            use_TBB_positions = True
+            TBB_ITRF_dipole_positions = np.empty((len(self.dipoleNames), 3), dtype=np.double)
             for i,dipole in enumerate(self.dipoleNames):
-                self.ITRF_dipole_positions[i] = self.file[ self.stationKey ][dipole].attrs['ANTENNA_POSITION_VALUE']
-      
-        else:
-            ## get antenna positions from file.
-            self.ITRF_dipole_positions = md.getItrfAntennaPosition(self.StationName, self.antennaSet)[ self.antenna_filter ]
+                TBB_ITRF_dipole_positions[i] = self.file[ self.stationKey ][dipole].attrs['ANTENNA_POSITION_VALUE']
+                
+                dif = np.linalg.norm( TBB_ITRF_dipole_positions[i]-self.ITRF_dipole_positions[i] )
+                if dif > 1:
+                    print("WARNING: station", self.StationName, "has suspicious antenna locations. Using metadata instead")
+                    use_TBB_positions = False
+                
+            if use_TBB_positions:
+                self.ITRF_dipole_positions = TBB_ITRF_dipole_positions
             
             
             
-        if self.have_metadata: # and not self.forcemetadata_delays
+        if self.have_metadata and not self.forcemetadata_delays:
             self.calibrationDelays = np.empty( len(self.dipoleNames), dtype=np.double )
             
             for i,dipole in enumerate(self.dipoleNames):
@@ -247,7 +289,7 @@ class TBBData_Dal1:
         """return the timing callibration of the anntennas, as a 1D np array. If not included in the metadata, will look
         for a data file in the same directory as this file. Otherwise returns None"""
         
-        if self.have_metadata:
+        if self.have_metadata and not self.forcemetadata_delays:
             return self.calibrationDelays
         else:
             fpath = os.path.dirname(self.filename) + '/'+self.StationName
@@ -275,7 +317,7 @@ class TBBData_Dal1:
                 
 class MultiFile_Dal1:
     """A class for reading the data from one station from multiple files"""
-    def __init__(self, filename_list, force_metadata_ant_pos=False, polarization_flips=None, bad_antennas=[], additional_ant_delays=None, only_complete_pairs=True):
+    def __init__(self, filename_list, force_metadata_ant_pos=False, polarization_flips=None, bad_antennas=[], additional_ant_delays=None, station_delay=0.0, only_complete_pairs=True):
         """filename_list:  list of filenames for this station for this event.
             force_metadata_ant_pos -if True, then load antenna positions from a metadata file and not the raw data file. Default False
             polarization_flips     -list of even antennas where it is known that even and odd antenna names are flipped in file. This is assumed to apply both to data and timing calibration
@@ -283,9 +325,18 @@ class MultiFile_Dal1:
                                         assumed to be BEFORE antenna flips are accounted for
             additional_ant_delays  -a dictionary. Each key is name of even antenna, each value is a tuple with additional even and odd antenna delays. This should rarely be needed.
                                         assumed to be found BEFORE antenna flips are accounted for
-            only_complete_pairs    -if True, discards antenna if the other in pair is not present or is bad. If true, keeps all good antennas with a 'none' value if other antenna in pair is missing"""
+            station_delay          -a single number that represents the clock offset of this station, as a delay
+            NOTE: polarization_flips, bad_antennas, additional_ant_delays, and station_delay can now be strings that are file names. If this is the case, they will be read automatically
+            only_complete_pairs    -if True, discards antenna if the other in pair is not present or is bad. If False, keeps all good antennas with a 'none' value if other antenna in pair is missing"""
         
         self.files = [TBBData_Dal1(fname, force_metadata_ant_pos) for fname in filename_list]
+        
+        if isinstance(polarization_flips, str):
+            polarization_flips = read_antenna_pol_flips( polarization_flips )
+        if isinstance(bad_antennas, str):
+            bad_antennas = read_bad_antennas( read_bad_antennas )
+        if isinstance(additional_ant_delays, str):
+            additional_ant_delays = read_antenna_delays( additional_ant_delays )
         
         #### get some data that should be constant #### TODO: change code to make use of getters
         self.antennaSet = self.files[0].antennaSet
@@ -295,6 +346,12 @@ class MultiFile_Dal1:
         self.FilterSelection = self.files[0].FilterSelection
         self.Time = self.files[0].Time
         self.bad_antennas = bad_antennas
+        self.odd_pol_additional_timing_delay = 0.0 # anouther timing delay to add to all odd-polarized antennas
+        
+        if isinstance(station_delay, str):
+            station_delay = read_station_delays( station_delay )[ self.StationName ]
+            
+        self.station_delay = station_delay
         
         #### check consistancy of data ####
         for TBB_file in self.files:
@@ -309,6 +366,9 @@ class MultiFile_Dal1:
             if TBB_file.Time != self.Time:
                 raise IOError("antenna set not the same between files for station: "+self.StationName)
         
+        ## check LBA outer antenna set
+        if self.antennaSet != "LBA_OUTER":
+            print("WARNING: antenna set on station", self.StationName, "is not LBA_OUTER")
         
         
         #### find best files to get antennas from ####
@@ -412,7 +472,6 @@ class MultiFile_Dal1:
             self.set_polarization_flips( polarization_flips )
         self.additional_ant_delays = additional_ant_delays
 
-
     def set_polarization_flips(self, even_antenna_names):
         """given a set of names(IDs) of even antennas, flip the data between the even and odd antennas"""
         self.even_ant_pol_flips = even_antenna_names
@@ -423,6 +482,38 @@ class MultiFile_Dal1:
                 self.index_adjusts[even_antenna_index] += 1
                 self.index_adjusts[even_antenna_index+1] -= 1
                 
+    def set_odd_polarization_delay(self, new_delay):
+        self.odd_pol_additional_timing_delay = new_delay
+        
+    def set_station_delay(self, station_delay):
+        """ set the station delay, should be a number"""
+        self.station_delay = station_delay
+                
+    def find_and_set_polarization_delay(self, verbose=False, tolerance=1e-9):
+        fpath = os.path.dirname(self.files[0].filename) + '/'+self.StationName
+        phase_calibration = md.getStationPhaseCalibration(self.StationName, self.antennaSet, file_location=fpath  )
+        all_antenna_calibrations = md.convertPhase_to_Timing(phase_calibration, 1.0/self.SampleFrequency) 
+        
+        even_delays = all_antenna_calibrations[::2]
+        odd_delays = all_antenna_calibrations[1::2]
+        odd_offset = odd_delays-even_delays
+        median_odd_offset = np.median( odd_offset )
+        if verbose:
+            print("median offset is:", median_odd_offset)
+        below_tolerance = np.abs( odd_offset-median_odd_offset ) < tolerance
+        if verbose:
+            print(np.sum(below_tolerance), "antennas below tolerance.", len(below_tolerance)-np.sum(below_tolerance), "above.")
+        ave_best_offset = np.average( odd_offset[below_tolerance] )
+        if verbose:
+            print("average of below-tolerance offset is:", ave_best_offset)
+        self.set_odd_polarization_delay( -ave_best_offset )
+        
+        above_tolerance = np.zeros( len(all_antenna_calibrations), dtype=bool )
+        above_tolerance[::2] = np.logical_not( below_tolerance )
+        above_tolerance[1::2] = above_tolerance[::2]
+        above_tolerance = above_tolerance[ md.make_antennaID_filter(self.get_antenna_names()) ]
+        return [AN for AN, AT in zip(self.get_antenna_names(),above_tolerance) if AT]
+        
                 
     #### GETTERS ####
     def needs_metadata(self):
@@ -534,11 +625,12 @@ class MultiFile_Dal1:
     def get_timing_callibration_delays(self, out=None):
         """return the timing callibration of the anntennas, as a 1D np array. If not included in the metadata, will look
         for a data file in the same directory as this file. Otherwise returns None.
-        if out is a numpy array, it is used to store the antenna positions, otherwise a new array is allocated. 
-        This takes polarization flips, and additional_ant_delays into account (assuming that additional antenna delays were found BEFORE the pol flip was found)."""
+        if out is a numpy array, it is used to store the antenna delays, otherwise a new array is allocated. 
+        This takes polarization flips, and additional_ant_delays into account (assuming that both were found BEFORE the pol flip was found).
+        Also can account for a timing difference between even and odd antennas, if it is set."""
         
         if out is None:
-            out = np.empty( len(self.dipoleNames) )
+            out = np.zeros( len(self.dipoleNames) )
         
         for TBB_file in self.files:
             ret = TBB_file.get_timing_callibration_delays()
@@ -553,14 +645,50 @@ class MultiFile_Dal1:
                     out[ant_i] = ret[station_ant_i]
                     
                 if self.additional_ant_delays is not None:
-                    ## additional_ant_delays only stores even antenna names for historical reasons. so we need to be clever here
+                    ## additional_ant_delays stores only even antenna names for historical reasons. so we need to be clever here
                     antenna_polarization = 0 if (ant_i%2==0) else 1 
                     even_ant_name = self.dipoleNames[ ant_i-antenna_polarization ]
                     if even_ant_name in self.additional_ant_delays:
                         if even_ant_name in self.even_ant_pol_flips:
                             antenna_polarization = int(not antenna_polarization)
                         out[ant_i] += self.additional_ant_delays[ even_ant_name ][ antenna_polarization ] ## 90% sure this is correct sign
+                        
+        out[1::2] += self.odd_pol_additional_timing_delay
             
+        return out
+    
+    def get_total_delays(self, out=None):
+        """Return the total delay for each antenna, accounting for all antenna delays, polarization delay, station clock offsets, and trigger time offsets (nominal sample number).
+        This function should be prefered over 'get_timing_callibration_delays', but the offsets can have a large average. It is recomended to pick one antenna (on your referance station)
+        and use it as a referance antenna so that it has zero timing delay. Note: this creates two defintions of T=0. I will call 'uncorrected time' is when the result of this function is
+        used as-is, and a referance antenna is not choosen. (IE, the referance station can have a large total_delay offset), 'corrected time' will be otherwise."""
+        
+        delays = self.get_timing_callibration_delays(out)
+        delays += self.station_delay - self.get_nominal_sample_number()*5.0E-9
+        
+        return delays
+    
+    def get_geometric_delays(self, source_location, out=None, antenna_locations=None):
+        """Calculate travel time from a XYZ location to each antenna. out can be an array of length equal to number of antennas. 
+        antenna_locations is the table of antenna locations, given by get_LOFAR_centered_positions(). If None, it is calculated. Note that antenna_locations CAN be modified in this function.
+        If antenna_locations is less then all antennas, then the returned array will be correspondingly shorter.
+        The output of this function plus get_total_delays plus emission time of the source is the time the source is seen on each antenna."""
+        
+        if antenna_locations is None:
+            antenna_locations = self.get_LOFAR_centered_positions()
+        
+        if out is None:
+            out = np.empty( len(antenna_locations), dtype=np.double )
+            
+        if len(out) != len(antenna_locations):
+            print("ERROR: arrays are not of same length in geometric_delays()")
+            return None
+            
+        antenna_locations -= source_location
+        antenna_locations *= antenna_locations
+        np.sum(antenna_locations, axis=1, out=out)
+        np.sqrt(out, out=out)
+        out /= util.v_air
         return out
             
     def get_data(self, start_index, num_points, antenna_index=None, antenna_ID=None):

@@ -23,6 +23,8 @@ from LoLIM.read_pulse_data import  read_station_delays, read_antenna_pol_flips, 
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
 from LoLIM.findRFI import window_and_filter
 from LoLIM.signal_processing import parabolic_fit
+
+TODO: dble check this file for correctness. Correct for polarization offsets. save correct time to pulse files
     
 def save_Pulse(timeID, output_folder, event_index, pulse_time, station_delays, skip_stations=[], window_width=7E-6, pulse_width=50, block_size=2**16, 
                min_ant_amp=5.0, guess_flash_location=None, referance_station="CS002", polarization_flips="polarization_flips.txt", 
@@ -167,6 +169,7 @@ def save_Pulse(timeID, output_folder, event_index, pulse_time, station_delays, s
             h5_Ant_dataset[2] = np.real( odd_trace )
             h5_Ant_dataset[3] = odd_HE
                         
+            WARNING: not sure this is correct. even_total_time_offset includes station delay
             starting_index = data_arrival_index+center_index-half_pulse_width
             h5_Ant_dataset.attrs['starting_index'] = starting_index
             h5_Ant_dataset.attrs['PolE_timeOffset'] = -even_total_time_offset ## NOTE: due to historical reasons, there is a sign flip here

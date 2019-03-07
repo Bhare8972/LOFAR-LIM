@@ -11,8 +11,13 @@ from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 from os import mkdir
 from os.path import isdir
 
+## these lines are anachronistic and should be fixed at some point
+from LoLIM import utilities
+utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_processed_data_loc = "/home/brian/processed_files"
+
 if __name__ == "__main__":
-    timeID = "D20170929T202255.000Z"
+    timeID = "D20180921T194259.023Z"
     output_folder = "/max_over_blocks"
     block_size = 2**16
     
@@ -37,8 +42,8 @@ if __name__ == "__main__":
         
         plt.figure()
         for antenna_i in range(num_antennas):
-            if antenna_i == 1:
-                break
+#            if antenna_i == 1:
+#                break
             print("  antenna:", antenna_i, "/", num_antennas)
             
             data = np.zeros(num_blocks, dtype=float)
@@ -56,9 +61,9 @@ if __name__ == "__main__":
                 data[block_i] = antenna_block_max
                 
             plt.plot(data)
-            plt.show()
+#            plt.show()
         
         print("saving figure:", output_fpath+'/'+station+'.png')
-#        plt.savefig(output_fpath+'/'+station+'.png')
-#        plt.show()
-#        plt.close()
+        plt.savefig(output_fpath+'/'+station+'.png')
+        plt.show()
+        plt.close()

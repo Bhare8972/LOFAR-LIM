@@ -8,33 +8,39 @@ from LoLIM.utilities import processed_data_dir, v_air, SId_to_Sname
 from LoLIM.signal_processing import remove_saturation
 
 class getTrace_fromLoc():
-    def __init__(self, data_file_dict, data_filter_dict, station_timing_calibration):
+    def __init__(self, data_file_dict, data_filter_dict, station_timing_calibration=None):
         """data_file_dict is dictionary where keys are station names and values are TBB files. data_filter_dict is same, but
         values are window_and_filter objects. station_timing_calibration is same, but values are the timing callibration of the stations"""
         
         self.data_file_dict = data_file_dict
         self.data_filter_dict = data_filter_dict
-        self.station_timing_calibration = station_timing_calibration
+#        self.station_timing_calibration = station_timing_calibration
         
+        if station_timing_calibration is not None:
+            for sname, TBB_file in data_file_dict.items():
+                TBB_file.set_station_delay( station_timing_calibration[sname] )
         
     def get_trace_fromLoc(self, XYZT, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, half_hann_length=50):
         """given the location of the source in XYZT, name of the antenna, and width (in num data samples) of the desired pulse, 
         return starting_index of the returned trace, total time offest of that antenna, predicted arrival time of pulse at that antenna, 
-        and the time trace centered on the arrival time"""
+        and the time trace centered on the arrival time."""
         
         station_name = SId_to_Sname[ int(ant_name[:3]) ]
         station_data = self.data_file_dict[ station_name ]
         data_filter = self.data_filter_dict[ station_name ]
         file_antenna_index = station_data.get_antenna_names().index( ant_name )
         
-        ant_loc = station_data.get_LOFAR_centered_positions()[ file_antenna_index ]
+#        ant_loc = station_data.get_LOFAR_centered_positions()[ file_antenna_index ]
+#        ant_time_offset = station_data.get_timing_callibration_delays()[file_antenna_index] - station_data.get_nominal_sample_number()*5.0E-9
+#        total_time_offset = ant_time_offset + self.station_timing_calibration[station_name]
+#        predicted_arrival_time = np.linalg.norm( XYZT[:3]-ant_loc )/v_air + XYZT[3]
         
-        ant_time_offset = station_data.get_timing_callibration_delays()[file_antenna_index] - station_data.get_nominal_sample_number()*5.0E-9
-        total_time_offset = ant_time_offset + self.station_timing_calibration[station_name]
+        total_time_offset = station_data.get_total_delays()[ file_antenna_index ]
+        antenna_locations = station_data.get_LOFAR_centered_positions()
+        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1]) + XYZT[3]
         
-        predicted_arrival_time = np.linalg.norm( XYZT[:3]-ant_loc )/v_air + XYZT[3]
-       
         data_arrival_index = int( predicted_arrival_time/5.0E-9 + total_time_offset/5.0E-9 )
+        
         local_data_index = int( data_filter.blocksize*0.5 )
         data_start_sample = data_arrival_index - local_data_index      
         
@@ -61,8 +67,7 @@ class getTrace_fromLoc():
         data_filter = self.data_filter_dict[ station_name ]
         file_antenna_index = station_data.get_antenna_names().index( ant_name )
         
-        ant_time_offset = station_data.get_timing_callibration_delays()[file_antenna_index] - station_data.get_nominal_sample_number()*5.0E-9
-        total_time_offset = ant_time_offset + self.station_timing_calibration[station_name]
+        total_time_offset = station_data.get_total_delays()[ file_antenna_index ]
        
         local_data_index = int( data_filter.blocksize*0.5 )
         

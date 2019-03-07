@@ -7,10 +7,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from LoLIM.utilities import processed_data_dir, v_air
-from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName, read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 from LoLIM.signal_processing import remove_saturation
 from LoLIM.findRFI import window_and_filter
-from LoLIM.read_pulse_data import  read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 from matplotlib.transforms import blended_transform_factory
 
 from scipy.signal import hilbert
@@ -65,7 +64,7 @@ def plot_blocks(timeID, block_size, block_starts, guess_delays, guess_location =
     for sname, data_file in raw_data_files.items():
         print(sname)
         
-        station_delay = 0.0
+        station_delay = -data_file.get_nominal_sample_number()*5.0E-9
         if sname in guess_delays:
             station_delay = guess_delays[sname] 
         

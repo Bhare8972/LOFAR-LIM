@@ -6,8 +6,9 @@ from itertools import chain
 
 import numpy as np
 import h5py
+from scipy.signal import resample
 
-from LoLIM.utilities import log, processed_data_dir
+from LoLIM.utilities import logger, processed_data_dir
 from LoLIM.getTrace_fromLoc import getTrace_fromLoc    
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
 from LoLIM.findRFI import window_and_filter
@@ -63,7 +64,7 @@ from LoLIM.signal_processing import parabolic_fit
 #    bad_antennas = "bad_antennas.txt"
 #    additional_antenna_delays = "ant_delays.txt"
     
-def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_folder, pulse_width=50, min_ant_amp=5,
+def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_folder, pulse_width=50, min_ant_amp=5, upsample_factor=0,
                     polarization_flips="polarization_flips.txt", bad_antennas="bad_antennas.txt", additional_antenna_delays = "ant_delays.txt"):
     
     processed_data_folder = processed_data_dir(timeID)
@@ -81,12 +82,14 @@ def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_fol
         mkdir(logging_folder)
 
     #Setup logger and open initial data set
+    log = logger()
     log.set(logging_folder + "/log_out_"+str(pulse_index)+"_.txt") ## TODo: save all output to a specific output folder
     log.take_stderr()
     log.take_stdout()
     
     print("saving traces to file", pulse_index)
     print("location:", XYZT)
+    print("upsample_factor:", upsample_factor)
     
     print()
     print()
@@ -111,12 +114,12 @@ def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_fol
     
     
     raw_fpaths = filePaths_by_stationName(timeID)
-    raw_data_files = {sname:MultiFile_Dal1(fpaths, force_metadata_ant_pos=True, polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays) \
-                      for sname,fpaths in raw_fpaths.items() if sname in station_timing_delays}
+    raw_data_files = {sname:MultiFile_Dal1(fpaths, force_metadata_ant_pos=True, polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays,
+                                           station_delay=station_timing_delays[sname]) for sname,fpaths in raw_fpaths.items() if sname in station_timing_delays}
     
     data_filters = {sname:window_and_filter(timeID=timeID,sname=sname) for sname in station_timing_delays}
     
-    trace_locator = getTrace_fromLoc( raw_data_files, data_filters, station_timing_delays )
+    trace_locator = getTrace_fromLoc( raw_data_files, data_filters )
     
     print()
     print()
@@ -125,8 +128,12 @@ def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_fol
     out_fname = data_dir + "/potSource_"+str(pulse_index)+".h5"
     out_file = h5py.File(out_fname, "w")
     for sname in station_timing_delays.keys():
+        TBB_file = raw_data_files[ sname ]
+        TBB_file.find_and_set_polarization_delay()
+        antenna_names = TBB_file.get_antenna_names()
+        
+        
         h5_statGroup = out_file.create_group( sname )
-        antenna_names = raw_data_files[ sname ].get_antenna_names()
         print()
         print(sname)
         
@@ -150,21 +157,36 @@ def save_EventByLoc(timeID, XYZT, station_timing_delays, pulse_index, output_fol
             
             ### note that peak time should NOT account for station timing offsets!
             
-            
-            PolE_peak_finder = parabolic_fit( PolE_HE )
-            PolO_peak_finder = parabolic_fit( PolO_HE )
-            
             h5_Ant_dataset.attrs['starting_index'] = starting_index
             h5_Ant_dataset.attrs['PolE_timeOffset'] = -(PolE_offset - station_timing_delays[sname])
             h5_Ant_dataset.attrs['PolO_timeOffset'] = -(PolO_offset - station_timing_delays[sname])
+            h5_Ant_dataset.attrs['PolE_timeOffset_CS'] = (PolE_offset - station_timing_delays[sname])
+            h5_Ant_dataset.attrs['PolO_timeOffset_CS'] = (PolO_offset - station_timing_delays[sname])
+            
+            
+            
+            
+            sample_time = 5.0E-9
+            if upsample_factor > 1:
+                PolE_HE = resample(PolE_HE, len(PolE_HE)*upsample_factor )
+                PolO_HE = resample(PolO_HE, len(PolO_HE)*upsample_factor )
+                
+                sample_time /= upsample_factor
+            
             
             if np.max(PolE_HE)> min_ant_amp:
-                h5_Ant_dataset.attrs['PolE_peakTime'] =  starting_index*5.0E-9 - (PolE_offset-station_timing_delays[sname]) + PolE_peak_finder.peak_index*5.0E-9
+                
+                
+                PolE_peak_finder = parabolic_fit( PolE_HE )
+                h5_Ant_dataset.attrs['PolE_peakTime'] =  starting_index*5.0E-9 - (PolE_offset-station_timing_delays[sname]) + PolE_peak_finder.peak_index*sample_time
             else:
                 h5_Ant_dataset.attrs['PolE_peakTime'] = np.nan
             
             if np.max(PolO_HE)> min_ant_amp:
-                h5_Ant_dataset.attrs['PolO_peakTime'] =  starting_index*5.0E-9 - (PolO_offset-station_timing_delays[sname]) + PolO_peak_finder.peak_index*5.0E-9
+                
+                
+                PolO_peak_finder = parabolic_fit( PolO_HE )
+                h5_Ant_dataset.attrs['PolO_peakTime'] =  starting_index*5.0E-9 - (PolO_offset-station_timing_delays[sname]) + PolO_peak_finder.peak_index*sample_time
             else:
                 h5_Ant_dataset.attrs['PolO_peakTime'] =  np.nan
             

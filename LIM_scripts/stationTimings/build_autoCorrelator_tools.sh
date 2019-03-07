@@ -1,2 +1,2 @@
 #!/bin/sh
-python ./setup_autoCorrelator_tools.py build_ext --inplace
+python3 ./setup_autoCorrelator_tools.py build_ext --inplace

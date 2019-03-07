@@ -19,7 +19,7 @@ import h5py
 
 #mine
 from LoLIM.prettytable import PrettyTable
-from LoLIM.utilities import log, processed_data_dir, v_air, SId_to_Sname, Sname_to_SId_dict, RTD
+from LoLIM.utilities import logger, processed_data_dir, v_air, SId_to_Sname, Sname_to_SId_dict, RTD
 from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
 from LoLIM.antenna_response import LBA_ant_calibrator
 from LoLIM.porta_code import code_logger, pyplot_emulator
@@ -1399,6 +1399,7 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
 
 
     #Setup logger and open initial data set
+    log = logger()
     log.set(logging_folder + "/log_out.txt") ## TODo: save all output to a specific output folder
     log.take_stderr()
     log.take_stdout()

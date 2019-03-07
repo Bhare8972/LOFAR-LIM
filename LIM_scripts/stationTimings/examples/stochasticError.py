@@ -9,7 +9,7 @@ utilities.default_processed_data_loc = "/home/brian/processed_files"
 #refractivity = 0.000293*2
 #utilities.v_air = utilities.C/(1.0+refractivity)
 
-from LoLIM.stationTimings.autoCorrelator3_stochastic_fitter import run_fitter   
+from LoLIM.stationTimings.autoCorrelator3_stochastic_fitter_MC_error import run_fitter   
 
 ## removed: 
 #'RS306' :  7.38143452038e-06 , ## diff to guess: -1.00074278429e-08
@@ -131,7 +131,7 @@ bad_antennas = [
 
 
 run_fitter(timeID="D20180921T194259.023Z", 
-           output_folder = "autoCorrelator_fitter",
+           output_folder = "autoCorrelator_fitter_ERROR",
            pulse_input_folders = ["pulse_finding"],
            guess_timings = guess_timings,
            souces_to_fit=known_sources, ## note that the index here is file_index + source_index*10
@@ -142,11 +142,7 @@ run_fitter(timeID="D20180921T194259.023Z",
            bad_ants=bad_antennas,
            ref_station="CS002",
            min_ant_amplitude=10,
-           max_stoch_loop_itters = 2000,
-           min_itters_till_convergence = 100,
-           initial_jitter_width = 100000E-9,
-           final_jitter_width = 1E-9,
-           cooldown_fraction = 10.0,
-           strong_cooldown_fraction = 100.0,
-           fitter = "dt" ##CHOOSE: dt, dt2, and locs,default is dt. Oscilate between dt and dt2 for best results. locs only fits locations and keeps delays constant
+           num_itters=100, 
+           error_deviation=0.001E-9,
+           antenna_error = 0.8E-9,
            )

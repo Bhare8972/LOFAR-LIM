@@ -7,10 +7,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from LoLIM.utilities import processed_data_dir
-from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName, read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 from LoLIM.signal_processing import remove_saturation
 from LoLIM.findRFI import window_and_filter
-from LoLIM.read_pulse_data import  read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 
 
 ## these lines are anachronistic and should be fixed at some point
@@ -43,6 +42,7 @@ if __name__ == "__main__":
     
     raw_fpaths = filePaths_by_stationName(timeID)
     TBB_data = MultiFile_Dal1( raw_fpaths[station], polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays )
+
     RFI_filter = window_and_filter(timeID=timeID, sname=station)
     
     data = np.empty(block_size, dtype=np.double)

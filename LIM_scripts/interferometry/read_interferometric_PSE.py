@@ -8,6 +8,20 @@ import numpy as np
 
 from LoLIM.utilities import processed_data_dir
 
+class h5_object_opener:
+    """This is a class that stores a H5 group or dataset for later use. It only stores the name of the object, so the file can be closed. When request, it will re-open the file and return the requested object"""
+    
+    def __init__(self, H5Object):
+        """H5 object should be a group or dataset"""
+        self.name = H5Object.name
+        self.file_name = H5Object.file.filename
+        
+    def get_object(self):
+        """re-opens the file and returns the requested object"""
+        H5_file = h5py.File(self.file_name, "r+")
+        return H5_file[ self.name ]
+    
+
 class interferometry_header:
     class antenna_data_object:
         def __init__(self, ant_i, h5_group):
@@ -19,35 +33,43 @@ class interferometry_header:
             self.half_window_length = h5_group.attrs["half_window_length"]
             self.station_antenna_i = h5_group.attrs["station_antenna_i"]
             self.station = h5_group.attrs["station"]
+            self.with_core_ant_i = h5_group.attrs["with_core_ant_i"]
+            self.no_core_ant_i = h5_group.attrs["no_core_ant_i"]
     
     def __init__(self, h5_header_group):
-        self.h5_group = h5_header_group
+        h5_group = h5_header_group
         
-        self.bounding_box = self.h5_group.attrs["bounding_box"]
-        self.pulse_length = self.h5_group.attrs["pulse_length"]
-        self.num_antennas_per_station = self.h5_group.attrs["num_antennas_per_station"]
-        self.stations_to_exclude = self.h5_group.attrs["stations_to_exclude"]
+        self.bounding_box = h5_group.attrs["bounding_box"]
+        self.pulse_length = h5_group.attrs["pulse_length"]
+        self.num_antennas_per_station = h5_group.attrs["num_antennas_per_station"]
+        self.stations_to_exclude = h5_group.attrs["stations_to_exclude"]
         self.stations_to_exclude = [stat.decode() for stat in self.stations_to_exclude] ## convert binary to strings
         
-        self.do_RFI_filtering = self.h5_group.attrs["do_RFI_filtering"]
-        self.block_size = self.h5_group.attrs["block_size"]
-        self.upsample_factor = self.h5_group.attrs["upsample_factor"]
-        self.max_events_perBlock = self.h5_group.attrs["max_events_perBlock"]
-        self.hann_window_fraction = self.h5_group.attrs["hann_window_fraction"]
+        self.do_RFI_filtering = h5_group.attrs["do_RFI_filtering"]
+        self.block_size = h5_group.attrs["block_size"]
+        self.upsample_factor = h5_group.attrs["upsample_factor"]
+        self.max_events_perBlock = h5_group.attrs["max_events_perBlock"]
+        self.hann_window_fraction = h5_group.attrs["hann_window_fraction"]
         
-        self.bad_antennas = self.h5_group.attrs["bad_antennas"] 
+        self.use_core_stations_S1 = h5_group.attrs["use_core_stations_S1"]
+        self.use_core_stations_S2 = h5_group.attrs["use_core_stations_S2"]
+        
+        self.stage_2_convergence_length = h5_group.attrs["stage_2_convergence_length"]
+        
+        self.bad_antennas = h5_group.attrs["bad_antennas"] 
         self.bad_antennas = [[name.decode(),int(pol.decode())] for name,pol in self.bad_antennas]
-        self.pol_flips = self.h5_group.attrs["polarization_flips"]
+        self.pol_flips = h5_group.attrs["polarization_flips"]
         self.pol_flips = [name.decode() for name in self.pol_flips]
         
-        self.antenna_data = [ None ]*len(self.h5_group)
-        for ant_i, ant_group in self.h5_group.items():
+        self.antenna_data = [ None ]*len(h5_group)
+        for ant_i, ant_group in h5_group.items():
             new_ant_data = self.antenna_data_object(ant_i, ant_group)
             self.antenna_data[new_ant_data.antenna_index] = new_ant_data
             
             
-        self.prefered_station_name = self.h5_group.attrs["prefered_station_name"]
-        self.trace_length_stage2 = self.h5_group.attrs["trace_length_stage2"]
+        self.prefered_station_name = h5_group.attrs["prefered_station_name"]
+        self.trace_length_stage2 = h5_group.attrs["trace_length_stage2"]
+        self.h5_header_opener = h5_object_opener( h5_group )
             
     def get_station_names(self):
         station_names = []
@@ -72,7 +94,6 @@ class Ipse:
     def __init__(self, block_index, ID, h5_PSE_dataset, block_group):
         self.block_index = block_index
         self.IPSE_index = ID
-        self.file_dataset = h5_PSE_dataset
         
         self.unique_index = h5_PSE_dataset.attrs["unique_index"]
         
@@ -104,12 +125,14 @@ class Ipse:
             self.XYZT_s1 = h5_PSE_dataset.attrs["XYZT_s1"]
             
         self.XYZT = np.append(self.loc, [self.T])
+        self.h5_dataset_opener = h5_object_opener( h5_PSE_dataset )
         
     def set_header(self, header):
         self.header = header
         
     def plot(self, station_set="all"):
         """station_set should be "all", "CS", "RS" """
+        file_dataset = self.h5_dataset_opener.get_object()
         
         station_ant_info = self.header.antenna_info_by_station()
         for stat_i, (sname, ant_list) in enumerate(station_ant_info.items()):
@@ -117,7 +140,7 @@ class Ipse:
                 traces = []
                 max = 0.0
                 for ant in ant_list:
-                    traces.append( np.abs(self.file_dataset[ ant.antenna_index ] ) )
+                    traces.append( np.abs( file_dataset[ ant.antenna_index ] ) )
                     tmax = np.max( traces[-1] )
                     if tmax > max:
                         max = tmax

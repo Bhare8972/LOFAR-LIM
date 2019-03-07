@@ -12,10 +12,8 @@ import h5py
 from scipy.optimize import minimize
 
 from LoLIM.utilities import v_air, RTD, processed_data_dir, logger
-from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
+from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName, read_antenna_delays, read_station_delays, read_bad_antennas, read_antenna_pol_flips
 from LoLIM.findRFI import FindRFI, window_and_filter
-#from LoLIM.IO.metadata import getClockCorrections
-from LoLIM.read_pulse_data import read_antenna_delays, read_station_delays, read_bad_antennas, read_antenna_pol_flips
 from LoLIM.signal_processing import half_hann_window, remove_saturation, num_double_zeros
 from LoLIM.antenna_response import LBA_antenna_model
 
@@ -157,7 +155,7 @@ class interferometric_locator:
                  bounding_box, pulse_length, num_antennas_per_station, stations_to_exclude=[], 
                  initial_RFI_block=None, RFI_num_blocks=None, RFI_max_blocks=None):
         self.timeID = timeID
-        self.bounding_box = bounding_box
+        self.bounding_box = np.array(bounding_box, dtype=np.double)
         self.pulse_length = pulse_length
         self.num_antennas_per_station = num_antennas_per_station
                
@@ -222,7 +220,8 @@ class interferometric_locator:
         CS002_index = None
         self.station_to_antenna_indeces_dict = {}
         for station, fpaths  in raw_fpaths.items():
-            if (station not in self.stations_to_exclude) and ( self.use_core_stations_S1 or self.use_core_stations_S2 or (not station[:2]=='CS') or station=="CS002" ):
+            if (station in self.station_timing_offsets) and (station not in self.stations_to_exclude) and ( self.use_core_stations_S1 or self.use_core_stations_S2 or (not station[:2]=='CS') or station=="CS002" ):
+#            if (station not in self.stations_to_exclude) and ( self.use_core_stations_S1 or self.use_core_stations_S2 or (not station[:2]=='CS') or station=="CS002" ):
                 log_func("opening", station)
                 self.station_names.append( station )
                 self.station_to_antenna_indeces_dict[station] = []
@@ -425,9 +424,19 @@ class interferometric_locator:
         header_group.attrs["num_antennas_per_station"] = self.num_antennas_per_station
         header_group.attrs["stations_to_exclude"] =  np.array(self.stations_to_exclude, dtype='S')
         header_group.attrs["do_RFI_filtering"] = self.do_RFI_filtering
-        header_group.attrs["initial_RFI_block"] = self.initial_RFI_block
-        header_group.attrs["RFI_num_blocks"] = self.RFI_num_blocks
-        header_group.attrs["RFI_max_blocks"] = self.RFI_max_blocks
+        header_group.attrs["use_saved_RFI_info"] = self.use_saved_RFI_info
+        if self.initial_RFI_block is None:
+            header_group.attrs["initial_RFI_block"] = -1
+        else:
+            header_group.attrs["initial_RFI_block"] = self.initial_RFI_block
+        if self.RFI_num_blocks is None:
+            header_group.attrs["RFI_num_blocks"] = -1
+        else:
+            header_group.attrs["RFI_num_blocks"] = self.RFI_num_blocks
+        if self.RFI_max_blocks is None:
+            header_group.attrs["RFI_max_blocks"] = - 1
+        else:
+            header_group.attrs["RFI_max_blocks"] = self.RFI_max_blocks
         header_group.attrs["block_size"] = self.block_size
         header_group.attrs["upsample_factor"] = self.upsample_factor
         header_group.attrs["max_events_perBlock"] = self.max_events_perBlock
@@ -544,40 +553,50 @@ class interferometric_locator:
                    
             stage_1_result, num_itter, num_stage1_itters = stochastic_minimizer(self.stage_1_imager.intensity, self.bounding_box, converg_num=self.stage_1_converg_num, 
                                                                        converg_rad=self.stage_1_converg_radius, max_itters=self.stage_1_max_itters)
+            stage_1_result.x[2] = np.abs(stage_1_result.x[2]) ## ensure Z is positive
             
-            log_func("   stoch. itters:", num_itter, num_stage1_itters)
+            log_func("   stoch. itters:", num_itter, num_stage1_itters, '{:4.2f}'.format(-stage_1_result.fun) )
+            log_func("      loc: {:d} {:d} {:d}".format(int(stage_1_result.x[0]), int(stage_1_result.x[1]), int(stage_1_result.x[2])) )
             
             
             ## select data for stage 2 ##
             previous_solution = stage_1_result
             converged = False
-            for stage2loop_i in range(self.stage_2_max_itters):            
-            
-                problem = False
-                s2_ant_i = -1
-                for ant_i in range( self.num_antennas ):
-                    if self.use_core_stations_S2 or self.is_not_core[ant_i]:
-                        s2_ant_i += 1 ## do this here cause of break below
-                    
-                        modeled_dt = -(  np.linalg.norm( self.antenna_locations[ prefered_ant_i ]-previous_solution.x ) - 
-                                       np.linalg.norm( self.antenna_locations[ant_i]-previous_solution.x )   )/v_air
-                        modeled_dt -= self.antenna_delays[ prefered_ant_i ] -  self.antenna_delays[ant_i]
-                        modeled_dt /= 5.0E-9
+            problem = False
+            for stage2loop_i in range(self.stage_2_max_itters):
+                
+                in_X = self.bounding_box[0,0] < previous_solution.x[0] < self.bounding_box[0,1]
+                in_Y = self.bounding_box[1,0] < previous_solution.x[1] < self.bounding_box[1,1]
+                in_Z = self.bounding_box[2,0] < previous_solution.x[2] < self.bounding_box[2,1]
+                if (not in_X) or (not in_Y) or (not in_Z):
+                    log_func("WARNING: point", previous_solution.x, "not in bounding box. Skipping.")
+                    problem = True
+                else:
+                    s2_ant_i = -1
+                    for ant_i in range( self.num_antennas ):
+                        if self.use_core_stations_S2 or self.is_not_core[ant_i]:
+                            s2_ant_i += 1 ## do this here cause of break below
                         
-                        modeled_dt += peak_loc
-                        modeled_dt = int(modeled_dt)
-                        
-                        if modeled_dt+int(self.pulse_length/2) >= len(self.data_block[ant_i]):
-                            problem = True
-                            break
-                         
-                        self.stage_2_imager.set_data( self.data_block[ant_i, modeled_dt-int(self.pulse_length/2):modeled_dt+int(self.pulse_length/2)]*self.stage_2_window, s2_ant_i, -modeled_dt*5.0E-9 )
-                        
+                            modeled_dt = -(  np.linalg.norm( self.antenna_locations[ prefered_ant_i ]-previous_solution.x ) - 
+                                           np.linalg.norm( self.antenna_locations[ant_i]-previous_solution.x )   )/v_air
+                            A = modeled_dt
+                            modeled_dt -= self.antenna_delays[ prefered_ant_i ] -  self.antenna_delays[ant_i]
+                            modeled_dt /= 5.0E-9
+                            
+                            modeled_dt += peak_loc
+                            modeled_dt = int(modeled_dt)
+                            
+                            if modeled_dt+int(self.pulse_length/2) >= len(self.data_block[ant_i]):
+                                log_func("unknown problem. LOC at", previous_solution.x)
+                                problem = True
+                                break
+                            
+                            self.stage_2_imager.set_data(  self.data_block[ant_i, modeled_dt-int(self.pulse_length/2):modeled_dt+int(self.pulse_length/2)]*self.stage_2_window, s2_ant_i, -modeled_dt*5.0E-9 )
+                            
                         
                 if problem:
-                    log_func("unknown problem. LOC at", previous_solution.x)
                     self.hilbert_envelope_tmp[peak_loc-int(self.pulse_length/2):peak_loc+int(self.pulse_length/2)] = 0.0
-                    continue
+                    break
                     
                 ## fft and and xcorrelation ##
                 self.stage_2_imager.prepare_image( self.min_pulse_amplitude )
@@ -585,10 +604,10 @@ class interferometric_locator:
                 BB = np.array( [ [previous_solution.x[0]-50, previous_solution.x[0]+50], [previous_solution.x[1]-50, previous_solution.x[1]+50], [previous_solution.x[2]-50, previous_solution.x[2]+50] ] )
                 stage_2_result, s2_itternum, num_stage2_itters = stochastic_minimizer(self.stage_2_imager.intensity_ABSbefore , BB, converg_num=5, test_spot=previous_solution.x,
                                                                            converg_rad=self.stage_2_convergence_length, max_itters=self.stage_2_max_stoch_itters, options={'maxiter':1000})
-                
+                stage_2_result.x[2] = np.abs(stage_2_result.x[2]) ## ensure Z is positive
                 
                 D = np.linalg.norm( stage_2_result.x - previous_solution.x )
-                log_func("   s2 itter: {:2d} {:4.2f} {:d}".format(stage2loop_i, -stage_2_result.fun, int(D)) )
+                log_func("   s2 itter: {:2d} {:4.4f} {:d}".format(stage2loop_i, -stage_2_result.fun, int(D)) )
                 if D < self.stage_2_convergence_length:
                     converged = True
                     break
@@ -597,6 +616,9 @@ class interferometric_locator:
                     break
                 
                 previous_solution = stage_2_result
+                
+            if problem:
+                continue
             
             new_stage_1_result = minimize(self.stage_1_imager.intensity, stage_2_result.x, method="Nelder-Mead", options={'maxiter':1000})
             log_func("   old S1: {:4.2f} new SH1: {:4.2f}".format(-stage_1_result.fun, -new_stage_1_result.fun) )
@@ -605,10 +627,9 @@ class interferometric_locator:
             else:
                 S1_S2_distance = np.linalg.norm(new_stage_1_result.x-stage_2_result.x)
                 
-                
             log_func("   loc: {:d} {:d} {:d}".format(int(stage_2_result.x[0]), int(stage_2_result.x[1]), int(stage_2_result.x[2])) )
             log_func("   S1-S2 distance: {:d} converged: {} ".format( int(S1_S2_distance), converged) )
-            log_func("   intensity: {:4.2f} amplitude: {:d} ".format( -stage_2_result.fun, int(self.hilbert_envelope_tmp[peak_loc])) )
+            log_func("   intensity: {:4.3f} amplitude: {:d} ".format( -stage_2_result.fun, int(self.hilbert_envelope_tmp[peak_loc])) )
             log_func()
             log_func()
             
@@ -634,172 +655,251 @@ class interferometric_locator:
             source_time_s1 =  (peak_loc+start_index+self.antenna_data_offsets[prefered_ant_i])*5.0E-9 - np.linalg.norm( stage_1_result.x - self.antenna_locations[ prefered_ant_i ] )/v_air
             source_time_s1 -= self.prefered_station_timing_offset + self.prefered_station_antenna_timing_offsets[ self.antennas_to_use[prefered_ant_i][1] ]
             source_dataset.attrs["XYZT_s1"] = np.append(stage_1_result.x, [source_time_s1])
-            
-                
+
             #### erase the peaks !! ####
 #            self.hilbert_envelope_tmp[peak_loc-int(self.pulse_length/2):peak_loc+int(self.pulse_length/2)]  *= self.erasure_window
             self.hilbert_envelope_tmp[peak_loc-int(self.pulse_length/2):peak_loc+int(self.pulse_length/2)] = 0.0
-            if converged and self.erase_pulses:
-                for ant_i in range( self.num_antennas ):
-                    
-                    modeled_dt = -(  np.linalg.norm( self.antenna_locations[ prefered_ant_i ]-stage_2_result.x ) - 
-                                   np.linalg.norm( self.antenna_locations[ant_i]-stage_2_result.x )   )/v_air
-                    modeled_dt -= self.antenna_delays[ prefered_ant_i ] -  self.antenna_delays[ant_i]
-                    modeled_dt /= 5.0E-9
-                    
-                    modeled_dt += peak_loc
-                    modeled_dt = int(modeled_dt)
-                    
-                    source_dataset[ant_i] = self.data_block[ant_i, modeled_dt-int(self.pulse_length/2):modeled_dt+int(self.pulse_length/2)]
+            for ant_i in range( self.num_antennas ):
+                
+                modeled_dt = -(  np.linalg.norm( self.antenna_locations[ prefered_ant_i ]-stage_2_result.x ) - 
+                               np.linalg.norm( self.antenna_locations[ant_i]-stage_2_result.x )   )/v_air
+                modeled_dt -= self.antenna_delays[ prefered_ant_i ] -  self.antenna_delays[ant_i]
+                modeled_dt /= 5.0E-9
+                
+                modeled_dt += peak_loc
+                modeled_dt = int(modeled_dt)
+                
+                source_dataset[ant_i] = self.data_block[ant_i, modeled_dt-int(self.pulse_length/2):modeled_dt+int(self.pulse_length/2)]
+                
+                if converged and self.erase_pulses:
                     self.data_block[ant_i, modeled_dt-int(self.pulse_length/2):modeled_dt+int(self.pulse_length/2)] *= self.erasure_window
             
+    def run_multiple_blocks(self, output_folder, initial_datapoint, start_block, blocks_per_run, run_number, skip_blocks_done=True, print_to_screen=True):
+        processed_data_folder = processed_data_dir(self.timeID)
+        data_dir = processed_data_folder + "/" + output_folder
+        if not isdir(data_dir):
+            mkdir(data_dir)
             
-#### TODO: if antenna data is too low amplitude, then do not include in correlation.
-if __name__ == "__main__":
-    #### TODO: how to handle different polarization, probably treat then as different antenna I think
-    timeID = "D20170929T202255.000Z"
-    output_folder = "interferometry_out4_PrefStatRS306"
-    
-    skip_blocks_done = True
-   
-    block_size = 2**16
-    initial_datapoint = 229376000 
-    first_block = 0
-    blocks_per_run = 140
-    run_number = 4
-    
-    block_override = None#338 339 340 341 
-    
-    station_delays = "station_delays2.txt"
-    additional_antenna_delays = "ant_delays.txt"
-    bad_antennas = "bad_antennas.txt"
-    polarization_flips = "polarization_flips.txt"
-    
-    bounding_box = np.array([[-20000.,  -14000.], [  7000.,  12000.], [     0. ,  6000.]], dtype=np.double)
-    
-    pulse_length = 50
-    num_antennas_per_station = 6
-    
-    
-    
-    imager_utility = interferometric_locator(timeID,   station_delays, additional_antenna_delays, bad_antennas, polarization_flips,
-                            bounding_box, pulse_length, num_antennas_per_station)
-    
-    imager_utility.stations_to_exclude = ['CS026', 'CS028', 'RS106', 'RS305', 'RS205', 'CS201', 'RS407'] 
-    imager_utility.block_size = block_size
-    
-    imager_utility.prefered_station = "RS306"
-    imager_utility.use_core_stations_S1 = True
-    imager_utility.use_core_stations_S2 = False
-    
-    imager_utility.do_RFI_filtering = True
-    imager_utility.use_saved_RFI_info = True
-    imager_utility.initial_RFI_block= 5
-    imager_utility.RFI_num_blocks = 20
-    imager_utility.RFI_max_blocks = 100
-    
-    imager_utility.upsample_factor = 8
-    imager_utility.max_events_perBlock = 100
-    
-    imager_utility.stage_1_converg_num = 100
-    imager_utility.stage_1_max_itters = 1500
-    
-    imager_utility.erase_pulses = True
-    imager_utility.remove_saturation = True
-    
-    
-    #### set logging ####
-    processed_data_folder = processed_data_dir(timeID)
-    data_dir = processed_data_folder + "/" + output_folder
-    if not isdir(data_dir):
-        mkdir(data_dir)
+        logging_folder = data_dir + '/logs_and_plots'
+        if not isdir(logging_folder):
+            mkdir(logging_folder)
         
-    logging_folder = data_dir + '/logs_and_plots'
-    if not isdir(logging_folder):
-        mkdir(logging_folder)
-    
-    file_number = 0
-    while True:
-        fname = logging_folder + "/log_run_"+str(file_number)+".txt"
-        if isfile(fname) :
-            file_number += 1
-        else:
-            break
-            
-    
-    logger_function = logger()
-    logger_function.set( fname )
-    logger_function.take_stdout()
-    logger_function.take_stderr()
-    
-    
-    #### TODO!#### improve log all options
-    logger_function("timeID:", timeID)
-    logger_function("output folder:", output_folder)
-    logger_function("block size:", block_size)
-    logger_function("initial data point:", initial_datapoint)
-    logger_function("first block:", first_block)
-    logger_function("blocks per run:", blocks_per_run)
-    logger_function("run number:", run_number)
-    logger_function("block override:", block_override)
-    logger_function("station delay file:", station_delays)
-    logger_function("additional antenna delays file:", additional_antenna_delays)
-    logger_function("bad antennas file:", bad_antennas)
-    logger_function("pol flips file:", polarization_flips)
-    logger_function("bounding box:", bounding_box)
-    logger_function("pulse length:", pulse_length)
-    logger_function("num antennas per station:", num_antennas_per_station)
-    logger_function("stations excluded:", imager_utility.stations_to_exclude)
-    logger_function("prefered station:", imager_utility.prefered_station)
-    
-    
-    
-    
-    if block_override is None:
-        logger_function("processing step:", run_number)
-    else:
-        logger_function("block override:", block_override)
-    
-    
-    
-    #### open files, save header if necisary ####
-    imager_utility.open_files(logger_function, True)
-    if run_number==0:
-        header_outfile = h5py.File(data_dir + "/header.h5", "w")
-        imager_utility.save_header( header_outfile )
-        header_outfile.close()
+        file_number = 0
+        while True:
+            fname = logging_folder + "/log_run_"+str(file_number)+".txt"
+            if isfile(fname) :
+                file_number += 1
+            else:
+                break
+                
         
-    
-    #### run the algorithm!! ####
-    for block_index in range(run_number*blocks_per_run+first_block, (run_number+1)*blocks_per_run+first_block):
-        if block_override is not None:
-            block_index = block_override
+        logger_function = logger()
+        logger_function.set( fname, print_to_screen )
+        logger_function.take_stdout()
+        logger_function.take_stderr()
         
-        out_fname = data_dir + "/block_"+str(block_index)+".h5"
-        tmp_fname = data_dir + "/tmp_"+str(block_index)+".h5"
-        
-        if skip_blocks_done and isfile(out_fname):
-            logger_function("block:", block_index, "already completed. Skipping")
-            continue
-        
-        logger_function("starting processing block:", block_index)
-        start_time = time.time()
-        
-        block_outfile = h5py.File(tmp_fname, "w")
-        block_start = initial_datapoint + imager_utility.active_block_length*block_index
-        imager_utility.process_block( block_start, block_index, block_outfile, log_func=logger_function )
-        block_outfile.close()
-        rename(tmp_fname, out_fname)
+        #### TODO!#### improve log all options
+        logger_function("timeID:", self.timeID)
+        logger_function("date and time run:", time.strftime("%c") )
+        logger_function("output folder:", output_folder)
+        logger_function("block size:", self.block_size)
+        logger_function("initial data point:", initial_datapoint)
+        logger_function("first block:", start_block)
+        logger_function("blocks per run:", blocks_per_run)
+        logger_function("run number:", run_number)
+        logger_function("station delay file:", self.station_delays_fname)
+        logger_function("additional antenna delays file:", self.additional_antenna_delays_fname)
+        logger_function("bad antennas file:", self.bad_antennas_fname)
+        logger_function("pol flips file:", self.pol_flips_fname)
+        logger_function("bounding box:", self.bounding_box)
+        logger_function("pulse length:", self.pulse_length)
+        logger_function("num antennas per station:", self.num_antennas_per_station)
+        logger_function("stations excluded:", self.stations_to_exclude)
+        logger_function("prefered station:", self.prefered_station)
 
-        logger_function("block done. took:", (time.time() - start_time), 's')
-        logger_function()
         
-        if block_override is not None:
-            break
+        #### open files, save header if necisary ####
+        self.open_files(logger_function, True)
+        if run_number==0:
+            header_outfile = h5py.File(data_dir + "/header.h5", "w")
+            self.save_header( header_outfile )
+            header_outfile.close()
+            
         
+        #### run the algorithm!! ####
+        for block_index in range(run_number*blocks_per_run+start_block, (run_number+1)*blocks_per_run+start_block):
+            
+            out_fname = data_dir + "/block_"+str(block_index)+".h5"
+            tmp_fname = data_dir + "/tmp_"+str(block_index)+".h5"
+            
+            if skip_blocks_done and isfile(out_fname):
+                logger_function("block:", block_index, "already completed. Skipping")
+                continue
+            
+            start_time = time.time()
+            
+            block_outfile = h5py.File(tmp_fname, "w")
+            block_start = initial_datapoint + self.active_block_length*block_index
+            logger_function("starting processing block:", block_index, "at", block_start)
+            self.process_block( block_start, block_index, block_outfile, log_func=logger_function )
+            block_outfile.close()
+            rename(tmp_fname, out_fname)
     
-    logger_function("done processing")
-    
+            logger_function("block done. took:", (time.time() - start_time), 's')
+            logger_function()
+            
+        logger_function("done processing")    
+        
+        
+        
+        
+##### TODO: if antenna data is too low amplitude, then do not include in correlation.
+#if __name__ == "__main__":
+#    #### TODO: how to handle different polarization, probably treat then as different antenna I think
+#    timeID = "D20180813T153001.413Z"
+#    output_folder = "interferometry_out_fastTest"
+#    
+#    skip_blocks_done = True
+#   
+#    block_size = 2**16
+#    initial_datapoint = 229376000 
+#    first_block = 0
+#    blocks_per_run = 140
+#    run_number = 4
+#    
+#    block_override = None#338 339 340 341 
+#    
+#    station_delays = "station_delays2.txt"
+#    additional_antenna_delays = "ant_delays.txt"
+#    bad_antennas = "bad_antennas.txt"
+#    polarization_flips = "polarization_flips.txt"
+#    
+#    bounding_box = np.array([[-20000.,  -14000.], [  7000.,  12000.], [     0. ,  6000.]], dtype=np.double)
+#    
+#    pulse_length = 50
+#    num_antennas_per_station = 6
+#    
+#    
+#    
+#    imager_utility = interferometric_locator(timeID,   station_delays, additional_antenna_delays, bad_antennas, polarization_flips,
+#                            bounding_box, pulse_length, num_antennas_per_station)
+#    
+#    imager_utility.stations_to_exclude = ['CS026', 'CS028', 'RS106', 'RS305', 'RS205', 'CS201', 'RS407'] 
+#    imager_utility.block_size = block_size
+#    
+#    imager_utility.prefered_station = "RS306"
+#    imager_utility.use_core_stations_S1 = True
+#    imager_utility.use_core_stations_S2 = False
+#    
+#    imager_utility.do_RFI_filtering = True
+#    imager_utility.use_saved_RFI_info = True
+#    imager_utility.initial_RFI_block= 5
+#    imager_utility.RFI_num_blocks = 20
+#    imager_utility.RFI_max_blocks = 100
+#    
+#    imager_utility.upsample_factor = 8
+#    imager_utility.max_events_perBlock = 100
+#    
+#    imager_utility.stage_1_converg_num = 100
+#    imager_utility.stage_1_max_itters = 1500
+#    
+#    imager_utility.erase_pulses = True
+#    imager_utility.remove_saturation = True
+#    
+#    
+#    #### set logging ####
+#    processed_data_folder = processed_data_dir(timeID)
+#    data_dir = processed_data_folder + "/" + output_folder
+#    if not isdir(data_dir):
+#        mkdir(data_dir)
+#        
+#    logging_folder = data_dir + '/logs_and_plots'
+#    if not isdir(logging_folder):
+#        mkdir(logging_folder)
+#    
+#    file_number = 0
+#    while True:
+#        fname = logging_folder + "/log_run_"+str(file_number)+".txt"
+#        if isfile(fname) :
+#            file_number += 1
+#        else:
+#            break
+#            
+#    
+#    logger_function = logger()
+#    logger_function.set( fname )
+#    logger_function.take_stdout()
+#    logger_function.take_stderr()
+#    
+#    
+#    #### TODO!#### improve log all options
+#    logger_function("timeID:", timeID)
+#    logger_function("date and time run:", time.strftime("%c") )
+#    logger_function("output folder:", output_folder)
+#    logger_function("block size:", block_size)
+#    logger_function("initial data point:", initial_datapoint)
+#    logger_function("first block:", first_block)
+#    logger_function("blocks per run:", blocks_per_run)
+#    logger_function("run number:", run_number)
+#    logger_function("block override:", block_override)
+#    logger_function("station delay file:", station_delays)
+#    logger_function("additional antenna delays file:", additional_antenna_delays)
+#    logger_function("bad antennas file:", bad_antennas)
+#    logger_function("pol flips file:", polarization_flips)
+#    logger_function("bounding box:", bounding_box)
+#    logger_function("pulse length:", pulse_length)
+#    logger_function("num antennas per station:", num_antennas_per_station)
+#    logger_function("stations excluded:", imager_utility.stations_to_exclude)
+#    logger_function("prefered station:", imager_utility.prefered_station)
+#    
+#    
+#    
+#    
+#    if block_override is None:
+#        logger_function("processing step:", run_number)
+#    else:
+#        logger_function("block override:", block_override)
+#    
+#    
+#    
+#    #### open files, save header if necisary ####
+#    imager_utility.open_files(logger_function, True)
+#    if run_number==0:
+#        header_outfile = h5py.File(data_dir + "/header.h5", "w")
+#        imager_utility.save_header( header_outfile )
+#        header_outfile.close()
+#        
+#    
+#    #### run the algorithm!! ####
+#    for block_index in range(run_number*blocks_per_run+first_block, (run_number+1)*blocks_per_run+first_block):
+#        if block_override is not None:
+#            block_index = block_override
+#        
+#        out_fname = data_dir + "/block_"+str(block_index)+".h5"
+#        tmp_fname = data_dir + "/tmp_"+str(block_index)+".h5"
+#        
+#        if skip_blocks_done and isfile(out_fname):
+#            logger_function("block:", block_index, "already completed. Skipping")
+#            continue
+#        
+#        logger_function("starting processing block:", block_index)
+#        start_time = time.time()
+#        
+#        block_outfile = h5py.File(tmp_fname, "w")
+#        block_start = initial_datapoint + imager_utility.active_block_length*block_index
+#        imager_utility.process_block( block_start, block_index, block_outfile, log_func=logger_function )
+#        block_outfile.close()
+#        rename(tmp_fname, out_fname)
+#
+#        logger_function("block done. took:", (time.time() - start_time), 's')
+#        logger_function()
+#        
+#        if block_override is not None:
+#            break
+#        
+#    
+#    logger_function("done processing")
+#    
     
     
     

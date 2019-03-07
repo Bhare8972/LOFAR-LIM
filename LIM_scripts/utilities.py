@@ -170,49 +170,6 @@ def processed_data_dir(timeID, data_loc=None):
         mkdir(path)
     return path
 
-
-#### data processing functions ####
-### TODO: move these to signal_processing
-
-def upsample_N_envelope(timeseries_data, upsample_factor):
-    
-    x = timeseries_data
-    Nx = len(x)
-    num = int( Nx*upsample_factor )
-    
-    X = fftpack.fft(x)
-
-    sl = [slice(None)]
-    newshape = list(x.shape)
-    newshape[-1] = num
-    Y = np.zeros(newshape, 'D')
-    sl[-1] = slice(0, (Nx + 1) // 2)
-    Y[sl] = X[sl]
-    sl[-1] = slice(-(Nx - 1) // 2, None) ##probably don't need this line and next lint
-    Y[sl] = X[sl]
-
-    if Nx % 2 == 0:  # special treatment if low number of points is even. So far we have set Y[-N/2]=X[-N/2]
-        # upsampling
-        sl[-1] = slice(num-Nx//2,num-Nx//2+1,None)  # select the component at frequency -Nx/2
-        Y[sl] /= 2  # halve the component at -N/2
-        temp = Y[sl]
-        sl[-1] = slice(Nx//2,Nx//2+1,None)  # select the component at +Nx/2
-        Y[sl] = temp  # set that equal to the component at -Nx/2
-        
-    h = np.zeros(num)
-    if num % 2 == 0:
-        h[0] = h[num // 2] = 1
-        h[1:num // 2] = 2
-    else:
-        h[0] = 1
-        h[1:(num + 1) // 2] = 2
-
-    y = fftpack.ifft(Y*h, axis=-1) * (float(num) / float(Nx))
-
-    new_data = y.real**2
-    new_data += y.imag**2
-
-    return np.sqrt(y.real**2 + y.imag**2)
     
 ## a python list where the keys are the number of a station and the values are the station name
 SId_to_Sname = [None]*209 #just to pre-initilize list, so syntax below is possible
@@ -344,4 +301,17 @@ def set_axes_equal(ax):
     ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
     ax.set_zlim3d([z_middle - plot_radius, z_middle + plot_radius])
 
+    
+### some math functions? ###
+    
+def normalize_angle_radians( angle_radians ):
+    """For an angle in radians, return the equivalent angle that is garunteed be between -pi and pi"""
+    while angle_radians > np.pi:
+        angle_radians -= 2.0*np.pi
+    while angle_radians < -np.pi:
+        angle_radians += 2.0*np.pi
+    return angle_radians
+    
+    
+    
     

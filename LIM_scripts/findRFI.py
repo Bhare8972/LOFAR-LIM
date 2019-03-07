@@ -202,12 +202,9 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         print(num_blocks, "analyzed blocks", np.sum(antenna_is_good), "analyzed antennas out of", len(antenna_is_good))
         
     ## get only good antennas
-    new_ref_ant_index = np.cumsum( antenna_is_good )[ref_antenna] - 1
-    spectrum_mean = spectrum_mean[antenna_is_good,:]
-
     antenna_is_good[ref_antenna] = False ## we don't want to analyze the phase stability of the referance antenna
-    phase_mean = phase_mean[antenna_is_good]
-    antenna_is_good[ref_antenna] = True ## cause'.... ya know.... it is
+#    phase_mean = phase_mean[antenna_is_good]
+#    antenna_is_good[ref_antenna] = True ## cause'.... ya know.... it is
         
     
     ### get mean and phase stability ###
@@ -227,7 +224,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
 #    plt.show()
         
     #### get median of stability by channel, across each antenna ###
-    median_phase_spread_byChannel = np.median(phase_stability, axis=0)
+    median_phase_spread_byChannel = np.median(phase_stability[antenna_is_good], axis=0)
 #    ave_phase_spread_byChannel = np.average(phase_stability, axis=0)
 #    plt.plot(ave_phase_spread_byChannel, 'r')
 #    plt.plot(median_phase_spread_byChannel)
@@ -257,12 +254,14 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     
     dirty_channels = np.where( extend_dirty_channels )
     
+    antenna_is_good[ref_antenna] = True ## cause'.... ya know.... it is
     #### plot and return data ####
+    frequencies = frequencies[lower_frequency_index:upper_frequency_index]
     if figure_location is not None:
-        frequencies = frequencies[lower_frequency_index:upper_frequency_index]*1.0E-6 
+        frequencies_MHZ = frequencies*1.0E-6 
         
         plt.figure()
-        plt.plot(frequencies, median_phase_spread_byChannel)
+        plt.plot(frequencies_MHZ, median_phase_spread_byChannel)
         plt.axhline( median_spread-3*noise, color='r')
         plt.title("Phase spread vs frequency. Red horizontal line shows cuttoff.")
         plt.ylabel("Spread value")
@@ -271,8 +270,8 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.close()
         
         plt.figure()
-        plt.plot(frequencies, spectrum_mean[ new_ref_ant_index ])
-        plt.plot(frequencies[dirty_channels], spectrum_mean[ new_ref_ant_index ][dirty_channels], 'ro')
+        plt.plot(frequencies_MHZ, spectrum_mean[ ref_antenna ])
+        plt.plot(frequencies_MHZ[dirty_channels], spectrum_mean[ ref_antenna ][dirty_channels], 'ro')
         plt.xlabel("Frequency [MHz]")
         plt.ylabel("magnitude")
         plt.yscale('log', nonposy='clip')
@@ -304,6 +303,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     output_dict["antenna_names"] = TBB_in_file.get_antenna_names()
     output_dict["timestamp"] = TBB_in_file.get_timestamp()
     output_dict["antennas_good"] = antenna_is_good
+    output_dict["frequency"] = frequencies
    
     return output_dict
 

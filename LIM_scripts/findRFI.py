@@ -68,6 +68,10 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
                 magnitude = FFT_data
                 magnitude *= magnitude 
                 average_power[ ant_i ] += np.real( np.sum( magnitude ) )
+#            else:
+#                print(block_i, ant_i, num_double_zeros( oneAnt_data ))
+#                plt.plot(oneAnt_data)
+#                plt.show()
             
             if figure_location is not None:
                 max_over_blocks[ant_i, block_i] = np.max( oneAnt_data[ant_i] )
@@ -80,6 +84,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     for ant_i in range(num_antennas):### fill allowed_num_antennas
         
         blocks_can_use = np.where( blocks_good[ ant_i ] )[0]
+        print(ant_i, 'good_blocks:', len(blocks_can_use))
         num_good_blocks_per_antenna = np.sum( blocks_good[:,blocks_can_use], axis=1 )
         allowed_num_antennas[ ant_i ] = np.sum( num_good_blocks_per_antenna >= num_blocks )
     
@@ -331,6 +336,7 @@ class window_and_filter:
                 quit()
         elif blocksize is None:
             print("window and filter needs a blocksize")
+            ## TODO: check block sizes are consistant
             quit()
                 
         self.blocksize = blocksize

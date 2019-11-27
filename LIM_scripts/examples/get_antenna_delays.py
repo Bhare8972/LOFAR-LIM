@@ -11,17 +11,18 @@ from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
     #### a full working example of opening a file, checking if it needs metadata, and downloading if necisary
-
-    timeID = "D20180813T153001.413Z"
+    
+    timeID = "D20180308T170417.500Z"
     history_folder = "./svn_phase_cal_history"
     get_all_timings = True ## if false, only gets ones needed
+    mode = 'LBA_OUTER' ## set to None to get ALL files.
     
-    skip = []#['RS407'] ##stations to skip
+    skip = [] ##stations to skip
     
     
     if not isdir(history_folder):
@@ -39,7 +40,7 @@ if __name__ == "__main__":
         
         if get_all_timings or TBB_data.needs_metadata():
             print("downloading for station:", station)
-            download_phase_callibrations(station, history_folder, timestamp, utils.raw_data_dir(timeID) )
+            download_phase_callibrations(station, history_folder, timestamp, utils.raw_data_dir(timeID), mode )
             
         print( station)
         print( TBB_data.get_timing_callibration_delays() )

@@ -38,7 +38,8 @@ import LoLIM.transmogrify as tmf
 # out_1_reals = np.real( out_1 )
 
 
-
+#### TODO: imporve this so that it has a workspace for N frequencies, so that it doesn't have to allocate memory every call
+## make it automatic so that subsequent calls use same internal memeory if lenght is same (but output doesn't share memory....)
 class LBA_antenna_model:
     """a class encapsulating the antenna model for the Low Band Antennas."""
     
@@ -104,15 +105,18 @@ class LBA_antenna_model:
         
         return jones_matrix
     
-    def JonesMatrix_MultiFreq(self, frequencies, zenith, azimuth):
+    def JonesMatrix_MultiFreq(self, frequencies, zenith, azimuth, out=None):
         """same as JonesMatrix, except that frequencies is expected to be an array. Returns an array of jones matrices"""
         
-        out_JM = np.zeros( (len(frequencies), 2,2), dtype=complex )
+        if out is None:
+            out_JM = np.zeros( (len(frequencies), 2,2), dtype=complex )
+        else:
+            out_JM = out
         
         good_frequencies = np.logical_and( frequencies>10.0E6, frequencies<100E6)
         num_freqs = np.sum( good_frequencies )
         
-        points = np.zeros( (num_freqs, 3) )
+        points = np.zeros( (num_freqs, 3) ) ## figure out how to not need this
         points[:, 0] = frequencies[ good_frequencies ]
         points[:, 1] = zenith
         
@@ -140,7 +144,7 @@ class LBA_antenna_model:
         out_JM[ np.logical_not(good_frequencies), 0, 0] = 1.0
         out_JM[ np.logical_not(good_frequencies), 1, 1] = 1.0
         
-        fi = np.argmin( np.abs(frequencies-60.0E6) )
+#        fi = np.argmin( np.abs(frequencies-60.0E6) )
         
         return out_JM
     
@@ -342,7 +346,7 @@ class LBA_ant_calibrator:
             timestamp = findRFI_info["timestamp"]
             analyzed_blocksize = findRFI_info["blocksize"]
             
-            even_cal_factors, odd_cal_factors = getGalaxyCalibrationData(cleaned_power,  timestamp, 5.0E-9/analyzed_blocksize  )
+            even_cal_factors, odd_cal_factors = getGalaxyCalibrationData(cleaned_power,  timestamp, 5.0E-9/analyzed_blocksize )
             
             for ant_i in range(0, int(num_antennas/2)):
                 ant_name = antenna_names[ ant_i*2 ]

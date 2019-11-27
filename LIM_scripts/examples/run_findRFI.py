@@ -29,7 +29,7 @@ if __name__ == "__main__":
     block_size = 2**16
     initial_block = 500
     num_blocks = 20
-    max_blocks = 500
+    max_blocks = 1000
     
     skip_stations = []
     

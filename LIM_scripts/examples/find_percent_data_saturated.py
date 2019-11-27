@@ -17,11 +17,14 @@ utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20170929T202255.000Z"
     block_size = 2**16
-    output_folder = "/find_percent_data_dropped"
-    initial_block = 1000
-    final_block = 2000
+    output_folder = "/find_percent_data_saturated"
+    initial_block = 3400
+    final_block = 4400
+    
+    positive_saturation = 2046
+    negative_saturation = -2047
     
     raw_fpaths = filePaths_by_stationName(timeID)
  
@@ -43,14 +46,15 @@ if __name__ == "__main__":
         
         for i,ant_name in enumerate(TBB_data.get_antenna_names()):
             num_data_points = 0
-            num_zeros = 0
+            num_saturated = 0
             for block in range(initial_block,final_block):
             
                 data = TBB_data.get_data(block*block_size, block_size, antenna_index=i)
                 
-                num_zeros += num_double_zeros( data )
+                num_saturated += np.sum( data>=positive_saturation )
+                num_saturated += np.sum( data<=negative_saturation )
                 num_data_points += block_size
                 
-            print(i, ant_name, 100.0*float(num_zeros)/num_data_points)
+            print(i, ant_name, 100.0*float(num_saturated)/num_data_points)
             
         print()

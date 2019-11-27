@@ -15,18 +15,12 @@ from LoLIM.read_pulse_data import  read_station_delays, read_antenna_pol_flips, 
 from scipy.signal import hilbert
 
 
-## these lines are anachronistic and should be fixed at some point
-from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20170929T202255.000Z"
+    timeID = "D20180813T153001.413Z"
     station = "CS002"
+    points = [ int(i*(2**16)) for i in range(2292,2302) ]
     block_size = 2**16
-    start_block = 3513
-    num_blocks = 5
-    points = [ int(i*block_size*0.8 + start_block*block_size ) for i in range(num_blocks) ]
     polarization = 0
     
     do_remove_saturation = True

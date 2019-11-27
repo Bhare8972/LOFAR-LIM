@@ -13,11 +13,11 @@ from os.path import isdir
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
+utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20180921T194259.023Z"
+    timeID = "D20180809T141413.250Z"
     output_folder = "/max_over_blocks"
     block_size = 2**16
     
@@ -65,5 +65,5 @@ if __name__ == "__main__":
         
         print("saving figure:", output_fpath+'/'+station+'.png')
         plt.savefig(output_fpath+'/'+station+'.png')
-        plt.show()
+#        plt.show()
         plt.close()

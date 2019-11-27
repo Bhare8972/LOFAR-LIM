@@ -163,12 +163,12 @@ def correlateFFT(FFTdata_i, FFTdata_j, out):
     ## ifft in place
     fftpack.ifft(out, n=out_len, overwrite_x=True)
     
-    
+### this class is being phased-out, use fitter below
 class parabolic_fit:
-    def __init__(self, data, index=None, n_points=5):
+    def __init__(self, data, index=None, n_points=5, data_mode='wrap'):
         """a class that fits a parabola to find the peak. data should be 1D array. index should be the index of the peak to fit in data, if None:
             index = np.argmax(data). n_points is the total number of points to fit, should be odd, normally 5.  parabolic_fit.peak_index is
-            the fractional location of the peak"""
+            the fractional location of the peak. data_mode is passed to the 'mode' parameter of data.take"""
         
         if index is None:
             index = np.argmax( data )
@@ -179,7 +179,7 @@ class parabolic_fit:
         self.matrix, self.error_ratio_A, self.error_ratio_B, self.error_ratio_C = self.get_fitting_matrix(n_points)
         
         half_n_points = int( (n_points-1)/2 )
-        points = data.take(np.arange(n_points)+index-half_n_points, axis=0, mode="wrap" )  #data[ index-half_n_points :  index+1+half_n_points ]
+        points = data.take(np.arange(n_points)+index-half_n_points, axis=0, mode=data_mode )  #data[ index-half_n_points :  index+1+half_n_points ]
         
         self.A, self.B, self.C = np.dot( self.matrix, points )
         
@@ -241,108 +241,75 @@ class parabolic_fit:
         
         
         return parabolic_fit.fit_matrix[n_points]
-
-
-#def remove_saturation(data, positive_saturation, negative_saturation, post_removal_length=50, half_hann_length=50):
-#    """given some data, as a 1-D numpy array, remove areas where the signal saturates by multiplying with a half-hann filter. 
-#    Operates on input data. 
-#    positive saturation and negative saturation are the values that above and below which the data is considered to be in saturation
-#    
-#    post_remove_length is the number of data points to remove after the data comes out of saturation
-#    
-#    half_hann_length is the size of the hann-wings on either side of the zeroed data"""
-#    
-#    ## find where saturated
-#    is_saturated = np.logical_or(data>positive_saturation, data<negative_saturation)
-#    leaveSaturation_indexes = np.where(np.logical_and( is_saturated[:-1]==1, is_saturated[1:]==0)  ) [0]
-#    
-#    ## extend saturation areas by some length
-#    for i in leaveSaturation_indexes:
-#        is_saturated[i+1:i+1+post_removal_length] = 1
-#        
-#    ## make the hann window
-#    hann_window = 1.0 - hann(2*half_hann_length)
-#    pre_window = hann_window[:half_hann_length]
-#    post_window = hann_window[half_hann_length:]
-#    
-#    ## find the indeces where we need to remove data
-#    window_starts = np.where(np.logical_and( is_saturated[:-1]==0, is_saturated[1:]==1)  )[0]
-#    window_ends = np.where(np.logical_and( is_saturated[:-1]==1, is_saturated[1:]==0)  )[0] ##note that this is INCLUSIVE!
-#    
-#    ## remove the data!
-#    start_i = 0
-#    end_i = 0
-#    
-#    data_cut = []
-#    
-#    if len(window_ends)>0 and ( len(window_starts)==0 or window_ends[0]<window_starts[0]):
-#        ## the data starts saturatated
-#        win_end = window_ends[ end_i ]
-#        
-#        data[:end_i+1] = 0.0
-#        
-#        
-#        ## take care if we are near end of file
-#        N = half_hann_length
-#        end_i_end = end_i+1+half_hann_length
-#        if end_i_end >= len(data):
-#            end_i_end = len(data)
-#            N = end_i_end - (end_i+1)
-#        
-#        data[end_i+1 : end_i_end] *= post_window[:N]
-#        
-#        end_i += 1
-#        
-#        data_cut.append([0,end_i_end])
-#     
-#    for x in range(len(window_ends)-end_i):
-#        win_start = window_starts[ start_i ]
-#        win_end = window_ends[ end_i ]
-#        
-#        data[win_start:win_end+1] = 0.0
-#        
-#        ## take care at start
-#        win_start_start = win_start-half_hann_length
-#        N = half_hann_length
-#        if win_start_start<0:
-#            win_start_start = 0
-#            N = win_start - win_start_start
-#      
-#        data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
-#        
-#        
-#        ## take care if we are near end of file
-#        N = half_hann_length
-#        end_i_end = end_i+1+half_hann_length
-#        if end_i_end >= len(data):
-#            end_i_end = len(data)
-#            N = end_i_end - (end_i+1)
-#        
-#        data[end_i+1 : end_i_end] *= post_window[:N]
-#        
-#        
-#        start_i += 1
-#        end_i += 1
-#        data_cut.append([win_start_start,end_i_end])
-#        
-#    if start_i == len(window_starts)-1:
-#        ## the data ends saturated
-#        win_start = window_starts[ start_i ]
-#        
-#        data[win_start:] = 0.0
-#        
-#        ## take care at start
-#        win_start_start = win_start-half_hann_length
-#        N = half_hann_length
-#        if win_start_start<0:
-#            win_start_start = 0
-#            N = win_start - win_start_start
-#      
-#        data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
-#        data_cut.append([win_start_start,len(data)])
-#        
-#    return data_cut
+    
+class parabolic_fitter:
+    def __init__(self, n_points=5):
+        self.n_points = n_points
+        self.half_n_points = int( (n_points-1)/2 )
         
+        self.matrix, self.error_ratio_A, self.error_ratio_B, self.error_ratio_C = self.get_fitting_matrix(n_points)
+        self.ABC_tmp = np.empty(3, dtype=np.double) ## Ax^2 + Bx + C
+        
+    def fit(self, data, index=None):
+        """return fractional index of peak location"""
+        
+        if index is None:
+            index = np.argmax( data )
+            
+        self.ABC_tmp[:] = 0.0
+        for i in range(self.n_points):
+            data_i = index + i - self.half_n_points
+            if data_i >= len(data):
+                data_i -= len(data)
+            self.ABC_tmp += self.matrix[:, i]*data[ data_i ]
+            
+        return -self.ABC_tmp[1]/(2.0*self.ABC_tmp[0]) + index - self.half_n_points
+    
+    ### TODO:: add a more spohesitated fucntion, that mimics all the fidly bits of paraborlic_fit?
+    
+    def second_derivative(self):
+        """givin a previous fit, return the second derivative"""
+        return 2.0*self.ABC_tmp[0]
+         
+    def get_fitting_matrix(self, n_points):
+        if "fit_matrix" not in parabolic_fitter.__dict__:
+            parabolic_fitter.fit_matrix = {}
+            
+        if n_points not in parabolic_fitter.fit_matrix:
+        
+            tmp_matrix = np.zeros((n_points,3), dtype=np.double)
+            for n_i in range(n_points):
+                tmp_matrix[n_i, 0] = n_i**2
+                tmp_matrix[n_i, 1] = n_i
+                tmp_matrix[n_i, 2] = 1.0
+            peak_time_matrix = np.linalg.pinv( tmp_matrix ) #### this matrix, when multilied by vector of data points, will give a parabolic fit(A,B,C): A*x*x + B*x + C (with x in units of index)
+                           
+            hessian = np.zeros((3,3))
+            for n_i in range(n_points):
+                hessian[0,0] += n_i**4
+                hessian[0,1] += n_i**3
+                hessian[0,2] += n_i**2
+                
+                hessian[1,1] += n_i**2
+                hessian[1,2] += n_i
+                
+                hessian[2,2] +=1
+                        
+            hessian[1,0] = hessian[0,1]
+            hessian[2,0] = hessian[0,2]
+            hessian[2,1] = hessian[1,2]
+                
+            inverse = np.linalg.inv(hessian)
+            #### these error ratios, for each value in the parabolic fit, give teh std of the error in that paramter when mupltipled by the std of the noise of the data ####
+            error_ratio_A = np.sqrt(inverse[0,0])
+            error_ratio_B = np.sqrt(inverse[1,1])
+            error_ratio_C = np.sqrt(inverse[2,2])
+    
+            parabolic_fitter.fit_matrix[n_points] = [peak_time_matrix, error_ratio_A, error_ratio_B, error_ratio_C]
+        
+        
+        return parabolic_fitter.fit_matrix[n_points]
+    
 def remove_saturation(data, positive_saturation, negative_saturation, post_removal_length=50, half_hann_length=50):
     """given some data, as a 1-D numpy array, remove areas where the signal saturates by multiplying with a half-hann filter. 
     Operates on input data. 
@@ -441,17 +408,7 @@ def remove_saturation(data, positive_saturation, negative_saturation, post_remov
         data[win_start_start : win_start] *= pre_window[half_hann_length-N:]
         data_cut.append([win_start_start,len(data)])
         
-    return data_cut
-
-def data_cut_at_index(data_cuts, index):
-    """given data_cuts, which is the return value of remove_saturation, and index, return True if index is in a region that 
-    has been cut due to saturation, false otherwise"""
-    
-    for start,stop in data_cuts:
-        if start <= index < stop:
-            return True
-    return False
-    
+    return data_cut    
     
 def num_double_zeros(data, threshold=None, ave_shift=False):
     """if data is a numpy array, give number of points that have  zero preceded by a zero"""
@@ -466,6 +423,202 @@ def num_double_zeros(data, threshold=None, ave_shift=False):
     
     bad = np.logical_and( is_zero[:-1], is_zero[1:] )
     return np.sum(bad)
+
+def locate_data_loss(data, num_zeros):
+    spans = []
+    total = 0
+    
+#    mode = 0 ## 0 means off
+    last_start = None
+    dz_i = 0 ## num double zeros counted
+    for i, d in enumerate(data):
+        if d == 0: ## 
+            dz_i += 1
+            if last_start is None:
+                last_start = i
+                
+        elif last_start is not None:
+            if dz_i >= num_zeros:
+                spans.append( [last_start, i] )
+                total += i-last_start
+            dz_i = 0
+            last_start = None
+            
+        
+    if dz_i >= num_zeros:
+        spans.append( [last_start, i] )
+        total += i-last_start
+            
+    return spans, total
+
+def data_cut_at_index(data_cuts, index):
+    """given data_cuts, which is the return value of remove_saturation, and index, return True if index is in a region that 
+    has been cut due to saturation, false otherwise."""
+    
+    for start,stop in data_cuts:
+        if start <= index < stop:
+            return True
+    return False
+
+def data_cut_inspan(data_cuts, span_start, span_stop):
+    """given data_cuts, which is the return value of remove_saturation, and index, return True if index is in a region that 
+    has been cut due to saturation, false otherwise."""
+    
+    for start,stop in data_cuts:
+        if (start < span_stop) and (stop>span_start):
+            return True
+    return False
+
+def add_spans(span_list_A, span_list_B):
+    """givin two lists of spans, return anouther list where the spans are combined. Essentially A or B."""
+    
+    ## math notes: algorithm is symetric between two lists. Adding only produces one or two spans
+    
+    current_spans = span_list_A + span_list_B
+    good_spans = []
+    for span_i, span in enumerate(current_spans):
+        spans_to_check = current_spans[span_i+1:]
+        for span_j, check_span in enumerate(spans_to_check):
+            if check_span[0]==check_span[1]:
+                continue
+            
+            if (span[1] < check_span[0]) or (check_span[1] < span[0]):
+                continue
+            elif (check_span[0] <= span[0]) and (check_span[1] >= span[1]):
+                ## throw span
+                span = [0,0]
+                break
+            elif (span[0] <= check_span[0]) and (span[1] >= check_span[1]):
+                ## flip data and throw span
+                current_spans[span_i+1+span_j] = span
+                span = [0,0]
+                break
+            elif (check_span[0] < span[0]) and ( span[0] <= check_span[1] < span[1]):
+                current_spans[span_i+1+span_j] = [check_span[0], span[1]]
+                span = [0,0]
+                break
+            elif (span[0] < check_span[0]) and ( check_span[0] <= span[1] < check_span[1]):
+#                spans_to_check[span_j] = [span[0], check_span[1]]
+                current_spans[span_i+1+span_j] = [span[0], check_span[1]]
+                span = [0,0]
+                break
+            else:
+                raise Exception("algorithm error. This shouldn't be reached")
+            
+            if span[0]==span[1]:
+                break
+        if span[0]!=span[1]:
+            good_spans.append(span)
+    return good_spans
+
+def subtract_spans(span_list_A, span_list_B):
+    """give spans that are in A, but not B. UNTESTED"""
+    
+    ## math notes: algorithm is NOT symetric between two lists. 
+    # Subtracting produces up to three spans
+    
+    good_spans = []
+    spans_to_test = span_list_A
+    next_spans_to_test = []
+    while len(spans_to_test) != 0:
+        
+        for span in spans_to_test:
+            if span[0]==span[1]:
+                continue
+            
+            print('tst:', span)
+            
+            for Bspan in span_list_B:
+                if Bspan[0]==Bspan[1]:
+                    continue
+                print('  against:', Bspan)
+                
+                if (span[1] <= Bspan[0]) or (Bspan[1] <= span[0]):
+                    print('  1')
+                    continue
+                elif (Bspan[0] <= span[0]) and (Bspan[1] >= span[1]):
+                    print('  2')
+                    ## no span!
+                    span = [0,0]
+                    break
+                elif (span[0] <= Bspan[0]) and (span[1] >= Bspan[1]):
+                    next_spans_to_test.append( [Bspan[1], span[1]] )
+                    span[1] = Bspan[0]
+                    print('  3', 'new span:', span, 'future span:', next_spans_to_test[-1])
+                elif (Bspan[0] < span[0]) and ( span[0] < Bspan[1] < span[1]):
+                    print('  4')
+                    span = [Bspan[1], span[1]]
+                elif (span[0] < Bspan[0]) and ( Bspan[0] < span[1] < Bspan[1]):
+                    print('  5')
+                    span = [span[0], Bspan[0]]
+                    
+                if span[0]==span[1]:
+                    break
+            
+            if span[0]!=span[1]:
+                print('returning:', span)
+                good_spans.append([span[0],span[1]])
+        
+        spans_to_test = next_spans_to_test
+        next_spans_to_test = []
+        
+    return good_spans
+            
+def union_spans(span_list_A, span_list_B):
+    """give spans that are in both A and B."""
+    
+    ## math notes: very similar to A-B, but we return the bit that is removed.
+    ## despite simularities to subtract above, it is symetric
+    
+    good_spans = []
+    spans_to_test = span_list_A
+    next_spans_to_test = []
+    while len(spans_to_test) != 0:
+        
+        for span in spans_to_test:
+            if span[0]==span[1]:
+                continue
+            
+            for Bspan in span_list_B:
+                if Bspan[0]==Bspan[1]:
+                    continue
+                
+                if (span[1] <= Bspan[0]) or (Bspan[1] <= span[0]):
+                    continue
+                elif (Bspan[0] <= span[0]) and (Bspan[1] >= span[1]):
+                    span = [0,0]
+                    good_spans.append( [Bspan[0],Bspan[1]] )
+                    break
+                elif (span[0] <= Bspan[0]) and (span[1] >= Bspan[1]):
+                    span[1] = Bspan[0]
+                    good_spans.append( [Bspan[0],Bspan[1]] )
+                    next_spans_to_test.append( [Bspan[1], span[1]] )
+                elif (Bspan[0] < span[0]) and ( span[0] < Bspan[1] < span[1]):
+                    span = [Bspan[1], span[1]]
+                    good_spans.append( [span[0],Bspan[1]] )
+                elif (span[0] < Bspan[0]) and ( Bspan[0] < span[1] < Bspan[1]):
+                    span = [span[0], Bspan[0]]
+                    good_spans.append( [Bspan[0],span[1]] )
+                    
+                if span[0]==span[1]:
+                    break
+        
+        spans_to_test = next_spans_to_test
+        next_spans_to_test = []
+        
+    return good_spans
+
+def plot_spans(spans, Y=0, T_array=None, color=None):
+    for span in spans:
+        T0 = span[0]
+        T1 = span[1]
+        if T_array is not None:
+            T0 = T_array[T0]
+            T1 = T_array[T1]
+        print('plotting', T0,T1)
+        plt.plot([T0,T1],[Y,Y],c=color)
+    
+            
 
 def FFT_time_shift(frequencies, FFT_data, dt):
     """given some frequency dependent data, apply a positive time-shift dt. Operates

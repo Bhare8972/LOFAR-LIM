@@ -10,6 +10,9 @@ data and download the phase callibrations. When run, the script will download th
 
 import os
 from datetime import datetime
+from os import mkdir
+
+from os.path import isdir
 
 def get_station_history(station_name, history_folder):
     """given a station name (as string) and a folder to store it in, save the history of the SVN repository"""
@@ -35,60 +38,87 @@ def get_latest_previous_revision(station_name, history_folder, timestamp):
                         date = line_date
                         revision = line_revision
     return revision
+
+def get_ordered_revisions(station_name, history_folder, timestamp, max_timediff):
+    """ like get_latest_previous_revision. Except it returns a list of revisions that are all within max_timediff (a timedelta object) of timestamp. List is ordered by time relative to timestamp"""
+    
+    info = []
+    
+    fname = history_folder+'/'+station_name+"_hist.txt"
+    with open(fname, 'r') as fin:
+        for line in fin:
+            if line[0]=='r':
+                #### we found a line that specifies a revision!, now get the revision and date ####
+                words = line.split()
+                line_revision = words[0]
+                line_date =  datetime.strptime( words[4], "%Y-%m-%d" )
+                
+                dt = abs( line_date-timestamp )
+                if dt < max_timediff:
+                    info.append( [line_revision, dt] )
                     
-def get_phase_callibration(station, revision, folder):
+    info.sort(key=lambda X: X[1])
+    return [X[0] for X in info]
+                    
+def get_phase_callibration(station, revision, folder, mode=None, force=False):
     """download the phase callibration for a particular revision and station to folder. Folder should be default raw data folder"""
-    cmd = "svn checkout -r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+" "+folder+'/'+station
+    
+    if force:
+        force_CMD = ' --force '
+    else:
+        force_CMD = ' '
+        
+    if not isdir(folder+'/'+station):
+        mkdir(folder+'/'+station)
+
+    if mode is not None:
+        mode_name = {"LBA_OUTER": "LBA_OUTER-10_90",
+                     "LBA_INNER": "LBA_INNER-10_90",
+                           "HBA": "HBA-110_190"}[ mode ] ## this seems like a wierd way to do this.....
+        stationNr = station[2:] ## oddly not the stationID
+        
+        
+        cmd = "svn export"+force_CMD+"-r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+ '/CalTable-' + stationNr + '-' + mode_name + '.dat'+" "+folder+'/'+station + '/CalTable-' + stationNr + '-' + mode_name + '.dat'
+    else:
+        cmd = "svn export"+force_CMD+"-r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+" "+folder+'/'+station
     os.system(cmd)
 
-def download_phase_callibrations(station, history_folder, timestamp, folder):
+def download_phase_callibrations(station, history_folder, timestamp, folder, mode=None):
     """This function is a wrapper that first downloads the history for this station, finds the revision closest to the timestamp
     then downloads that revision to a folder"""
     get_station_history( station, history_folder )
     revision = get_latest_previous_revision( station, history_folder, timestamp )
-    get_phase_callibration( station, revision, folder )
+    get_phase_callibration( station, revision, folder, mode )
     
+
     
-###### CODE BELOW IS NOW IN EXAMPLES #####
-if __name__ == "__main__":
-    #### a full working example of opening a file, checking if it needs metadata, and downloading if necisary
-    import LoLIM.utilities as utils
-    from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
-    
-    from os import mkdir
-    from os.path import isdir
-    
-    timeID = "D20180813T153001.413Z"
-    history_folder = "./svn_phase_cal_history"
-    get_all_timings = True ## if false, only gets ones needed
-    
-    skip = [] ##stations to skip
-    
-    
-    if not isdir(history_folder):
-        mkdir(history_folder)
-        
-    fpaths = filePaths_by_stationName(timeID)
-    stations = fpaths.keys()
-    
-    for station in stations:
-        if station in skip:
-            continue
-    
-        TBB_data = MultiFile_Dal1( fpaths[station] )
-        timestamp = datetime.fromtimestamp( TBB_data.get_timestamp() )
-        
-        if get_all_timings or TBB_data.needs_metadata():
-            print("downloading for station:", station)
-            download_phase_callibrations(station, history_folder, timestamp, utils.raw_data_dir(timeID) )
+#### two random, but useful, utility functions
+def write_timing_noise(folder, sname, antenna_names, antenna_noise):
+    with open(folder + '/' + sname + ".txt", 'w+') as fout:
+        for ant_name, noise in zip(antenna_names, antenna_noise):
+            fout.write(ant_name)
+            fout.write(' ')
+            fout.write(str(noise))
+            fout.write('\n')
             
-        print( station)
-        print( TBB_data.get_timing_callibration_delays() )
+def read_timing_noise(folder, sname=None):
+    output_dictionary = {}
+    nan_antennas_list = []
     
+    def read_data(fname):
+        with open(folder + '/' + sname + ".txt", 'r') as fin:
+            for line in fin:
+                data = fin.split()
+                ant_name = data[0]
+                noise = float(data[1])
+                output_dictionary[ant_name] = noise
+                if noise != noise: ## is nan
+                    pass
     
-    
-    
-    
+    if (sname is None) and (fname is not None):
+        fnames = os.listdir
+    elif (sname is not None) and (fname is None):
+        fname = folder + '/' + sname + ".txt"
     
     
     

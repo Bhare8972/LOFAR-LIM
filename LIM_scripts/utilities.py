@@ -7,6 +7,9 @@ import sys
 from os import listdir, mkdir
 from os.path import isdir, dirname, abspath
 
+import os
+import subprocess
+
 import weakref
 
 from scipy import fftpack
@@ -120,7 +123,13 @@ def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
                 continue
             yield (item_one, item_two)
         
-        
+import re
+natural_regex_pattern = re.compile('([0-9]+)')
+def natural_sort( l ):
+    """ Sort the given iterable in the way that humans expect. Usefull for sorting station names."""
+    convert = lambda text: int(text) if text.isdigit() else text
+    alphanum_key = lambda key: [ convert(c) for c in natural_regex_pattern.split(key) ]
+    return sorted(l, key = alphanum_key)
         
 #### some file utils
 
@@ -154,6 +163,9 @@ def raw_data_dir(timeID, data_loc=None):
     
     if data_loc is None:
         data_loc = default_raw_data_loc
+        if default_raw_data_loc is None:
+            print("ERROR: 'default_raw_data_loc' in utilities is not set.")
+            quit()
     
     path = data_loc + '/' + year_from_timeID(timeID)+"/"+timeID
     return path
@@ -164,6 +176,9 @@ def processed_data_dir(timeID, data_loc=None):
     
     if data_loc is None:
         data_loc = default_processed_data_loc
+        if default_processed_data_loc is None:
+            print("ERROR: 'default_processed_data_loc' in utilities is not set.")
+            quit()
     
     path=data_loc + "/" + year_from_timeID(timeID)+"/"+timeID
     if not isdir(path):
@@ -311,6 +326,46 @@ def normalize_angle_radians( angle_radians ):
     while angle_radians < -np.pi:
         angle_radians += 2.0*np.pi
     return angle_radians
+
+def BoundingBox_collision(BB1, BB2):
+    """ return true if two N-D bounding boxes collide, False otherwise"""
+    for B1, B2 in zip(BB1,BB2):
+        if (B1[1] < B2[0]) or (B2[1] < B1[0]):
+            return False
+    return True
+
+### some build tools ####
+def GSL_include():
+    """return directory for location of GSL headers, useful when combining GSL and cython"""
+    
+    try:
+        gsl_include = subprocess.check_output('gsl-config --cflags', shell=True).decode('utf-8')[2:-1]
+    except subprocess.CalledProcessError:
+        gsl_include = os.getenv('LIB_GSL')
+        if gsl_include is None:
+            # Environmental variable LIB_GSL not set, use hardcoded path.
+            gsl_include = r"c:\Program Files\GnuWin32\include"
+        else:
+            gsl_include += "/include"
+
+    assert gsl_include != '', "Couldn't find gsl. Make sure it's installed and in the path."
+
+    return gsl_include
+
+
+def GSL_library_dir():
+    """return directory for location of GSL binaries, useful when combining GSL and cython"""
+    try:
+        lib_gsl_dir = subprocess.check_output('gsl-config --libs', shell=True).decode('utf-8').split()[0][2:]
+    except subprocess.CalledProcessError:
+        lib_gsl_dir = os.getenv('LIB_GSL')
+        if lib_gsl_dir is None:
+            # Environmental variable LIB_GSL not set, use hardcoded path.
+            lib_gsl_dir = r"c:\Program Files\GnuWin32\lib"
+        else:
+            lib_gsl_dir += "/lib"
+
+    return lib_gsl_dir
     
     
     

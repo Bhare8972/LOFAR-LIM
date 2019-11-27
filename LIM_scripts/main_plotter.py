@@ -7,6 +7,7 @@ import sys
 import os
 
 from time import sleep
+from pickle import dumps, loads
 
 import matplotlib
 # Make sure that we are using QT5
@@ -33,32 +34,113 @@ def gen_cmap(cmap_name, minval,maxval, num=100):
         cmap(np.linspace(minval, maxval, num)))
     return new_cmap
 
-def List_to_Array(IN):
-    if isinstance(IN, list):
-        return np.array(IN)
-    else:
-        return IN
+def gen_olaf_cmap(num=256):
+    def RGB(V):
+        cs = 0.9 + V*0.9
+        R = 0.5 + 0.5*np.cos( 2*3.14*cs )
+        G = 0.5 + 0.5*np.cos( 2*3.14*(cs+0.25)  )
+        B = 0.5 + 0.5*np.cos( 2*3.14*(cs+0.5) )
+        return R,G,B
+    
+    RGBlist = [RGB(x) for x in np.linspace(0.05,0.95,num)]
+    return colors.LinearSegmentedColormap.from_list( 'OlafOfManyColors', RGBlist, N=num)
+
+        
 
 ### TODO: make a data set that is a map of the stations!!!!
 
+### TODO: make rebalancing x-y as part of coordinate system!
+### make buttons to 'show all' for individual coordinates and settings
+## toggle showing when a dataset is showing or not
 
+### note that there are THREE coordinate systems. plot cordinates are the ones shown on the plotter.
+### global coordinates are X, Y, Z, and T in m and s. 
+### The coordinate system defines how to convert from global to plot coordinates
+### local coordinats are those inside the dataset. The dataset must convert local to global.
+
+## plot coordinates are described as: plotX, plotY, plotT, plotZ and plotZt (plotZ is for side-views and plotZt is for Z vs T. They may not be the same.)
 
 class coordinate_transform:
-    """a coordinate transform defines how to go from LOFAR coordinates in MKS to plotted coordinates, and back again. This is the base transform. Which does nothing"""
     
     def __init__(self):
-        self.x_label = "distance East/West (m)"
-        self.y_label = "distance North/South (m)"
-        self.z_label = "altitude (m)"
-        self.t_label = "time (s)"
+        self.x_label = ''
+        self.y_label = ''
+        self.z_label = ''
+        self.zt_label = ''
+        self.t_label = ''
         
-    def transform(self, X, Y, Z, T):
-        return X, Y, Z, T
+        self.x_display_label = 'X'
+        self.y_display_label = 'Y'
+        self.z_display_label = 'Z'
+        self.t_display_label = 'T'
+        
+        self.name = 'none'
+        
+    def make_workingMemory(self, N):
+        return None
     
-    def invert(self, X_bar, Y_bar, Z_bar, T_bar):
-        return X_bar, Y_bar, Z_bar, T_bar
+    def set_workingMemory(self, mem):
+        pass
     
-class typical_transform(coordinate_transform):
+    def set_plotX(self, lower, upper):
+        pass
+    
+    def set_plotY(self, lower, upper):
+        pass
+    
+    def set_plotT(self, lower, upper):
+        pass
+    
+    def set_plotZ(self, lower, upper):
+        pass
+    
+    def set_plotZt(self, lower, upper):
+        pass
+    
+    def get_plotX(self):
+        return [0,0]
+    
+    def get_plotY(self):
+        return [0,0]
+    
+    def get_plotT(self):
+        return [0,0]
+    
+    def get_plotZ(self):
+        return [0,0]
+    
+    def get_plotZt(self):
+        return [0,0]
+    
+    def rebalance_X(self, window_width, window_height):
+        pass
+    
+    def rebalance_Y(self, window_width, window_height):
+        pass
+    
+    def rebalance_XY(self, window_width, window_height):
+        pass
+    
+    def get_limits_plotCoords(self):
+        ## return X, Y, Z, Zt, and T limits (in that order!)
+        return [[0,0], [0,0], [0,0], [0,0], [0,0]]
+    
+    def get_displayLimits(self):
+        return [[0,0], [0,0], [0,0], [0,0]]
+    
+    def set_displayLimits(self, Xminmax=None, Yminmax=None, Zminmax=None, Tminmax=None):
+        pass
+        
+    def transform(self, Xglobal, Yglobal, Zglobal, Tglobal, make_copy=True):
+        """transform global X, Y, Z, and T to plot coordinates. returns plotX, plotY, plotZ, plotZt, and plotT"""
+        return [[0], [0], [0], [0], [0]]
+    
+    def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
+            make_copy=True, ignore_T=False, bool_workspace=None):
+        """like transform, but filters based on bounds"""
+        return [[0], [0], [0], [0], [0]]
+    
+class typical_transform( coordinate_transform ):
     """display in km and ms, with an arbitrary space zero and arbitrary time zero."""
     
     def __init__(self, space_center, time_center):
@@ -66,24 +148,588 @@ class typical_transform(coordinate_transform):
         
         self.space_center = space_center
         self.time_center = time_center
-        self.x_label = "distance east-west (km)"
-        self.y_label = "distance north-south (km)"
-        self.z_label = "altitude (km)"
-        self.t_label = "time (ms)"
         
-    def transform(self, X, Y, Z, T):
-        X = List_to_Array(X)
-        Y = List_to_Array(Y) 
-        Z = List_to_Array(Z)
-        T = List_to_Array(T)
-        return (X-self.space_center[0])/1000.0, (Y-self.space_center[1])/1000.0, (Z-self.space_center[2])/1000.0, (T-self.time_center)*1000.0
+        self.x_label = "distance east-west [km]"
+        self.y_label = "distance north-south [km]"
+        self.z_label = "altitude [km]"
+        self.zt_label = "altitude [km]"
+        self.t_label = "time [ms]"
+        
+        ## these are in km and ms
+        self.X_bounds = [0,1]
+        self.Y_bounds = [0,1]
+        self.Z_bounds = [0,1]
+        self.T_bounds = [0,1]
+        
+#        self.rebalance_XY = True ## keep X and Y have same ratio
+        
+        self.x_display_label = 'X:'
+        self.y_display_label = 'Y:'
+        self.z_display_label = 'Z:'
+        self.t_display_label = 'T:'
+        
+        self.name = 'XYZT'
+        
     
-    def invert(self, X_bar, Y_bar, Z_bar, T_bar):
-        X_bar = List_to_Array(X_bar)
-        Y_bar = List_to_Array(Y_bar)
-        Z_bar = List_to_Array(Z_bar)
-        T_bar = List_to_Array(T_bar)
-        return X_bar*1000+self.space_center[0], Y_bar*1000+self.space_center[1], Z_bar*1000+self.space_center[2], T_bar/1000.0+self.time_center
+    def set_plotX(self, lower, upper):
+        self.X_bounds = [lower, upper]
+        
+    def get_plotX(self):
+        return [self.X_bounds[0], self.X_bounds[1]]
+    
+    def set_plotY(self, lower, upper):
+        self.Y_bounds = [lower, upper]
+        
+    def get_plotY(self):
+        return [self.Y_bounds[0], self.Y_bounds[1]]
+    
+    def set_plotT(self, lower, upper):
+        self.T_bounds = [lower, upper]
+        
+    def get_plotT(self):
+        return [self.T_bounds[0], self.T_bounds[1]]
+    
+    def set_plotZ(self, lower, upper):
+        self.Z_bounds = [lower, upper]
+        
+    def get_plotZ(self):
+        return [self.Z_bounds[0], self.Z_bounds[1]]
+    
+    def set_plotZt(self, lower, upper):
+        self.set_plotZ( lower, upper )
+        
+    def get_plotZt(self):
+        return [self.Z_bounds[0], self.Z_bounds[1]]
+    
+    def rebalance_X(self, window_width, window_height):
+        data_height = self.Y_bounds[1] - self.Y_bounds[0]
+        
+        new_width = window_width*data_height/window_height
+        middle_X = (self.X_bounds[0] + self.X_bounds[1])/2.0
+        self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+    
+    def rebalance_Y(self, window_width, window_height):
+        data_width = self.X_bounds[1] - self.X_bounds[0]
+        
+        new_height = window_height*data_width/window_width
+        middle_y = (self.Y_bounds[0] + self.Y_bounds[1])/2.0
+        self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+        
+    def rebalance_XY(self, window_width, window_height):
+        data_width = self.X_bounds[1] - self.X_bounds[0]
+        data_height = self.Y_bounds[1] - self.Y_bounds[0]
+        
+        width_ratio = data_width/window_width
+        height_ratio = data_height/window_height
+        
+        if width_ratio > height_ratio:
+            new_height = window_height*data_width/window_width
+            middle_y = (self.Y_bounds[0] + self.Y_bounds[1])/2.0
+            self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+            
+        else:
+            new_width = window_width*data_height/window_height
+            middle_X = (self.X_bounds[0] + self.X_bounds[1])/2.0
+            self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+    
+    def get_limits_plotCoords(self):
+        """ return X, Y, Z, Zt, and T limits (in that order!) """
+        return self.X_bounds, self.Y_bounds, self.Z_bounds, self.Z_bounds, self.T_bounds
+    
+    def get_displayLimits(self):
+        print('displayed coordinates are in m and s')
+        Xout = [self.X_bounds[0]*1000.0+self.space_center[0], 
+                self.X_bounds[1]*1000.0+self.space_center[0]]
+        Yout = [self.Y_bounds[0]*1000.0+self.space_center[1], 
+                self.Y_bounds[1]*1000.0+self.space_center[1]]
+        Zout = [self.Z_bounds[0]*1000.0+self.space_center[2], 
+                self.Z_bounds[1]*1000.0+self.space_center[2]]
+        Tout = [self.T_bounds[0]/1000.0+self.time_center, 
+                self.T_bounds[1]/1000.0+self.time_center]
+        return Xout, Yout, Zout, Tout
+    
+    def set_displayLimits(self, Xminmax=None, Yminmax=None, Zminmax=None, Tminmax=None):
+        self.X_bounds = [(Xminmax[0]-self.space_center[0])/1000, 
+                         (Xminmax[1]-self.space_center[0])/1000]
+        self.Y_bounds = [(Yminmax[0]-self.space_center[1])/1000, 
+                         (Yminmax[1]-self.space_center[1])/1000]
+        self.Z_bounds = [(Zminmax[0]-self.space_center[2])/1000, 
+                         (Zminmax[1]-self.space_center[2])/1000]
+        self.T_bounds = [(Tminmax[0]-self.time_center)*1000, 
+                         (Tminmax[1]-self.time_center)*1000]
+        
+    def transform(self, Xglobal, Yglobal, Zglobal, Tglobal, make_copy=True):
+        
+        if make_copy:
+            outX = np.array( Xglobal )
+            outY = np.array( Yglobal )
+            outZ = np.array( Zglobal )
+            outT = np.array( Tglobal )
+        else:
+            outX = np.asanyarray( Xglobal )
+            outY = np.asanyarray( Yglobal )
+            outZ = np.asanyarray( Zglobal )
+            outT = np.asanyarray( Tglobal )
+            
+        outX -= self.space_center[0]
+        outX /= 1000.0
+            
+        outY -= self.space_center[1]
+        outY /= 1000.0
+            
+        outZ -= self.space_center[2]
+        outZ /= 1000.0
+            
+        outT -= self.time_center
+        outT *= 1000.0
+        
+        return outX, outY, outZ, outZ, outT
+    
+    def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
+                make_copy=True, ignore_T=False, bool_workspace=None):
+        """like transform, but filters based on bounds"""
+        outX, outY, outZ, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
+        
+        if bool_workspace is None:
+            bool_workspace = np.ones( len(outX), dtype=np.bool )
+        else:
+            bool_workspace = bool_workspace[:len(outX)]
+            bool_workspace[:] = True
+            
+        np.greater_equal( outX, self.X_bounds[0], out=bool_workspace, where=bool_workspace )
+        np.greater_equal( self.X_bounds[1], outX, out=bool_workspace, where=bool_workspace )
+            
+        np.greater_equal( outY, self.Y_bounds[0], out=bool_workspace, where=bool_workspace )
+        np.greater_equal( self.Y_bounds[1], outY, out=bool_workspace, where=bool_workspace )
+            
+        np.greater_equal( outZ, self.Z_bounds[0], out=bool_workspace, where=bool_workspace )
+        np.greater_equal( self.Z_bounds[1], outZ, out=bool_workspace, where=bool_workspace )
+            
+        if not ignore_T:
+            np.greater_equal( outT, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
+            np.greater_equal( self.T_bounds[1], outT, out=bool_workspace, where=bool_workspace )
+        
+        N = np.sum( bool_workspace )
+        
+        np.compress( bool_workspace, outX, out=outX[:N] )
+        np.compress( bool_workspace, outY, out=outY[:N] )
+        np.compress( bool_workspace, outZ, out=outZ[:N] )
+        np.compress( bool_workspace, outT, out=outT[:N] )
+        
+        return outX[:N], outY[:N], outZ[:N], outZ[:N], outT[:N]
+    
+#class camera_transform( coordinate_transform ):
+#    
+#    def __init__(self, space_center, time_center):
+#        """center should be in LOFAR (m,s) coordinates"""
+#        
+#        self.space_center = space_center
+#        self.time_center = time_center
+#        
+#        self.x_label = "alpha"
+#        self.y_label = "beta"
+#        self.z_label = "elivation"
+#        self.zt_label = "elivation"
+#        self.t_label = "time [ms]"
+#        
+#        ## these are in km and ms
+#        self.alpha_bounds = [0,1]
+#        self.beta_bounds = [0,1]
+#        self.zenith_bounds = [0,1]
+#        self.T_bounds = [0,1]
+#        
+##        self.rebalance_XY = True ## keep X and Y have same ratio
+#        
+#        self.x_display_label = 'A:'
+#        self.y_display_label = 'B:'
+#        self.z_display_label = 'El:'
+#        self.t_display_label = 'T:'
+#        
+#        self.working_memory = None
+#        
+#    
+#    def set_plotX(self, lower, upper):
+#        self.alpha_bounds = [lower, upper]
+#        
+#    def get_plotX(self):
+#        return [self.alpha_bounds[0], self.alpha_bounds[1]]
+#    
+#    def set_plotY(self, lower, upper):
+#        self.beta_bounds = [lower, upper]
+#        
+#    def get_plotY(self):
+#        return [self.beta_bounds[0], self.beta_bounds[1]]
+#    
+#    def set_plotT(self, lower, upper):
+#        self.T_bounds = [lower, upper]
+#        
+#    def get_plotT(self):
+#        return [self.T_bounds[0], self.T_bounds[1]]
+#    
+#    def set_plotZ(self, lower, upper):
+#        self.zenith_bounds = [lower, upper]
+#        
+#    def get_plotZ(self):
+#        return [self.zenith_bounds[0], self.zenith_bounds[1]]
+#    
+#    def set_plotZt(self, lower, upper):
+#        self.set_plotZ( lower, upper )
+#        
+#    def get_plotZt(self):
+#        return [self.zenith_bounds[0], self.zenith_bounds[1]]
+#    
+#    def rebalance_X(self, window_width, window_height):
+#        data_height = self.alpha_bounds[1] - self.alpha_bounds[0]
+#        
+#        new_width = window_width*data_height/window_height
+#        middle_X = (self.beta_bounds[0] + self.beta_bounds[1])/2.0
+#        self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+#    
+#    def rebalance_Y(self, window_width, window_height):
+#        data_width = self.beta_bounds[1] - self.beta_bounds[0]
+#        
+#        new_height = window_height*data_width/window_width
+#        middle_y = (self.alpha_bounds[0] + self.alpha_bounds[1])/2.0
+#        self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+#    
+#    def rebalance_XY(self, window_width, window_height):
+#        data_width = self.alpha_bounds[1] - self.alpha_bounds[0]
+#        data_height = self.beta_bounds[1] - self.beta_bounds[0]
+#        
+#        width_ratio = data_width/window_width
+#        height_ratio = data_height/window_height
+#        
+#        if width_ratio > height_ratio:
+#            new_height = window_height*data_width/window_width
+#            middle_y = (self.beta_bounds[0] + self.beta_bounds[1])/2.0
+#            self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+#            
+#        else:
+#            new_width = window_width*data_height/window_height
+#            middle_X = (self.alpha_bounds[0] + self.alpha_bounds[1])/2.0
+#            self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+#    
+#    def get_limits_plotCoords(self):
+#        """ return X, Y, Z, Zt, and T limits (in that order!) """
+#        return self.alpha_bounds, self.beta_bounds, self.zenith_bounds, self.zenith_bounds, self.T_bounds
+#    
+#    def get_displayLimits(self):
+#        return self.alpha_bounds, self.beta_bounds, self.zenith_bounds, self.T_bounds
+#    
+#    def set_displayLimits(self, Xminmax=None, Yminmax=None, Zminmax=None, Tminmax=None):
+#        self.set_plotX(Xminmax[0], Xminmax[1])
+#        self.set_plotY(Yminmax[0], Yminmax[1])
+#        self.set_plotZ(Zminmax[0], Zminmax[1])
+#        self.set_plotT(Tminmax[0], Tminmax[1])
+#        
+#    def make_workingMemory(self, N):
+#        return np.empty( (4,N), dtype=np.double )
+#    
+#    def set_workingMemory(self, mem):
+#        self.working_memory = mem
+#        
+#    def transform(self, Xglobal, Yglobal, Zglobal, Tglobal, make_copy=True):
+#        
+##        if make_copy:
+##            outX = np.array( Xglobal )
+##            outY = np.array( Yglobal )
+##            outZ = np.array( Zglobal )
+##            outT = np.array( Tglobal )
+##        else:
+##            outX = np.asanyarray( Xglobal )
+##            outY = np.asanyarray( Yglobal )
+##            outZ = np.asanyarray( Zglobal )
+##            outT = np.asanyarray( Tglobal )
+#        
+#        tmp_memory = self.working_memory
+#        if tmp_memory is None or tmp_memory.shape[1] < len(Xglobal):
+#            tmp_memory = np.empty( (4,len(Xglobal)), dtype=np.double )
+#            
+#        if tmp_memory.shape[1] > len(Xglobal):
+#            tmp_memory = tmp_memory[:,:len(Xglobal)]
+#        
+#        outAlpha, outBeta, outEl, outT = tmp_memory
+#            
+#            ## first calculate rho
+#        outT[:] = Xglobal
+#        outT -= self.space_center[0]
+#        outBeta[:] = outT
+#        outT *= outT
+#        
+#        outEl[:] = Yglobal
+#        outEl -= self.space_center[1]
+#        outEl *= outEl
+#        
+#        outT += outEl # now rho squared
+#        
+#        outAlpha[:] = Zglobal
+#        outAlpha -= self.space_center[2]
+#        outAlpha *= outAlpha
+#        outAlpha += outT ## now R2
+#        
+#        np.sqrt( outT, out=outT ) # is now rho
+#        np.sqrt( outAlpha, out=outAlpha ) # is now R
+#        
+#        outEl[:] = outT
+#        outEl /= outAlpha ## is now cos El (I think)
+#        
+#        outBeta /= outT # is now cos Az
+#        np.arccos( outBeta, out=outAlpha )
+#        np.sin(outAlpha, out=outAlpha) ## outAlpha is now sin Az
+#        
+#        outBeta *= outEl
+#        outAlpha *= outEl
+#        
+#        np.arccos(outEl, out=outEl)
+#        
+#        outT[:] = Tglobal
+#        outT -= self.time_center
+#        outT *= 1000.0
+#        
+#        return outAlpha, outBeta, outEl, outEl, outT
+#            
+#    
+#    def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
+#                make_copy=True, ignore_T=False, bool_workspace=None):
+#        """like transform, but filters based on bounds"""
+#        outX, outY, outZ, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
+#        
+#        if bool_workspace is None:
+#            bool_workspace = np.ones( len(outX), dtype=np.bool )
+#        else:
+#            bool_workspace = bool_workspace[:len(outX)]
+#            bool_workspace[:] = True
+#            
+#        np.greater_equal( outX, self.alpha_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.alpha_bounds[1], outX, out=bool_workspace, where=bool_workspace )
+#            
+#        np.greater_equal( outY, self.beta_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.beta_bounds[1], outY, out=bool_workspace, where=bool_workspace )
+#            
+#        np.greater_equal( outZ, self.zenith_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.zenith_bounds[1], outZ, out=bool_workspace, where=bool_workspace )
+#            
+#        if not ignore_T:
+#            np.greater_equal( outT, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
+#            np.greater_equal( self.T_bounds[1], outT, out=bool_workspace, where=bool_workspace )
+#        
+#        N = np.sum( bool_workspace )
+#        
+#        np.compress( bool_workspace, outX, out=outX[:N] )
+#        np.compress( bool_workspace, outY, out=outY[:N] )
+#        np.compress( bool_workspace, outZ, out=outZ[:N] )
+#        np.compress( bool_workspace, outT, out=outT[:N] )
+#        
+#        return outX[:N], outY[:N], outZ[:N], outZ[:N], outT[:N]
+
+
+class AzEl_transform( coordinate_transform ):
+    
+    def __init__(self, space_center, time_center):
+        """center should be in LOFAR (m,s) coordinates"""
+        
+        self.space_center = space_center
+        self.time_center = time_center
+        
+        self.x_label = "azimuth"
+        self.y_label = "elivation"
+        self.z_label = "elivation"
+        self.zt_label = "elivation"
+        self.t_label = "time [ms]"
+        
+        ## these are in km and ms
+        self.az_bounds = [0,1]
+        self.elivation_bounds = [0,1]
+        self.T_bounds = [0,1]
+        
+#        self.rebalance_XY = True ## keep X and Y have same ratio
+        
+        self.x_display_label = 'Az:'
+        self.y_display_label = '?:'
+        self.z_display_label = 'El:'
+        self.t_display_label = 'T:'
+        
+        self.working_memory = None
+        
+        
+        self.name = 'AzElT'
+    
+    def set_plotX(self, lower, upper):
+        self.az_bounds = [lower, upper]
+        
+    def get_plotX(self):
+        return [self.az_bounds[0], self.az_bounds[1]]
+    
+    def set_plotY(self, lower, upper):
+        self.elivation_bounds = [lower, upper]
+        
+    def get_plotY(self):
+        return [self.elivation_bounds[0], self.elivation_bounds[1]]
+    
+    def set_plotT(self, lower, upper):
+        self.T_bounds = [lower, upper]
+        
+    def get_plotT(self):
+        return [self.T_bounds[0], self.T_bounds[1]]
+    
+    def set_plotZ(self, lower, upper):
+        self.elivation_bounds = [lower, upper]
+        
+    def get_plotZ(self):
+        return [self.elivation_bounds[0], self.elivation_bounds[1]]
+    
+    def set_plotZt(self, lower, upper):
+        self.set_plotZ( lower, upper )
+        
+    def get_plotZt(self):
+        return [self.elivation_bounds[0], self.elivation_bounds[1]]
+    
+    def rebalance_X(self, window_width, window_height):
+        data_height = self.elivation_bounds[1] - self.elivation_bounds[0]
+        
+        new_width = window_width*data_height/window_height
+        middle_X = (self.az_bounds[0] + self.az_bounds[1])/2.0
+        self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+    
+    def rebalance_Y(self, window_width, window_height):
+        data_width = self.az_bounds[1] - self.az_bounds[0]
+        
+        new_height = window_height*data_width/window_width
+        middle_y = (self.elivation_bounds[0] + self.elivation_bounds[1])/2.0
+        self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+    
+    def rebalance_XY(self, window_width, window_height):
+        data_width = self.az_bounds[1] - self.az_bounds[0]
+        data_height = self.elivation_bounds[1] - self.elivation_bounds[0]
+        
+        width_ratio = data_width/window_width
+        height_ratio = data_height/window_height
+        
+        if width_ratio > height_ratio:
+            new_height = window_height*data_width/window_width
+            middle_y = (self.elivation_bounds[0] + self.elivation_bounds[1])/2.0
+            self.set_plotY( middle_y-new_height/2.0, middle_y+new_height/2.0 )
+            
+        else:
+            new_width = window_width*data_height/window_height
+            middle_X = (self.az_bounds[0] + self.az_bounds[1])/2.0
+            self.set_plotX( middle_X-new_width/2.0, middle_X+new_width/2.0 )
+    
+    def get_limits_plotCoords(self):
+        """ return X, Y, Z, Zt, and T limits (in that order!) """
+        return self.az_bounds, self.elivation_bounds, self.elivation_bounds, self.elivation_bounds, self.T_bounds
+    
+    def get_displayLimits(self):
+        Tout = [self.T_bounds[0]/1000.0+self.time_center, 
+            self.T_bounds[1]/1000.0+self.time_center]
+        return self.az_bounds, self.elivation_bounds, self.elivation_bounds, Tout
+    
+    
+    def set_displayLimits(self, Xminmax=None, Yminmax=None, Zminmax=None, Tminmax=None):
+        self.set_plotX(Xminmax[0], Xminmax[1])
+        self.set_plotY(Yminmax[0], Yminmax[1])
+#        self.set_plotZ(Zminmax[0], Zminmax[1])
+        tmin = (Tminmax[0]-self.time_center)*1000.0
+        tmax = (Tminmax[1]-self.time_center)*1000.0
+        self.set_plotT(tmin, tmax)
+        
+    def make_workingMemory(self, N):
+        return np.empty( (4,N), dtype=np.double )
+    
+    def set_workingMemory(self, mem):
+        self.working_memory = mem
+        
+    def transform(self, Xglobal, Yglobal, Zglobal, Tglobal, make_copy=True):
+        
+#        if make_copy:
+#            outX = np.array( Xglobal )
+#            outY = np.array( Yglobal )
+#            outZ = np.array( Zglobal )
+#            outT = np.array( Tglobal )
+#        else:
+#            outX = np.asanyarray( Xglobal )
+#            outY = np.asanyarray( Yglobal )
+#            outZ = np.asanyarray( Zglobal )
+#            outT = np.asanyarray( Tglobal )
+        
+        tmp_memory = self.working_memory
+        if tmp_memory is None or tmp_memory.shape[1] < len(Xglobal):
+            tmp_memory = np.empty( (4,len(Xglobal)), dtype=np.double )
+            
+        if tmp_memory.shape[1] > len(Xglobal):
+            tmp_memory = tmp_memory[:,:len(Xglobal)]
+        
+        outAlpha, outBeta, outEl, outT = tmp_memory
+            
+            ## first calculate rho
+        outT[:] = Xglobal
+        outT -= self.space_center[0]
+        outBeta[:] = outT
+        outT *= outT
+        
+        outEl[:] = Yglobal
+        outEl -= self.space_center[1]
+        outEl *= outEl
+        
+        outT += outEl # now rho squared
+        
+        outAlpha[:] = Zglobal
+        outAlpha -= self.space_center[2]
+        outAlpha *= outAlpha
+        outAlpha += outT ## now R2
+        
+        np.sqrt( outT, out=outT ) # is now rho
+        np.sqrt( outAlpha, out=outAlpha ) # is now R
+        
+        outEl[:] = outT
+        outEl /= outAlpha ## is now cos El (I think)
+        
+        outBeta /= outT # is now cos Az
+        np.arccos( outBeta, out=outAlpha )
+#        np.sin(outAlpha, out=outAlpha) ## outAlpha is now sin Az
+        
+#        outBeta *= outEl
+#        outAlpha *= outEl
+        
+        np.arccos(outEl, out=outEl)
+        
+        outT[:] = Tglobal
+        outT -= self.time_center
+        outT *= 1000.0
+        
+        return outAlpha, outEl, outEl, outEl, outT
+            
+    
+    def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
+                make_copy=True, ignore_T=False, bool_workspace=None):
+        """like transform, but filters based on bounds"""
+        outAz, outEl, throw, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
+        
+        if bool_workspace is None:
+            bool_workspace = np.ones( len(outAz), dtype=np.bool )
+        else:
+            bool_workspace = bool_workspace[:len(outAz)]
+            bool_workspace[:] = True
+
+        
+            
+        np.greater_equal( outAz, self.az_bounds[0], out=bool_workspace, where=bool_workspace )
+        np.greater_equal( self.az_bounds[1], outAz, out=bool_workspace, where=bool_workspace )
+            
+        np.greater_equal( outEl, self.elivation_bounds[0], out=bool_workspace, where=bool_workspace )
+        np.greater_equal( self.elivation_bounds[1], outEl, out=bool_workspace, where=bool_workspace )
+            
+        if not ignore_T:
+            np.greater_equal( outT, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
+            np.greater_equal( self.T_bounds[1], outT, out=bool_workspace, where=bool_workspace )
+        
+        N = np.sum( bool_workspace )
+        
+        np.compress( bool_workspace, outAz, out=outAz[:N] )
+        np.compress( bool_workspace, outEl, out=outEl[:N] )
+        np.compress( bool_workspace, outT, out=outT[:N] )
+        
+        return outAz[:N], outEl[:N], outEl[:N], outEl[:N], outT[:N]
     
 ## data sets work in lofar-centered mks. Except for plotting, where the coordinate system will be provided
 class DataSet_Type:
@@ -93,37 +739,18 @@ class DataSet_Type:
         self.name = name
         self.display = True
         
-    def set_show_all(self):
-        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]
+    def set_show_all(self, coordinate_system, do_set_limits=True):
+        """set bounds needed to show all data.
         Set all properties so that all points are shown"""
-        return [[np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan]]
+        pass
     
-    def bounding_box(self):
-        return [[np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan]]
+    def bounding_box(self, coordinate_system):
+        """return bounding box in plot-coordinates"""
+        return [[np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan]]
 
-    def set_T_lims(self, min, max):
-        pass
-    
-    def set_X_lims(self, min, max):
-        pass
-    
-    def set_Y_lims(self, min, max):
-        pass
-    
-    def set_alt_lims(self, min, max):
-        pass
-    
-    def get_T_lims(self):
-        pass
-    
-    def get_X_lims(self):
-        pass
-    
-    def get_Y_lims(self):
-        pass
-    
-    def get_alt_lims(self):
-        pass
+    def T_bounds(self, coordinate_system):
+        """return T-bounds given all other bounds, in plot-coordinats"""
+        return [0.0, 0.0]
     
     def get_all_properties(self):
         return {}
@@ -135,8 +762,8 @@ class DataSet_Type:
         pass
     
     
-    def get_viewed_events(self):
-        return []
+#    def get_viewed_events(self):
+#        return []
     
     def clear(self):
         pass
@@ -144,22 +771,26 @@ class DataSet_Type:
     def use_ancillary_axes(self):
         return False
 
-    def print_info(self):
+    def print_info(self, coordinate_system):
         print( "not implemented" )
         
-    def search(self, ID):
+    def search(self, ID_list):
         print("not implemented")
         return None   
     
     def toggle_on(self):
-        pass
+        self.display = True
     
     def toggle_off(self):
-        pass
+        self.display = False
     
-    def copy_view(self):
+    def copy_view(self, coordinate_system):
         print("not implemented")
-        return None   
+        return None
+    
+    def get_view_ID_list(self, coordinate_system):
+        print("not implemented")
+        return None
     
     def text_output(self):
         print("not implemented")
@@ -169,321 +800,6 @@ class DataSet_Type:
             print("not implemented")
         return False
     
-#class DataSet_simplePointSources(DataSet_Type):
-#    """This represents a set of simple dual-polarized point sources"""
-#    
-#    def __init__(self, PSE_list, markers, marker_size, color_mode, name, cmap):
-#        self.markers = markers
-#        self.marker_size = marker_size
-#        self.color_mode = color_mode
-#        self.PSE_list = PSE_list
-#        self.cmap = cmap
-#        self.polarity = 0 ##0 is show both. 1 is show even, 2 is show odd
-#        
-#        self.t_lims = [None, None]
-#        self.x_lims = [None, None]
-#        self.y_lims = [None, None]
-#        self.z_lims = [None, None]
-#        self.max_RMS = None
-#        self.min_numAntennas = None
-#        
-#        ## probably should call previous constructor here
-#        self.name = name
-#        self.display = True
-#        
-#        
-#        #### get the data ####
-#        self.polE_loc_data = np.array([PSE.PolE_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2) ])
-#        self.polO_loc_data = np.array([PSE.PolO_loc for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1) ])
-#
-#        self.PolE_RMS_vals = np.array( [PSE.PolE_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)] )
-#        self.PolO_RMS_vals = np.array( [PSE.PolO_RMS for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)] )
-#        
-#        self.PolE_numAntennas= np.array( [PSE.num_even_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==2)])
-#        self.PolO_numAntennas= np.array( [PSE.num_odd_antennas for PSE in PSE_list if (PSE.polarization_status==0 or PSE.polarization_status==1)])
-#        
-#        
-#        #### make maskes
-#        bool_array = [True]*len(self.polE_loc_data)
-#        self.PolE_mask_on_alt = np.array(bool_array, dtype=bool)
-#        self.PolE_mask_on_X   = np.array(bool_array, dtype=bool)
-#        self.PolE_mask_on_Y   = np.array(bool_array, dtype=bool)
-#        self.PolE_mask_on_T   = np.array(bool_array, dtype=bool)
-#        self.PolE_mask_on_RMS = np.array(bool_array, dtype=bool)
-#        self.PolE_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
-#        
-#        self.PolE_total_mask = np.array(bool_array, dtype=bool)
-#        self.PolE_total_mask = np.stack([self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask,self.PolE_total_mask], -1)
-#        
-#        
-#        bool_array = [True]*len(self.polO_loc_data)
-#        self.PolO_mask_on_alt = np.array(bool_array, dtype=bool)
-#        self.PolO_mask_on_X   = np.array(bool_array, dtype=bool)
-#        self.PolO_mask_on_Y   = np.array(bool_array, dtype=bool)
-#        self.PolO_mask_on_T   = np.array(bool_array, dtype=bool)
-#        self.PolO_mask_on_RMS = np.array(bool_array, dtype=bool)
-#        self.PolO_mask_on_min_numAntennas = np.array(bool_array, dtype=bool)
-#        
-#        self.PolO_total_mask = np.array(bool_array, dtype=bool)
-#        self.PolO_total_mask = np.stack([self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask,self.PolO_total_mask], -1)
-#        
-#        
-#        self.PolE_masked_loc_data   = np.ma.masked_array(self.polE_loc_data, mask=self.PolE_total_mask, copy=False)
-#        self.PolE_masked_RMS_vals  = np.ma.masked_array(self.PolE_RMS_vals, mask=self.PolE_total_mask[:,0], copy=False)
-#        self.PolE_masked_numAntennas  = np.ma.masked_array(self.PolE_numAntennas, mask=self.PolE_total_mask[:,0], copy=False)
-#        
-#        self.PolO_masked_loc_data   = np.ma.masked_array(self.polO_loc_data, mask=self.PolO_total_mask, copy=False)
-#        self.PolO_masked_RMS_vals  = np.ma.masked_array(self.PolO_RMS_vals, mask=self.PolO_total_mask[:,0], copy=False)
-#        self.PolO_masked_numAntennas  = np.ma.masked_array(self.PolO_numAntennas, mask=self.PolO_total_mask[:,0], copy=False)
-#    
-#    
-#        
-#        self.set_show_all()
-#    
-#        #### some axis data ###
-#        self.PolE_AltVsT_paths = None
-#        self.PolE_AltVsEw_paths = None
-#        self.PolE_NsVsEw_paths = None
-#        self.PolE_NsVsAlt_paths = None
-#        
-#        self.PolO_AltVsT_paths = None
-#        self.PolO_AltVsEw_paths = None
-#        self.PolO_NsVsEw_paths = None
-#        self.PolO_NsVsAlt_paths = None
-#        
-#        
-#    def set_show_all(self):
-#        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
-#        
-#        max_RMS = max( np.max(self.PolE_RMS_vals), np.max(self.PolO_RMS_vals) )
-#        min_antennas = min( np.min(self.PolE_numAntennas), np.min(self.PolO_numAntennas) )
-#        
-#        self.set_max_RMS( max_RMS )
-#        self.set_min_numAntennas( min_antennas )
-#        
-#        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
-#        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
-#        
-#        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
-#        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
-#        
-#        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
-#        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
-#        
-#        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
-#        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
-#        
-#        self.set_T_lims(min_T, max_T)
-#        self.set_X_lims(min_X, max_X)
-#        self.set_Y_lims(min_Y, max_Y)
-#        self.set_alt_lims(min_Z, max_Z)
-#        
-#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-#    
-#    def bounding_box(self):
-#        min_X = min( np.min(self.polE_loc_data[:,0]), np.min(self.polO_loc_data[:,0]) )
-#        max_X = max( np.max(self.polE_loc_data[:,0]), np.max(self.polO_loc_data[:,0]) )
-#        
-#        min_Y = min( np.min(self.polE_loc_data[:,1]), np.min(self.polO_loc_data[:,1]) )
-#        max_Y = max( np.max(self.polE_loc_data[:,1]), np.max(self.polO_loc_data[:,1]) )
-#        
-#        min_Z = min( np.min(self.polE_loc_data[:,2]), np.min(self.polO_loc_data[:,2]) )
-#        max_Z = max( np.max(self.polE_loc_data[:,2]), np.max(self.polO_loc_data[:,2]) )
-#        
-#        min_T = min( np.min(self.polE_loc_data[:,3]), np.min(self.polO_loc_data[:,3]) )
-#        max_T = max( np.max(self.polE_loc_data[:,3]), np.max(self.polO_loc_data[:,3]) )
-#        
-#        self.set_T_lims(min_T, max_T)
-#        self.set_X_lims(min_X, max_X)
-#        self.set_Y_lims(min_Y, max_Y)
-#        self.set_alt_lims(min_Z, max_Z)
-#        
-#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-#    
-#    def set_T_lims(self, min, max):
-#        self.t_lims = [min, max]
-#        self.PolE_mask_on_T = np.logical_and( self.polE_loc_data[:,3]>min, self.polE_loc_data[:,3]<max )
-#        self.PolO_mask_on_T = np.logical_and( self.polO_loc_data[:,3]>min, self.polO_loc_data[:,3]<max )
-#    
-#    def set_X_lims(self, min, max):
-#        self.x_lims = [min, max]
-#        self.PolE_mask_on_X = np.logical_and( self.polE_loc_data[:,0]>min, self.polE_loc_data[:,0]<max )
-#        self.PolO_mask_on_X = np.logical_and( self.polO_loc_data[:,0]>min, self.polO_loc_data[:,0]<max )
-#    
-#    def set_Y_lims(self, min, max):
-#        self.y_lims = [min, max]
-#        self.PolE_mask_on_Y = np.logical_and( self.polE_loc_data[:,1]>min, self.polE_loc_data[:,1]<max )
-#        self.PolO_mask_on_Y = np.logical_and( self.polO_loc_data[:,1]>min, self.polO_loc_data[:,1]<max )
-#    
-#    def set_alt_lims(self, min, max):
-#        self.z_lims = [min, max]
-#        self.PolE_mask_on_alt = np.logical_and( self.polE_loc_data[:,2]>min, self.polE_loc_data[:,2]<max )
-#        self.PolO_mask_on_alt = np.logical_and( self.polO_loc_data[:,2]>min, self.polO_loc_data[:,2]<max )
-#    
-#    
-#    def get_T_lims(self):
-#        return list(self.t_lims)
-#    
-#    def get_X_lims(self):
-#        return list(self.x_lims)
-#    
-#    def get_Y_lims(self):
-#        return list(self.y_lims)
-#    
-#    def get_alt_lims(self):
-#        return list(self.z_lims)
-#    
-#    
-#    def get_all_properties(self):
-#        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "max RMS (ns)":str(self.max_RMS*1.0E9),
-#                "min. num. ant.":str(self.min_numAntennas), "polarity":int(self.polarity)}
-#        ## need: marker type, color map
-#    
-#    def set_property(self, name, str_value):
-#        
-#        try:
-#            if name == "marker size":
-#                self.marker_size = int(str_value)
-#            elif name == "color mode":
-#                if str_value in ["time"] or str_value[0] =="*":
-#                    self.color_mode = str_value
-#            elif name == "max RMS (ns)":
-#                self.set_max_RMS( float(str_value)*1.0E-9 )
-#            elif name == "min. num. ant.":
-#                self.set_min_numAntennas( int(str_value) )
-#            elif name == "polarity":
-#                self.polarity = int(str_value)
-#            else:
-#                print("do not have property:", name)
-#        except:
-#            print("error in setting property", name, str_value)
-#            pass
-#    
-#    def set_max_RMS(self, max_RMS):
-#        self.max_RMS = max_RMS
-#        self.PolE_mask_on_RMS = self.PolE_RMS_vals<max_RMS
-#        self.PolO_mask_on_RMS = self.PolO_RMS_vals<max_RMS
-#    
-#    def set_min_numAntennas(self, min_numAntennas):
-#        self.min_numAntennas = min_numAntennas
-#        self.PolE_mask_on_min_numAntennas = self.PolE_masked_numAntennas>min_numAntennas
-#        self.PolO_mask_on_min_numAntennas = self.PolO_masked_numAntennas>min_numAntennas
-#    
-#    
-#    
-#    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-#
-#        ####  set total mask ####
-#        if self.polarity == 0 or self.polarity == 1:
-#            self.PolE_total_mask[:,0] = self.PolE_mask_on_alt
-#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_X, out=self.PolE_total_mask[:,0])
-#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_Y, out=self.PolE_total_mask[:,0])
-#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_T, out=self.PolE_total_mask[:,0])
-#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_RMS, out=self.PolE_total_mask[:,0])
-#            np.logical_and(self.PolE_total_mask[:,0], self.PolE_mask_on_min_numAntennas, out=self.PolE_total_mask[:,0])
-#            np.logical_not(self.PolE_total_mask[:,0], out=self.PolE_total_mask[:,0]) ##becouse the meaning of the masks is flipped
-#            self.PolE_total_mask[:,1] = self.PolE_total_mask[:,0]
-#            self.PolE_total_mask[:,2] = self.PolE_total_mask[:,0]
-#            self.PolE_total_mask[:,3] = self.PolE_total_mask[:,0]
-#            
-#        if self.polarity==0 or self.polarity==2:
-#            self.PolO_total_mask[:,0] = self.PolO_mask_on_alt
-#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_X, out=self.PolO_total_mask[:,0])
-#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_Y, out=self.PolO_total_mask[:,0])
-#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_T, out=self.PolO_total_mask[:,0])
-#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_RMS, out=self.PolO_total_mask[:,0])
-#            np.logical_and(self.PolO_total_mask[:,0], self.PolO_mask_on_min_numAntennas, out=self.PolO_total_mask[:,0])
-#            np.logical_not(self.PolO_total_mask[:,0], out=self.PolO_total_mask[:,0]) ##becouse the meaning of the masks is flipped
-#            self.PolO_total_mask[:,1] = self.PolO_total_mask[:,0]
-#            self.PolO_total_mask[:,2] = self.PolO_total_mask[:,0]
-#            self.PolO_total_mask[:,3] = self.PolO_total_mask[:,0]
-#    
-#        #### random book keeping ####
-#        self.clear()
-#        
-#        if not self.display:
-#            return
-#            
-#        if self.color_mode == "time":
-#            polE_color = self.PolE_masked_loc_data[:,3]
-#            polO_color = self.PolO_masked_loc_data[:,3]
-#            
-#        elif self.color_mode[0] == '*':
-#            polE_color = self.color_mode[1:]
-#            polO_color = self.color_mode[1:]
-#            
-#            
-#        #### plot ####
-#        if self.polarity == 0 or self.polarity == 1:
-#            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolE_masked_loc_data[:,0], Y=self.PolE_masked_loc_data[:,1],
-#                                                                     Z=self.PolE_masked_loc_data[:,2],  T=self.PolE_masked_loc_data[:,3])
-#            
-#            self.PolE_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-#            self.PolE_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-#            self.PolE_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-#            self.PolE_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polE_color, marker=self.markers[0], s=self.marker_size, cmap=self.cmap)
-#            
-#        if self.polarity==0 or self.polarity==2:
-#            X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.PolO_masked_loc_data[:,0], Y=self.PolO_masked_loc_data[:,1],
-#                                                                     Z=self.PolO_masked_loc_data[:,2],  T=self.PolO_masked_loc_data[:,3])
-#            
-#            self.PolO_AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-#            self.PolO_AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-#            self.PolO_NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-#            self.PolO_NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=polO_color, marker=self.markers[1], s=self.marker_size, cmap=self.cmap)
-#            
-#            
-#    def loc_filter(self, loc):
-#        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
-#            return True
-#        else:
-#            return False
-#
-#    def get_viewed_events(self):
-#        return [PSE for PSE in self.PSE_list if 
-#                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
-#                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
-#
-#    
-#    def clear(self):
-#        if self.PolE_AltVsT_paths is not None:
-#            self.PolE_AltVsT_paths.remove()
-#            self.PolE_AltVsT_paths = None
-#        if self.PolE_AltVsEw_paths is not None:
-#            self.PolE_AltVsEw_paths.remove()
-#            self.PolE_AltVsEw_paths = None
-#        if self.PolE_NsVsEw_paths is not None:
-#            self.PolE_NsVsEw_paths.remove()
-#            self.PolE_NsVsEw_paths = None
-#        if self.PolE_NsVsAlt_paths is not None:
-#            self.PolE_NsVsAlt_paths.remove()
-#            self.PolE_NsVsAlt_paths = None
-#            
-#        if self.PolO_AltVsT_paths is not None:
-#            self.PolO_AltVsT_paths.remove()
-#            self.PolO_AltVsT_paths = None
-#        if self.PolO_AltVsEw_paths is not None:
-#            self.PolO_AltVsEw_paths.remove()
-#            self.PolO_AltVsEw_paths = None
-#        if self.PolO_NsVsEw_paths is not None:
-#            self.PolO_NsVsEw_paths.remove()
-#            self.PolO_NsVsEw_paths = None
-#        if self.PolO_NsVsAlt_paths is not None:
-#            self.PolO_NsVsAlt_paths.remove()
-#            self.PolO_NsVsAlt_paths = None
-#            
-##    def search(self, index, marker, marker_size, color_mode, cmap=None):
-##        searched_PSE = [PSE for PSE in self.PSE_list if PSE.unique_index==index]
-##        return DataSet_simplePointSources( searched_PSE, [marker,marker], marker_size, color_mode, self.name+"_search", self.coordinate_system, cmap)
-#
-#    def use_ancillary_axes(self):
-#        return False
-#
-#    def print_info(self):
-#        print( "not implemented" )
-        
-        
-
 class DataSet_interferometricPointSources(DataSet_Type):
     """This represents a set of simple dual-polarized point sources"""
     
@@ -495,50 +811,40 @@ class DataSet_interferometricPointSources(DataSet_Type):
         self.cmap = cmap
         self._ignore_time = False
         
-        self.t_lims = [None, None]
-        self.x_lims = [None, None]
-        self.y_lims = [None, None]
-        self.z_lims = [None, None]
         self.min_intensity = 0.0
         self.max_S1S2distance = 100.0
         self.min_amplitude = 0.0
-        self.max_RMS = 1
         
         ## probably should call previous constructor here
         self.name = name
         self.display = True
         
+        self.IPSE_used = [IPSE for IPSE in IPSE_list if IPSE.converged]
         
         #### get the data ####
-        self.locations = np.array([ np.append( IPSE.loc, [IPSE.T] ) for IPSE in IPSE_list if IPSE.converged])
+        self.X_array = np.array([ IPSE.loc[0] for IPSE in self.IPSE_used])
+        self.Y_array = np.array([ IPSE.loc[1] for IPSE in self.IPSE_used])
+        self.Z_array = np.array([ IPSE.loc[2] for IPSE in self.IPSE_used])
+        self.T_array = np.array([ IPSE.T for IPSE in self.IPSE_used])
         
-        print(len(self.locations))
+        self.intensities = np.array([ IPSE.intensity for IPSE in self.IPSE_used])
+        self.amplitudes = np.array([ IPSE.amplitude for IPSE in self.IPSE_used])
+        self.S1S2distances = np.array([ IPSE.S1_S2_distance for IPSE in self.IPSE_used])
+        
+        ## some temp memory
 
-        self.intensities = np.array([ IPSE.intensity for IPSE in  IPSE_list if IPSE.converged])
-        self.amplitudes = np.array([ IPSE.amplitude for IPSE in  IPSE_list if IPSE.converged])
-        self.S1S2distances = np.array([ IPSE.S1_S2_distance for IPSE in  IPSE_list if IPSE.converged])
-        self.RMSs = np.array([ IPSE.RMS for IPSE in  IPSE_list if IPSE.converged])
+        self.mask_on_intensity   = np.ones(len(self.X_array), dtype=bool)
+        self.mask_on_S1S2distance = np.ones(len(self.X_array), dtype=bool)
+        self.mask_on_amplitude = np.ones(len(self.X_array), dtype=bool)
         
-        
-        #### make maskes
-        bool_array = [True]*len(self.locations)
-        self.mask_on_X   = np.array(bool_array, dtype=bool)
-        self.mask_on_Y   = np.array(bool_array, dtype=bool)
-        self.mask_on_alt = np.array(bool_array, dtype=bool)
-        self.mask_on_T   = np.array(bool_array, dtype=bool)
-        
-        self.mask_on_intensity   = np.array(bool_array, dtype=bool)
-        self.mask_on_S1S2distance = np.array(bool_array, dtype=bool)
-        self.mask_on_amplitude = np.array(bool_array, dtype=bool)
-        self.mask_on_RMS   = np.array(bool_array, dtype=bool)
-        
-        self.total_mask = np.array(bool_array, dtype=bool)
-        self.total_mask = np.stack([self.total_mask,self.total_mask,self.total_mask,self.total_mask], -1)
-        
-        
-        self.masked_loc_data   = np.ma.masked_array(self.locations, mask=self.total_mask, copy=False)
-        
-        self.set_show_all()
+        self.total_mask = np.ones(len(self.X_array), dtype=bool)
+
+        self.X_TMP = np.empty(len(self.X_array), dtype=np.double)
+        self.Y_TMP = np.empty(len(self.Y_array), dtype=np.double)
+        self.Z_TMP = np.empty(len(self.Z_array), dtype=np.double)
+        self.T_TMP = np.empty(len(self.T_array), dtype=np.double)
+
+#        self.set_show_all()
     
         #### some axis data ###
         self.AltVsT_paths = None
@@ -546,93 +852,157 @@ class DataSet_interferometricPointSources(DataSet_Type):
         self.NsVsEw_paths = None
         self.NsVsAlt_paths = None
         
-    def set_show_all(self):
+        self.X_offset = 0.0
+        self.Y_offset = 0.0
+        self.Z_offset = 0.0
+        self.T_offset = 0.0
+        
+        self.transform_memory = None
+        
+    def set_show_all(self, coordinate_system, do_set_limits=True):
         """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
         
         self.set_min_intensity( np.min(self.intensities) )
         self.set_max_S1S2distance( np.max(self.S1S2distances) )
         self.set_min_amplitude( 0.0 )
-        self.set_max_RMS( 1 )
         
-        min_X = np.min(self.locations[:,0])
-        max_X = np.max(self.locations[:,0])
-        
-        min_Y = np.min(self.locations[:,1])
-        max_Y = np.max(self.locations[:,1])
-        
-        min_Z = np.min(self.locations[:,2])
-        max_Z = np.max(self.locations[:,2])
-        
-        min_T = np.min(self.locations[:,3])
-        max_T = np.max(self.locations[:,3])
-        
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
-        
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
+        if do_set_limits:
+            self.X_TMP[:] = self.X_array  
+            self.Y_TMP[:] = self.Y_array  
+            self.Z_TMP[:] = self.Z_array  
+            self.T_TMP[:] = self.T_array  
+            
+            self.X_TMP += self.X_offset
+            self.Y_TMP += self.Y_offset
+            self.Z_TMP += self.Z_offset
+            self.T_TMP += self.T_offset
+            
+            if self.transform_memory is None:
+                self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+            coordinate_system.set_workingMemory( self.transform_memory )
+            
+            plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+                self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+                make_copy=False)
+            
+            if len(plotX) > 0:
+                coordinate_system.set_plotX( np.min(plotX), np.max(plotX) )
+                coordinate_system.set_plotY( np.min(plotY), np.max(plotY) )
+                coordinate_system.set_plotZ( np.min(plotZ), np.max(plotZ) )
+                coordinate_system.set_plotZt( np.min(plotZt), np.max(plotZt) )
+                coordinate_system.set_plotT( np.min(plotT), np.max(plotT) )
     
     
-    def bounding_box(self):
-        mask = np.logical_and(self.mask_on_intensity, self.mask_on_S1S2distance)
-        mask = np.logical_and(mask, self.mask_on_RMS, out=mask)
-        mask = np.logical_and(mask, self.mask_on_amplitude, out=mask)
+    def bounding_box(self, coordinate_system):
         
-        min_X = np.min(self.locations[mask,0])
-        max_X = np.max(self.locations[mask,0])
+        #### get cuts ###
         
-        min_Y = np.min(self.locations[mask,1])
-        max_Y = np.max(self.locations[mask,1])
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
         
-        min_Z = np.min(self.locations[mask,2])
-        max_Z = np.max(self.locations[mask,2])
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
         
-        min_T = np.min(self.locations[mask,3])
-        max_T = np.max(self.locations[mask,3])
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
         
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
         
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-    
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
         
-    def set_T_lims(self, min, max):
-        self.t_lims = [min, max]
-        self.mask_on_T = np.logical_and( self.locations[:,3]>min, self.locations[:,3]<max )
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False)
+        
+        ## return actual bounds
+        if len(plotX) > 0:
+            Xbounds = [np.min(plotX), np.max(plotX)]
+            Ybounds = [np.min(plotY), np.max(plotY)]
+            Zbounds = [np.min(plotZ), np.max(plotZ)]
+            Ztbounds = [np.min(plotZt), np.max(plotZt)]
+            Tbounds = [np.min(plotT), np.max(plotT)]
+        else:
+            Xbounds = [0,1]
+            Ybounds = [0,1]
+            Zbounds = [0,1]
+            Ztbounds = [0,1]
+            Tbounds = [0,1]
+            
+        
+        return Xbounds, Ybounds, Zbounds, Ztbounds, Tbounds
     
-    def set_X_lims(self, min, max):
-        self.x_lims = [min, max]
-        self.mask_on_X = np.logical_and( self.locations[:,0]>min, self.locations[:,0]<max )
+    def T_bounds(self, coordinate_system):
     
-    def set_Y_lims(self, min, max):
-        self.y_lims = [min, max]
-        self.mask_on_Y = np.logical_and( self.locations[:,1]>min, self.locations[:,1]<max )
+            #### get cuts ###
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        ## transform and cut on bounds
+        TMP = coordinate_system.get_plotT()
+        A = TMP[0] ## need to copy
+        B = TMP[1]
+        coordinate_system.set_plotT(-np.inf, np.inf)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+        coordinate_system.set_plotT(A, B)
+        
+        ## return actual bounds
+        if len(plotT) > 0:
+            return [np.min(plotT), np.max(plotT)]
+        else:
+            return [0, 1]
     
-    def set_alt_lims(self, min, max):
-        self.z_lims = [min, max]
-        self.mask_on_alt = np.logical_and( self.locations[:,2]>min, self.locations[:,2]<max )
-    
-    
-    def get_T_lims(self):
-        return list(self.t_lims)
-    
-    def get_X_lims(self):
-        return list(self.x_lims)
-    
-    def get_Y_lims(self):
-        return list(self.y_lims)
-    
-    def get_alt_lims(self):
-        return list(self.z_lims)
-    
-    
+
     
     def get_all_properties(self):
         return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "min intensity":str(self.min_intensity),
-                "max S1S2 distance":str(self.max_S1S2distance), "min amplitude":str(self.min_amplitude), 'max RMS':str(self.max_RMS*1.0e9)}
+                "max S1S2 distance":str(self.max_S1S2distance), "min amplitude":str(self.min_amplitude),
+                'name':self.name, "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
+                "T offset":self.T_offset, 'marker':self.marker}
         ## need: marker type, color map
     
     def set_property(self, name, str_value):
@@ -640,17 +1010,38 @@ class DataSet_interferometricPointSources(DataSet_Type):
         try:
             if name == "marker size":
                 self.marker_size = int(str_value)
+                
             elif name == "color mode":
                 if str_value in ["time", "amplitude", "intensity"] or str_value[0] =="*":
                     self.color_mode = str_value
+                    
             elif name == "max S1S2 distance":
                 self.set_max_S1S2distance( float(str_value) )
+                
             elif name == "min intensity":
                 self.set_min_intensity( float(str_value) )
+                
             elif name == "min amplitude":
                 self.set_min_amplitude( float(str_value) )
-            elif name == "max RMS":
-                self.set_max_RMS( float(str_value)*1.0e-9 )
+                
+            elif name == 'name':
+                self.name = str_value ## make sence?
+                
+            elif name == "X offset":
+                self.X_offset = float( str_value )
+                
+            elif name == "Y offset":
+                self.Y_offset = float( str_value )
+                
+            elif name == "Z offset":
+                self.Z_offset = float( str_value )
+                
+            elif name == "T offset":
+                self.T_offset = float( str_value )
+                
+            elif name == "marker":
+                self.marker = str_value
+    
             else:
                 print("do not have property:", name)
         except:
@@ -659,79 +1050,136 @@ class DataSet_interferometricPointSources(DataSet_Type):
     
     def set_max_S1S2distance(self, max_S1S2distance):
         self.max_S1S2distance = max_S1S2distance
-        self.mask_on_S1S2distance = self.S1S2distances < max_S1S2distance
+#        self.mask_on_S1S2distance = self.S1S2distances < max_S1S2distance
+        np.greater( max_S1S2distance, self.S1S2distances, out= self.mask_on_S1S2distance )
     
     def set_min_intensity(self, min_intensity):
         self.min_intensity = min_intensity
-        self.mask_on_intensity = self.intensities > min_intensity
+#        self.mask_on_intensity = self.intensities > min_intensity
+        np.greater(self.intensities , self.min_intensity, out= self.mask_on_intensity )
         
     def set_min_amplitude(self, min_amplitude):
         self.min_amplitude = min_amplitude
-        self.mask_on_amplitude = self.amplitudes > self.min_amplitude
+#        self.mask_on_amplitude = self.amplitudes > self.min_amplitude
+        np.greater(self.amplitudes  , self.min_amplitude, out= self.mask_on_amplitude )
+    
+    def set_total_mask(self):
+        self.total_mask[:] = self.mask_on_intensity
         
-    def set_max_RMS(self, max_RMS):
-        self.max_RMS = max_RMS
-        self.mask_on_RMS = self.RMSs < max_RMS
-    
-    
+        np.logical_and(self.total_mask, self.mask_on_S1S2distance, out=self.total_mask)
+        np.logical_and(self.total_mask, self.mask_on_amplitude, out=self.total_mask)
+        
     def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-
-        ####  set total mask ####
-        self.total_mask[:,0] = self.mask_on_alt
-        np.logical_and(self.total_mask[:,0], self.mask_on_X, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_Y, out=self.total_mask[:,0])
-        if not self._ignore_time:
-            np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_intensity, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_S1S2distance, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_amplitude, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_RMS, out=self.total_mask[:,0])
-            
-        np.logical_not(self.total_mask[:,0], out=self.total_mask[:,0]) ##becouse the meaning of the masks is flipped
-        self.total_mask[:,1] = self.total_mask[:,0]
-        self.total_mask[:,2] = self.total_mask[:,0]
-        self.total_mask[:,3] = self.total_mask[:,0]
-    
+        
+        self.set_total_mask()
+        N = np.sum( self.total_mask )    
+        
         #### random book keeping ####
         self.clear()
         
-        if not self.display:
-            return
-        
-        if self.color_mode == "time":
-            color = self.locations[:,3]
-            
-        elif self.color_mode == "amplitude":
-            color = np.log( self.amplitudes )
+        ## fix so no generate memory!
+        if self.color_mode == "amplitude":
+            color = np.log( self.amplitudes )[ self.total_mask ]
             
         elif self.color_mode == "intensity":
-            color = self.intensities
+            color = self.intensities[ self.total_mask ]
+        
+        
+            
+        #### set cuts and transforms
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:N]
+        Ytmp = self.Y_TMP[:N]
+        Ztmp = self.Z_TMP[:N]
+        Ttmp = self.T_TMP[:N]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+
+
+        print(self.name, "plotting", len(plotX), 'sources. showing:', self.display)
+        
+        if (not self.display) or len(plotX)==0:
+            return
+        
+        ### get color!
+        if self.color_mode == "time":
+            color = plotT
+            ARG = coordinate_system.get_plotT()
+            color_min = ARG[0]
+            color_max = ARG[1]
             
         elif self.color_mode[0] == '*':
             color = self.color_mode[1:]
+            color_min = None
+            color_max = None
             
+        elif self.color_mode in self.color_options:
+            color = color[self.total_mask[:N]]
+            color_min = np.min( color )
+            color_max = np.max( color )
             
-        #### plot ####
-        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.masked_loc_data[:,0], Y=self.masked_loc_data[:,1],
-                                                                 Z=self.masked_loc_data[:,2],  T=self.masked_loc_data[:,3])
-        
-        if not self._ignore_time:
-            self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        
-
+        elif self.color_mode == "amplitude":
+            color = color[self.total_mask[:N]]
+            color_min = np.min( color )
+            color_max = np.max( color )
             
-    def loc_filter(self, loc):
-        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
-            return True
+        elif self.color_mode == "intensity":
+            color = color[self.total_mask[:N]]
+            color_min = np.min( color )
+            color_max = np.max( color )
+            
         else:
-            return False
+            print("bad color mode. This should be interesting!")
+            color = self.color_mode
+            color_min = None
+            color_max = None
+            
+        try:
+            if not self._ignore_time:
+                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+                
+            self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+        except Exception as e: print(e)
+        
 
-    def get_viewed_events(self):
-        print("get viewed events not implemented")
-        return []
+        
+#    def loc_filter(self, loc):
+#        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
+#            return True
+#        else:
+#            return False
+
+#    def get_viewed_events(self):
+#        print("get viewed events not implemented")
+#        return []
 #        return [PSE for PSE in self.PSE_list if 
 #                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
 #                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
@@ -763,138 +1211,335 @@ class DataSet_interferometricPointSources(DataSet_Type):
         self.display = False
         self.clear()
         
-    def search(self, ID):
-        try:
-            ID = int(ID)
-        except:
-            return None
+    def search(self, ID_list):
         
-        for IPSE in self.IPSE_list:
-            if IPSE.unique_index == ID:
-                break
+        new_list = []
+
+        for ID in ID_list:
+            try:
+                ID = int(ID)
+            except:
+                continue
             
-        if IPSE.unique_index != ID:
-            print("cannot find:", ID)
-            return None
+            for IPSE in self.IPSE_list:
+                if IPSE.unique_index == ID:
+                    break
+                
+            if IPSE.unique_index != ID:
+                print("cannot find:", ID)
+                continue
+            
+            new_list.append( IPSE )
         
-        if not IPSE.converged:
-           print("event not converged")
-           return None
+        if len(new_list)==0:
+            return None
         
         new_DS = DataSet_interferometricPointSources( [IPSE], self.marker, self.marker_size, "*k", self.name+"_S"+str(ID), self.cmap )
-        new_DS.set_max_S1S2distance( int(new_DS.max_S1S2distance)+2)
+        
+        new_DS.X_offset = self.X_offset
+        new_DS.Y_offset = self.Y_offset
+        new_DS.Z_offset = self.Z_offset
+        new_DS.T_offset = self.T_offset
+        
         return new_DS
 
-    def print_info(self):
+    def get_view_ID_list(self, coordinate_system):
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        return [IPSE.unique_index for j,IPSE in enumerate(self.IPSE_used) if self.total_mask[j] and bool_workspace[j] ]
+        
+    def copy_view(self, coordinate_system):
+        
+        IDs = self.get_view_ID_list( coordinate_system )
+        self.search( IDs )
+        
+#        self.set_total_mask()
+#        
+#        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+#        
+#        self.X_TMP[:] = self.X_array  
+#        self.Y_TMP[:] = self.Y_array  
+#        self.Z_TMP[:] = self.Z_array  
+#        self.T_TMP[:] = self.T_array 
+#        
+#        Xtmp = self.X_TMP[:]
+#        Ytmp = self.Y_TMP[:]
+#        Ztmp = self.Z_TMP[:]
+#        Ttmp = self.T_TMP[:]
+#        
+##        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+##        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+##        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+##        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+#        
+#        Xtmp += self.X_offset
+#        Ytmp += self.Y_offset
+#        Ztmp += self.Z_offset
+#        Ttmp += self.T_offset
+#        
+#        if self.transform_memory is None:
+#            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+#        coordinate_system.set_workingMemory( self.transform_memory )
+#        
+#        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+#            Xtmp, Ytmp, Ztmp, Ttmp, 
+#            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+#        
+#        
+#        IPSE_list = [IPSE for j,IPSE in enumerate(self.IPSE_used) if self.total_mask[j] and bool_workspace[j] ]
+#                
+#        
+#        new_DS = DataSet_interferometricPointSources( IPSE_list, self.marker, self.marker_size, "*k", self.name+"_copy", self.cmap )
+#        
+#        new_DS.set_max_S1S2distance( self.max_S1S2distance )
+#        new_DS.set_min_intensity( self.min_intensity )
+#        new_DS.set_min_amplitude( self.min_amplitude )
+#        return new_DS
+
+    def print_info(self, coordinate_system):
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+#        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+#        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+#        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+#        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        
         print()
         print()
         i=0
-        for IPSE in self.IPSE_list:
-            if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
-            and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
-                print( "IPSE  block:", IPSE.block_index, "ID:", IPSE.IPSE_index, "unique index:", IPSE.unique_index )
-                print( "    S1-S2 distance:", IPSE.S1_S2_distance, "intensity:", IPSE.intensity, "amplitude:", IPSE.amplitude)
-                print( "    location:", IPSE.loc)
-                print( "    T:", IPSE.T, "  RMS:", IPSE.RMS)
-                i+=1
+        for j, IPSE in enumerate(self.IPSE_used):
+            if not (self.total_mask[j] and bool_workspace[j]):
+                continue
+            print( "IPSE  block:", IPSE.block_index, "ID:", IPSE.IPSE_index, "unique index:", IPSE.unique_index )
+            print( "    S1-S2 distance:", IPSE.S1_S2_distance, "intensity:", IPSE.intensity, "amplitude:", IPSE.amplitude)
+            print( "    location:", IPSE.loc)
+            x = np.sum(bool_workspace[:j])
+            print( "  plotloc X, Y, Z, Zt, T:", plotX[x], plotY[x], plotZ[x], plotZt[x], plotT[x])
+            print( "    T:", IPSE.T, "  RMS:", IPSE.RMS)
+            print()
+            i+=1
         print(i, "sources")
-        
-    
-    def copy_view(self):
-        new_list = []
-        for IPSE in self.IPSE_list:
-            if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
-            and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
-                new_list.append( IPSE )
-                
-        if len(new_list) ==0:
-            return None
-                
-        new_DS = DataSet_interferometricPointSources( new_list, self.marker, self.marker_size, "*k", self.name+"_copy", self.cmap )
-        
-        new_DS.set_max_S1S2distance( self.max_S1S2distance )
-        new_DS.set_min_intensity( self.min_intensity )
-        new_DS.set_min_amplitude( self.min_amplitude )
-        return new_DS
     
     
-    def text_output(self):
+#    def text_output(self):
+#        print('not implemented')
         
-        header = self.IPSE_list[0].header
-        for ant_data in header.antenna_data:
-            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
-                pref_ant_loc = ant_data.location
-                break
-        
-        with open("output.txt", 'w') as fout:
-            for IPSE in self.IPSE_list:
-                if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
-                and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
-                    ID = IPSE.unique_index
-                    X = IPSE.loc[0]
-                    Y = IPSE.loc[1]
-                    Z = IPSE.loc[2]
-                    T = IPSE.T
-                    I = IPSE.intensity
-                    
-                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
-                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
-                    
-                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
-        print("done writing")
+#        header = self.IPSE_list[0].header
+#        for ant_data in header.antenna_data:
+#            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
+#                pref_ant_loc = ant_data.location
+#                break
+#        
+#        with open("output.txt", 'w') as fout:
+#            for IPSE in self.IPSE_list:
+#                if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
+#                and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
+#                    ID = IPSE.unique_index
+#                    X = IPSE.loc[0]
+#                    Y = IPSE.loc[1]
+#                    Z = IPSE.loc[2]
+#                    T = IPSE.T
+#                    I = IPSE.intensity
+#                    
+#                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
+#                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
+#                    
+#                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
+#        print("done writing")
                     
     def ignore_time(self, ignore=None):
         if ignore is not None:
             self._ignore_time = ignore
         return self._ignore_time
-                    
-class DataSet_LMA(DataSet_Type):
-    """This represents LMA data"""
+
+def IPSE_to_DataSet(IPSE, name, cmap, marker='s', marker_size=5, color_mode='time'):
+    X = np.empty(len(IPSE), dtype=np.double)
+    Y = np.empty(len(IPSE), dtype=np.double)
+    Z = np.empty(len(IPSE), dtype=np.double)
+    T = np.empty(len(IPSE), dtype=np.double)
+    intensity = np.empty(len(IPSE), dtype=np.double)
+    S1S2_distance = np.empty(len(IPSE), dtype=np.double)
+    amplitude = np.ones(len(IPSE), dtype=np.double)
+    block = np.empty(len(IPSE), dtype=np.int)
+    uniqueID = np.empty(len(IPSE), dtype=np.int)
+    ID = np.empty(len(IPSE), dtype=np.int)
     
-    def __init__(self, folder, time_offset, marker, marker_size, color_mode, name, cmap):
+    for i,itPSE in enumerate(IPSE):
+        X[i] = itPSE.XYZT[0]
+        Y[i] = itPSE.XYZT[1]
+        Z[i] = itPSE.XYZT[2]
+        T[i] = itPSE.XYZT[3]
+        
+        intensity[i] = itPSE.intensity
+        S1S2_distance[i] = itPSE.S1_S2_distance
+        amplitude[i] = itPSE.amplitude
+        block[i] = itPSE.block_index
+        uniqueID[i] = itPSE.unique_index
+        ID[i] = itPSE.IPSE_index
+    
+    new_dataset = DataSet_generic_PSE( X, Y, Z, T,
+                                       marker=marker, marker_size=marker_size, color_mode=color_mode, 
+                                       name=name, cmap=cmap,
+                                       min_filters = {'amplitude':amplitude, 'intensity':intensity},
+                                       max_filters = {'S1S3 distance':S1S2_distance},
+                                       print_info = {'block':block, 'ID':ID},
+                                       source_IDs = uniqueID
+                                       )
+    return new_dataset
+ 
+def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mode='time', eigMode='normal'):
+    X = np.empty(len(iterPSE), dtype=np.double)
+    Y = np.empty(len(iterPSE), dtype=np.double)
+    Z = np.empty(len(iterPSE), dtype=np.double)
+    T = np.empty(len(iterPSE), dtype=np.double)
+    RMS = np.empty(len(iterPSE), dtype=np.double)
+    RefAmp = np.empty(len(iterPSE), dtype=np.double)
+    maxSqrtEig = np.ones(len(iterPSE), dtype=np.double)
+    numRS = np.empty(len(iterPSE), dtype=np.int)
+    block = np.empty(len(iterPSE), dtype=np.int)
+    ID = np.empty(len(iterPSE), dtype=np.int)
+    numThrows = np.empty(len(iterPSE), dtype=np.int)
+    
+    eigMode = {'normal':1}[eigMode]
+    for i,itPSE in enumerate(iterPSE):
+        X[i] = itPSE.XYZT[0]
+        Y[i] = itPSE.XYZT[1]
+        Z[i] = itPSE.XYZT[2]
+        T[i] = itPSE.XYZT[3]
+        
+        RMS[i] = itPSE.RMS
+        RefAmp[i] = itPSE.refAmp
+        numRS[i] = itPSE.numRS
+        block[i] = itPSE.block
+        ID[i] = itPSE.uniqueID
+        numThrows[i] = itPSE.numThrows
+        
+        if eigMode == 1:
+            A = itPSE.cov_eig()
+            if A is None:
+                maxSqrtEig[i] = np.inf
+            else:
+                eigVals, eigVecs = A
+                A = np.max(eigVals)
+                if A < 0 or np.iscomplex(A):
+                    maxSqrtEig[i] = np.inf
+                else:
+                    maxSqrtEig[i] = np.sqrt( A )
+                if not np.isfinite(maxSqrtEig[i]):
+                    maxSqrtEig[i] = np.inf ## make nans into infs
+    
+    new_dataset = DataSet_generic_PSE( X, Y, Z, T,
+                                       marker=marker, marker_size=marker_size, color_mode=color_mode, 
+                                       name=name, cmap=cmap,
+                                       min_filters = {'amp':RefAmp, 'numRS':numRS},
+                                       max_filters = {'RMS':RMS, 'sqrtEig':maxSqrtEig, 'numThrows':numThrows},
+                                       print_info = {'block':block},
+                                       source_IDs = ID
+                                       )
+    return new_dataset
+
+class DataSet_generic_PSE(DataSet_Type):
+    
+    def __init__(self, X_array, Y_array, Z_array, T_array, 
+                 marker, marker_size, color_mode, name, cmap,
+                 min_filters={}, max_filters={}, color_options={}, print_info={}, source_IDs = None):
+        
         self.marker = marker
         self.marker_size = marker_size
         self.color_mode = color_mode
-        self.LMA_list = read_LMA_folder_data( folder )
         self.cmap = cmap
-        
-        self.t_lims = [None, None]
-        self.x_lims = [None, None]
-        self.y_lims = [None, None]
-        self.z_lims = [None, None]
-        self.min_power = 0.0
-        self.max_RedChi2 = 100.0
-        self.min_NumStat = 0.0
-        
-        ## probably should call previous constructor here
         self.name = name
+        self._ignore_time = False
         self.display = True
         
+        self.X_array = X_array
+        self.Y_array = Y_array
+        self.Z_array = Z_array
+        self.T_array = T_array
+        self.min_filters = min_filters
+        self.max_filters = max_filters
+        self.color_options = color_options
+        self.print_data = print_info
         
-        #### get the data ####
-        self.locations = np.array([ np.append( LMA.get_XYZ(), [LMA.time_of_day-time_offset] ) for LMA in self.LMA_list])
+        self.source_IDs = source_IDs
+        if self.source_IDs is None:
+            self.source_IDs = np.arange( len(X_array) )
+        
+        self.X_offset = 0.0
+        self.Y_offset = 0.0
+        self.Z_offset = 0.0
+        self.T_offset = 0.0
+        
+        self.min_parameters = { name:np.min(values) for name,values in self.min_filters.items() }
+        self.max_parameters = { name:np.max(values) for name,values in self.max_filters.items() }
+        
+        ## probably should call previous constructor here
+        
+        self.min_masks = { name:np.ones(len(self.X_array), dtype=bool) for name in self.min_filters.keys()}
+        self.max_masks = { name:np.ones(len(self.X_array), dtype=bool) for name in self.max_filters.keys()}
+        
+        self.total_mask = np.ones(len(self.X_array), dtype=bool)
 
-        self.powers = np.array([ LMA.power  for LMA in self.LMA_list])
-        self.fits = np.array([ LMA.red_chi_squared  for LMA in self.LMA_list])
-        self.num_stations = np.array([ 8  for LMA in self.LMA_list]) ## needs improvement
+        self.X_TMP = np.empty(len(self.X_array), dtype=np.double)
+        self.Y_TMP = np.empty(len(self.Y_array), dtype=np.double)
+        self.Z_TMP = np.empty(len(self.Z_array), dtype=np.double)
+        self.T_TMP = np.empty(len(self.T_array), dtype=np.double)
         
-        #### make masks
-        bool_array = [True]*len(self.locations)
-        self.mask_on_X   = np.array(bool_array, dtype=bool)
-        self.mask_on_Y   = np.array(bool_array, dtype=bool)
-        self.mask_on_alt = np.array(bool_array, dtype=bool)
-        self.mask_on_T   = np.array(bool_array, dtype=bool)
+#        self.masked_color_info = { name:np.ma.masked_array(data, mask=self.total_mask, copy=False)  for name,data in self.color_options.items() }
+#        self.color_time_mask = np.ma.masked_array(self.T_array, mask=self.total_mask, copy=False)
         
-        self.mask_on_power   = np.array(bool_array, dtype=bool)
-        self.mask_on_fit = np.array(bool_array, dtype=bool)
-        self.mask_on_stations = np.array(bool_array, dtype=bool)
-        
-        self.total_mask = np.array(bool_array, dtype=bool)
-        self.total_mask = np.stack([self.total_mask,self.total_mask,self.total_mask,self.total_mask], -1)
-        
-        self.masked_loc_data   = np.ma.masked_array(self.locations, mask=self.total_mask, copy=False)
-        
-        self.set_show_all()
+#        self.set_show_all()
     
         #### some axis data ###
         self.AltVsT_paths = None
@@ -902,91 +1547,159 @@ class DataSet_LMA(DataSet_Type):
         self.NsVsEw_paths = None
         self.NsVsAlt_paths = None
         
-    def set_show_all(self):
+        self.transform_memory = None
+        
+    def set_show_all(self, coordinate_system, do_set_limits=True):
         """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
         
-        self.set_min_power( 0 )
-        self.set_max_RedChi2( 10.0 )
-        self.set_min_NumStat( 0 )
+        for name,data in self.min_filters.items():
+            self.set_min_param( name, np.min(data) )
+            
+        for name,data in self.max_filters.items():
+            self.set_max_param( name, np.max(data) )
+            
+        if do_set_limits:
+            self.X_TMP[:] = self.X_array  
+            self.Y_TMP[:] = self.Y_array  
+            self.Z_TMP[:] = self.Z_array  
+            self.T_TMP[:] = self.T_array  
+            
+            self.X_TMP += self.X_offset
+            self.Y_TMP += self.Y_offset
+            self.Z_TMP += self.Z_offset
+            self.T_TMP += self.T_offset
+            
+            if self.transform_memory is None:
+                self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+            coordinate_system.set_workingMemory( self.transform_memory )
+            
+            plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+                self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+                make_copy=False)
+            
+            if len(plotX) > 0:
+                coordinate_system.set_plotX( np.min(plotX), np.max(plotX) )
+                coordinate_system.set_plotY( np.min(plotY), np.max(plotY) )
+                coordinate_system.set_plotZ( np.min(plotZ), np.max(plotZ) )
+                coordinate_system.set_plotZt( np.min(plotZt), np.max(plotZt) )
+                coordinate_system.set_plotT( np.min(plotT), np.max(plotT) )
+
+    def bounding_box(self, coordinate_system):
         
-        min_X = np.min(self.locations[:,0])
-        max_X = np.max(self.locations[:,0])
+        #### get cuts ###
         
-        min_Y = np.min(self.locations[:,1])
-        max_Y = np.max(self.locations[:,1])
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
         
-        min_Z = np.min(self.locations[:,2])
-        max_Z = np.max(self.locations[:,2])
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
         
-        min_T = np.min(self.locations[:,3])
-        max_T = np.max(self.locations[:,3])
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
         
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
         
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-    
-    
-    def bounding_box(self):
-        mask = np.logical_and(self.mask_on_power, self.mask_on_fit)
-        mask = np.logical_and(mask, self.mask_on_stations, out=mask)
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
         
-        min_X = np.min(self.locations[mask,0])
-        max_X = np.max(self.locations[mask,0])
         
-        min_Y = np.min(self.locations[mask,1])
-        max_Y = np.max(self.locations[mask,1])
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False)
         
-        min_Z = np.min(self.locations[mask,2])
-        max_Z = np.max(self.locations[mask,2])
+        ## return actual bounds
+        if len(plotX) > 0:
+            Xbounds = [np.min(plotX), np.max(plotX)]
+            Ybounds = [np.min(plotY), np.max(plotY)]
+            Zbounds = [np.min(plotZ), np.max(plotZ)]
+            Ztbounds = [np.min(plotZt), np.max(plotZt)]
+            Tbounds = [np.min(plotT), np.max(plotT)]
+        else:
+            Xbounds = [0,1]
+            Ybounds = [0,1]
+            Zbounds = [0,1]
+            Ztbounds = [0,1]
+            Tbounds = [0,1]
         
-        min_T = np.min(self.locations[mask,3])
-        max_T = np.max(self.locations[mask,3])
+        return Xbounds, Ybounds, Zbounds, Ztbounds, Tbounds
+    
+    def T_bounds(self, coordinate_system):
+        #### get cuts ###
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
         
-        self.set_T_lims(min_T, max_T)
-        self.set_X_lims(min_X, max_X)
-        self.set_Y_lims(min_Y, max_Y)
-        self.set_alt_lims(min_Z, max_Z)
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
         
-        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-    
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
         
-    def set_T_lims(self, min, max):
-        self.t_lims = [min, max]
-        self.mask_on_T = np.logical_and( self.locations[:,3]>min, self.locations[:,3]<max )
-    
-    def set_X_lims(self, min, max):
-        self.x_lims = [min, max]
-        self.mask_on_X = np.logical_and( self.locations[:,0]>min, self.locations[:,0]<max )
-    
-    def set_Y_lims(self, min, max):
-        self.y_lims = [min, max]
-        self.mask_on_Y = np.logical_and( self.locations[:,1]>min, self.locations[:,1]<max )
-    
-    def set_alt_lims(self, min, max):
-        self.z_lims = [min, max]
-        self.mask_on_alt = np.logical_and( self.locations[:,2]>min, self.locations[:,2]<max )
-    
-    
-    def get_T_lims(self):
-        return list(self.t_lims)
-    
-    def get_X_lims(self):
-        return list(self.x_lims)
-    
-    def get_Y_lims(self):
-        return list(self.y_lims)
-    
-    def get_alt_lims(self):
-        return list(self.z_lims)
-    
-    
-    
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        
+        ## transform and cut on bounds
+        TMP = coordinate_system.get_plotT()
+        A = TMP[0] ## need to copy
+        B = TMP[1]
+        coordinate_system.set_plotT(-np.inf, np.inf)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+        coordinate_system.set_plotT(A, B)
+        
+        ## return actual bounds
+        if len(plotT) > 0:
+            return [np.min(plotT), np.max(plotT)]
+        else:
+            return [0, 1]
+        
+        
     def get_all_properties(self):
-        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "max reduced chi-squared":str(self.max_RedChi2),
-                "min power":str(self.min_power), "min number stations":str(self.min_NumStat), 'magic':'more'}
+        ret =  {"marker size":str(self.marker_size),  "color mode":str(self.color_mode), 'name':self.name,
+                "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
+                "T offset":self.T_offset, 'marker':self.marker}
+        
+        for name, value in self.min_parameters.items():
+            ret['min ' + name] = value
+        for name, value in self.max_parameters.items():
+            ret['max ' + name] = value
+            
+        return ret
+        
         ## need: marker type, color map
     
     def set_property(self, name, str_value):
@@ -994,86 +1707,151 @@ class DataSet_LMA(DataSet_Type):
         try:
             if name == "marker size":
                 self.marker_size = int(str_value)
+                
             elif name == "color mode":
-                if str_value in ["time", "power"] or str_value[0] =="*":
-                    self.color_mode = str_value
-            elif name == "max reduced chi-squared":
-                self.set_max_RedChi2( float(str_value) )
-            elif name == "min power":
-                self.set_min_power( float(str_value) )
-            elif name == "min number stations":
-                self.set_min_NumStat( int(str_value) )
+                self.color_mode = str_value
+                    
+            elif name == 'name':
+                self.name = str_value
+                
+            elif name == "X offset":
+                self.X_offset = float( str_value )
+                
+            elif name == "Y offset":
+                self.Y_offset = float( str_value )
+                
+            elif name == "Z offset":
+                self.Z_offset = float( str_value )
+                
+            elif name == "T offset":
+                self.T_offset = float( str_value )
+                
+            elif name == "marker":
+                self.marker = str_value
+                
+            elif name[4:] in self.min_parameters:
+                self.set_min_param( name[4:], float(str_value) )
+                
+            elif name[4:] in self.max_parameters:
+                self.set_max_param( name[4:], float(str_value) )
+                
             else:
                 print("do not have property:", name)
         except:
             print("error in setting property", name, str_value)
             pass
+    
+    def set_min_param(self, name, value):
+        self.min_parameters[name] = value
+#        self.min_masks[name][:] = self.min_filters[name] > value
+        np.greater_equal( self.min_filters[name], value, out= self.min_masks[name])
+    
+    def set_max_param(self, name, value):
+        self.max_parameters[name] = value
+#        self.max_masks[name][:] = self.max_filters[name] < value 
+        np.greater_equal( value, self.max_filters[name], out= self.max_masks[name])
         
-    def set_max_RedChi2(self, max_redChi2):
-        self.max_RedChi2 = max_redChi2
-        self.mask_on_fit = self.fits < max_redChi2
-    
-    def set_min_power(self, min_power):
-        self.min_power = min_power
-        self.mask_on_power = self.powers > min_power
-    
-    def set_min_NumStat(self, min_stat):
-        self.min_NumStat = min_stat
-        self.mask_on_station = self.num_stations >= min_stat
-    
+    def set_total_mask(self):
+        self.total_mask[:] = True
+            
+        for name,mask in self.min_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+            
+        for name, mask in self.max_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+        
     
     def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-
-        ####  set total mask ####
-        self.total_mask[:,0] = self.mask_on_alt
-        np.logical_and(self.total_mask[:,0], self.mask_on_X, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_Y, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_power, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_fit, out=self.total_mask[:,0])
-        np.logical_and(self.total_mask[:,0], self.mask_on_stations, out=self.total_mask[:,0])
-            
-        np.logical_not(self.total_mask[:,0], out=self.total_mask[:,0]) ##becouse the meaning of the masks is flipped
-        self.total_mask[:,1] = self.total_mask[:,0]
-        self.total_mask[:,2] = self.total_mask[:,0]
-        self.total_mask[:,3] = self.total_mask[:,0]
-    
+        self.set_total_mask()
+        N = np.sum( self.total_mask )    
+        
         #### random book keeping ####
         self.clear()
         
-        if not self.display:
+    
+        if self.color_mode in self.color_options:
+            color = self.color_options[ self.color_mode ][self.total_mask] ## should fix this to not make memory
+            
+    
+            
+        #### set cuts and transforms
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:N]
+        Ytmp = self.Y_TMP[:N]
+        Ztmp = self.Z_TMP[:N]
+        Ttmp = self.T_TMP[:N]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+
+
+        print(self.name, "plotting", len(plotX), 'sources. showing:', self.display)
+        
+        if (not self.display) or len(plotX)==0:
             return
         
+        ### get color!
         if self.color_mode == "time":
-            color = self.locations[:,3]
-            
-        elif self.color_mode == "power":
-            color = self.powers
+            color = plotT
+            ARG = coordinate_system.get_plotT()
+            color_min = ARG[0]
+            color_max = ARG[1]
             
         elif self.color_mode[0] == '*':
             color = self.color_mode[1:]
+            color_min = None
+            color_max = None
             
+        elif self.color_mode in self.color_options:
+            color = color[self.total_mask[:N]]
+            color_min = np.min( color )
+            color_max = np.max( color )
             
-        #### plot ####
-        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.masked_loc_data[:,0], Y=self.masked_loc_data[:,1],
-                                                                 Z=self.masked_loc_data[:,2],  T=self.masked_loc_data[:,3])
-        
-        self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-        
-
-            
-    def loc_filter(self, loc):
-        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
-            return True
         else:
-            return False
+            print("bad color mode. This should be interesting!")
+            color = self.color_mode
+            color_min = None
+            color_max = None
+        
+        
+        try:
+            if not self._ignore_time:
+                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+                
+            self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+        except Exception as e: print(e)
+        
 
-    def get_viewed_events(self):
-        print("get viewed events not implemented")
-        return []
+#    def get_viewed_events(self):
+#        print("get viewed events not implemented")
+#        return []
 #        return [PSE for PSE in self.PSE_list if 
 #                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
 #                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
@@ -1081,18 +1859,6 @@ class DataSet_LMA(DataSet_Type):
     
     def clear(self):
         pass
-#        if self.AltVsT_paths is not None:
-#            self.AltVsT_paths.remove()
-#            self.AltVsT_paths = None
-#        if self.AltVsEw_paths is not None:
-#            self.AltVsEw_paths.remove()
-#            self.AltVsEw_paths = None
-#        if self.NsVsEw_paths is not None:
-#            self.NsVsEw_paths.remove()
-#            self.NsVsEw_paths = None
-#        if self.NsVsAlt_paths is not None:
-#            self.NsVsAlt_paths.remove()
-#            self.NsVsAlt_paths = None
         
     def use_ancillary_axes(self):
         return False
@@ -1105,788 +1871,1235 @@ class DataSet_LMA(DataSet_Type):
         self.display = False
         self.clear()
         
-    def search(self, ID):
-        print("search not implemented")
-        return None
-
-    def print_info(self):
-        print("print info not implemented")
+    def search(self, ID_list):
         
-    
-    def copy_view(self):
-        print("copy view not imelemented")
-    
-    
-    def text_output(self):
-        print("text output not implemented")
-    
+#        outX = np.array([ self.X_array[index] ])
+#        outY = np.array([ self.Y_array[index] ])
+#        outZ = np.array([ self.Z_array[index] ])
+#        outT = np.array([ self.T_array[index] ])
+#        min_filter_datums = {name:np.array([ data[index] ]) for name,data in self.min_filters.items()}
+#        max_filter_datums = {name:np.array([ data[index] ]) for name,data in self.max_filters.items()}
+#        print_datums = {name:np.array([ data[index] ]) for name,data in self.print_data.items()}
+#        color_datums = {name:np.array([ data[index] ]) for name,data in self.color_options.items()}
+#        indeces = np.array([ID])
         
+        N = len(ID_list)
+        outX = np.empty(N, dtype=np.double)
+        outY = np.empty(N, dtype=np.double)
+        outZ = np.empty(N, dtype=np.double)
+        outT = np.empty(N, dtype=np.double)
+        min_filter_datums = {name:np.empty(N, data.dtype) for name,data in self.min_filters.items()}
+        max_filter_datums = {name:np.empty(N, data.dtype) for name,data in self.max_filters.items()}
+        print_datums = {name:np.empty(N, data.dtype) for name,data in self.print_data.items()}
+        color_datums = {name:np.empty(N, data.dtype) for name,data in self.color_options.items()}
+        indeces = np.empty(N, self.source_IDs.dtype)
+        
+#        print(self.source_IDs)
+        
+        i = 0
+        for ID in ID_list:
+            try:
+                IDi = int(ID)
+            except:
+                print("ID", ID, 'is not an int')
+                continue
             
+            try:
+                index = next((idx for idx, val in enumerate(self.source_IDs) if val==IDi))#[0]
+            except Exception as e:
+                print(e)
+                print("ID", ID, 'cannot be found', IDi)
+                continue
+            
+            outX[i] = self.X_array[index]
+            outY[i] = self.Y_array[index]
+            outZ[i] = self.Z_array[index]
+            outT[i] = self.T_array[index]
+            
+            indeces[i] = ID
+            
+            for name,data in self.min_filters.items():
+                min_filter_datums[name][i] = data[index]
+                
+            for name,data in self.print_data.items():
+                print_datums[name][i] = data[index]
+                
+            for name,data in self.max_filters.items():
+                max_filter_datums[name][i] = data[index]
+                
+            for name,data in self.color_options.items():
+                color_datums[name][i] = data[index]
+            
+            i += 1
+            
+        if i==0:
+            return None
+            
+        outX = outX[:i]
+        outY = outY[:i]
+        outZ = outZ[:i]
+        outT = outT[:i]
+        
+        min_filter_datums = {name:data[:i] for name,data in min_filter_datums.items()}
+        max_filter_datums = {name:data[:i] for name,data in max_filter_datums.items()}
+        print_datums = {name:data[:i] for name,data in print_datums.items()}
+        color_datums = {name:data[:i] for name,data in color_datums.items()}
+        
+        new_DS = DataSet_generic_PSE( outX, outY, outZ, outT, self.marker, self.marker_size, '*k', 
+                 self.name+"_copy", self.cmap, 
+                 min_filter_datums, max_filter_datums, print_datums, color_datums, source_IDs=indeces)
+        
+        new_DS.X_offset = self.X_offset
+        new_DS.Y_offset = self.Y_offset
+        new_DS.Z_offset = self.Z_offset
+        new_DS.T_offset = self.T_offset
+        
+#        for name,param in self.min_parameters.items():
+#            new_DS.set_min_param(name,param)
+#        
+#        for name,param in self.max_parameters.items():
+#            new_DS.set_max_param(name,param)
+            
+        return new_DS
     
-#class DataSet_IPSE_threeStage(DataSet_Type):
-#    """This represents a set of simple dual-polarized point sources"""
-#    
-#    def __init__(self, IPSE_list, loc_stage, marker, marker_size, color_mode, name, cmap):
-#        self.marker = marker
-#        self.marker_size = marker_size
-#        self.color_mode = color_mode
-#        self.IPSE_list = IPSE_list
-#        self.cmap = cmap
-#        self.loc_stage = loc_stage ## says which stage (1,2,or 3) to plot locations from
+    def get_view_ID_list(self, coordinate_system):
+        
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        return [self.source_IDs[i] for i in range( len(self.X_array) ) if self.total_mask[i] and bool_workspace[i] ]
+        
+    
+    def copy_view(self, coordinate_system):
+        
+        IDS = self.get_view_ID_list( coordinate_system )
+        return self.search(IDS)
+        
+#        self.set_total_mask()
 #        
-#        self.t_lims = [None, None]
-#        self.x_lims = [None, None]
-#        self.y_lims = [None, None]
-#        self.z_lims = [None, None]
-#        self.min_S1intensity = 0.0
-#        self.max_S1S2distance = 100.0
-#        self.min_S2intensity = 0.0
-#        self.min_S3intensity = 0.0
-#        self.max_S2S3distance = 100.0
-#        self.require_S2convergence = 1
-#        self.min_amplitude = 0.0
-#        self.max_S2_RMS = 1.0
-#        self.max_S3_RMS = 1.0
+#        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
 #        
-#        ## probably should call previous constructor here
-#        self.name = name
-#        self.display = True
+#        self.X_TMP[:] = self.X_array  
+#        self.Y_TMP[:] = self.Y_array  
+#        self.Z_TMP[:] = self.Z_array  
+#        self.T_TMP[:] = self.T_array 
+#        
+#        Xtmp = self.X_TMP[:]
+#        Ytmp = self.Y_TMP[:]
+#        Ztmp = self.Z_TMP[:]
+#        Ttmp = self.T_TMP[:]
+#        
+##        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+##        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+##        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+##        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+#        
+#        Xtmp += self.X_offset
+#        Ytmp += self.Y_offset
+#        Ztmp += self.Z_offset
+#        Ttmp += self.T_offset
+#        
+#        if self.transform_memory is None:
+#            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+#        coordinate_system.set_workingMemory( self.transform_memory )
+#        
+#        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+#            Xtmp, Ytmp, Ztmp, Ttmp, 
+#            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
 #        
 #        
-#        #### get the data ####
-#        if self.loc_stage == 1:
-#            self.locations = np.array([ IPSE.S1_XYZT for IPSE in IPSE_list])
-#        elif self.loc_stage == 2:
-#            self.locations = np.array([ IPSE.S2_XYZT for IPSE in IPSE_list])
-#        elif self.loc_stage == 3:
-#            self.locations = np.array([ IPSE.S3_XYZT for IPSE in IPSE_list])
+#        outX = []
+#        outY = []
+#        outZ = []
+#        outT = []
+#        indeces = []
+#        min_filter_datums = {name:[] for name in self.min_filters.keys()}
+#        max_filter_datums = {name:[] for name in self.max_filters.keys()}
+#        print_datums = {name:[] for name in self.print_data.keys()}
+#        color_datums = {name:[] for name in self.color_options.keys()}
 #
-#        self.S1_intensities = np.array([ IPSE.S1_intensity for IPSE in  IPSE_list])
-#        self.S2_intensities = np.array([ IPSE.S2_intensity for IPSE in  IPSE_list])
-#        self.S3_intensities = np.array([ IPSE.S3_intensity for IPSE in  IPSE_list])
-#        self.amplitudes = np.array([ IPSE.amplitude for IPSE in  IPSE_list])
-#        self.S1S2distances = np.array([ IPSE.S1_S2_distance for IPSE in  IPSE_list])
-#        self.S2S3distances = np.array([ IPSE.S2_S3_distance for IPSE in  IPSE_list])
-#        self.S2_converged = np.array([ IPSE.S2_converged for IPSE in  IPSE_list])
-#        self.S2_RMS = np.array([ IPSE.S2_RMS for IPSE in  IPSE_list])
-#        self.S3_RMS = np.array([ IPSE.S3_RMS for IPSE in  IPSE_list])
-#        
-#        
-#        #### make maskes
-#        bool_array = [True]*len(self.locations)
-#        self.mask_on_X   = np.array(bool_array, dtype=bool)
-#        self.mask_on_Y   = np.array(bool_array, dtype=bool)
-#        self.mask_on_alt = np.array(bool_array, dtype=bool)
-#        self.mask_on_T   = np.array(bool_array, dtype=bool)
-#        
-#        self.mask_on_S1_intensity   = np.array(bool_array, dtype=bool)
-#        self.mask_on_S2_intensity   = np.array(bool_array, dtype=bool)
-#        self.mask_on_S3_intensity   = np.array(bool_array, dtype=bool)
-#        self.mask_on_S1S2distance = np.array(bool_array, dtype=bool)
-#        self.mask_on_S2S3distance = np.array(bool_array, dtype=bool)
-#        self.mask_on_amplitude = np.array(bool_array, dtype=bool)
-#        self.mask_on_convergence = np.array(bool_array, dtype=bool)
-#        self.mask_on_S2_RMS = np.array(bool_array, dtype=bool)
-#        self.mask_on_S3_RMS = np.array(bool_array, dtype=bool)
-#        
-#        self.total_mask = np.array(bool_array, dtype=bool)
-#        self.total_mask = np.stack([self.total_mask,self.total_mask,self.total_mask,self.total_mask], -1)
-#        
-#        
-#        self.masked_loc_data   = np.ma.masked_array(self.locations, mask=self.total_mask, copy=False)
-#        
-#        self.set_show_all()
-#    
-#        #### some axis data ###
-#        self.AltVsT_paths = None
-#        self.AltVsEw_paths = None
-#        self.NsVsEw_paths = None
-#        self.NsVsAlt_paths = None
-#        
-#    def set_show_all(self):
-#        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
-#        
-#        self.set_min_S1intensity( 0.0 )
-#        self.set_min_S2intensity( 0.0 )
-#        self.set_min_S3intensity( 0.0 )
-#        self.set_max_S1S2distance( np.max(self.S1S2distances) )
-#        self.set_max_S2S3distance( np.max(self.S2S3distances) )
-#        self.set_min_amplitude( 0.0 )
-#        self.set_max_S2_RMS( np.max(self.S2_RMS) )
-#        self.set_max_S3_RMS( np.max(self.S3_RMS) )
-#        
-#        min_X = np.min(self.locations[:,0])
-#        max_X = np.max(self.locations[:,0])
-#        
-#        min_Y = np.min(self.locations[:,1])
-#        max_Y = np.max(self.locations[:,1])
-#        
-#        min_Z = np.min(self.locations[:,2])
-#        max_Z = np.max(self.locations[:,2])
-#        
-#        min_T = np.min(self.locations[:,3])
-#        max_T = np.max(self.locations[:,3])
-#        
-#        self.set_T_lims(min_T, max_T)
-#        self.set_X_lims(min_X, max_X)
-#        self.set_Y_lims(min_Y, max_Y)
-#        self.set_alt_lims(min_Z, max_Z)
-#        
-#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-#    
-#    
-#    def bounding_box(self):
-#        mask = np.logical_and(self.mask_on_S1_intensity, self.mask_on_S2_intensity)
-#        mask = np.logical_and(mask, self.mask_on_S3_intensity, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_S1S2distance, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_S2S3distance, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_amplitude, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_convergence, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_S2_RMS, out=mask)
-#        mask = np.logical_and(mask, self.mask_on_S3_RMS, out=mask)
-#        
-#        min_X = np.min(self.locations[mask,0])
-#        max_X = np.max(self.locations[mask,0])
-#        
-#        min_Y = np.min(self.locations[mask,1])
-#        max_Y = np.max(self.locations[mask,1])
-#        
-#        min_Z = np.min(self.locations[mask,2])
-#        max_Z = np.max(self.locations[mask,2])
-#        
-#        min_T = np.min(self.locations[mask,3])
-#        max_T = np.max(self.locations[mask,3])
-#        
-#        self.set_T_lims(min_T, max_T)
-#        self.set_X_lims(min_X, max_X)
-#        self.set_Y_lims(min_Y, max_Y)
-#        self.set_alt_lims(min_Z, max_Z)
-#        
-#        return np.array([ [min_X, max_X], [min_Y, max_Y], [min_Z, max_Z], [min_T, max_T] ])
-#    
-#        
-#    def set_T_lims(self, min, max):
-#        self.t_lims = [min, max]
-#        self.mask_on_T = np.logical_and( self.locations[:,3]>min, self.locations[:,3]<max )
-#    
-#    def set_X_lims(self, min, max):
-#        self.x_lims = [min, max]
-#        self.mask_on_X = np.logical_and( self.locations[:,0]>min, self.locations[:,0]<max )
-#    
-#    def set_Y_lims(self, min, max):
-#        self.y_lims = [min, max]
-#        self.mask_on_Y = np.logical_and( self.locations[:,1]>min, self.locations[:,1]<max )
-#    
-#    def set_alt_lims(self, min, max):
-#        self.z_lims = [min, max]
-#        self.mask_on_alt = np.logical_and( self.locations[:,2]>min, self.locations[:,2]<max )
-#    
-#    
-#    def get_T_lims(self):
-#        return list(self.t_lims)
-#    
-#    def get_X_lims(self):
-#        return list(self.x_lims)
-#    
-#    def get_Y_lims(self):
-#        return list(self.y_lims)
-#    
-#    def get_alt_lims(self):
-#        return list(self.z_lims)
-#    
-#    
-#    
-#    def get_all_properties(self):
-#        return {"marker size":str(self.marker_size),  "color mode":str(self.color_mode),  "min S1 intensity":str(self.min_S1intensity),
-#                  "min S2 intensity":str(self.min_S2intensity),  "min S3 intensity":str(self.min_S3intensity),  
-#                  "max S1S2 distance":str(self.max_S1S2distance), "max S2S3 distance":str(self.max_S2S3distance),
-#                  "require S2 convergence":str(self.require_S2convergence),  "min amplitude":str(self.min_amplitude),
-#                  "max S2 RMS":str(self.max_S2_RMS*(1e9)), "max S3 RMS":str(self.max_S3_RMS*1e9)}
-#        ## need: marker type, color map
-#    
-#    def set_property(self, name, str_value):
-#        
-#        try:
-#            if name == "marker size":
-#                self.marker_size = int(str_value)
-#            elif name == "color mode":
-#                if str_value in ["time", "amplitude", "intensity"] or str_value[0] =="*":
-#                    self.color_mode = str_value
-#                    
-#            elif name == "max S1S2 distance":
-#                self.set_max_S1S2distance( float(str_value) )
-#            elif name == "max S2S3 distance":
-#                self.set_max_S2S3distance( float(str_value) )
+#        for i in range( len(self.X_array) ):
+#            if not (self.total_mask[i] and bool_workspace[i]):
+#                continue
+#            
+#            outX.append( self.X_array[i] )
+#            outY.append( self.Y_array[i] )
+#            outZ.append( self.Z_array[i] )
+#            outT.append( self.T_array[i] )
+#            indeces.append( self.source_IDs[i] )
+#
+#            for name, data in self.min_filters.items():
+#                min_filter_datums[name].append( data[i] )
+#            for name, data in self.max_filters.items():
+#                max_filter_datums[name].append( data[i] )
+#            for name, data in self.print_data.items():
+#                print_datums[name].append( data[i] )
+#            for name, data in self.color_options.items():
+#                color_datums[name].append( data[i])
 #                
-#            elif name == "min S1 intensity":
-#                self.set_min_S1intensity( float(str_value) )
-#            elif name == "min S2 intensity":
-#                self.set_min_S2intensity( float(str_value) )
-#            elif name == "min S3 intensity":
-#                self.set_min_S3intensity( float(str_value) )
-#                
-#            elif name == "require S2 convergence":
-#                self.set_req_convergence( int(str_value) )
-#            elif name == "min amplitude":
-#                self.set_min_amplitude( float(str_value) )
-#            elif name == "max S2 RMS":
-#                self.set_max_S2_RMS( float(str_value)*(1e-9) )
-#            elif name == "max S3 RMS":
-#                self.set_max_S3_RMS( float(str_value)*(1e-9) )
-#            else:
-#                print("do not have property:", name)
-#        except:
-#            print("error in setting property", name, str_value)
-#            pass
-#    
-#    def set_max_S1S2distance(self, max_S1S2distance):
-#        self.max_S1S2distance = max_S1S2distance
-#        self.mask_on_S1S2distance = self.S1S2distances < max_S1S2distance
-#    
-#    def set_max_S2S3distance(self, max_S2S3distance):
-#        self.max_S2S3distance = max_S2S3distance
-#        self.mask_on_S2S3distance = self.S2S3distances < max_S2S3distance
-#    
-#    def set_min_S1intensity(self, min_S1intensity):
-#        self.min_S1intensity = min_S1intensity
-#        self.mask_on_S1_intensity = self.S1_intensities > min_S1intensity
-#    
-#    def set_min_S2intensity(self, min_S2intensity):
-#        self.min_S2intensity = min_S2intensity
-#        self.mask_on_S2_intensity = self.S2_intensities > min_S2intensity
-#    
-#    def set_min_S3intensity(self, min_S3intensity):
-#        self.min_S3intensity = min_S3intensity
-#        self.mask_on_S3_intensity = self.S3_intensities > min_S3intensity
-#    
-#    def set_max_S2_RMS(self, max_S2_RMS):
-#        self.max_S2_RMS = max_S2_RMS
-#        self.mask_on_S2_RMS = self.S2_RMS < max_S2_RMS
-#    
-#    def set_max_S3_RMS(self, max_S3_RMS):
-#        self.max_S3_RMS = max_S3_RMS
-#        self.mask_on_S3_RMS = self.S3_RMS < max_S3_RMS
-#        
-#    def set_req_convergence(self, req_convergence):
-#        self.require_S2convergence = req_convergence
-#        if req_convergence:
-#            self.mask_on_convergence = np.ones(len(self.locations), dtype=bool )
-#        else:
-#            self.mask_on_convergence = self.S2_converged
-#        
-#    def set_min_amplitude(self, min_amplitude):
-#        self.min_amplitude = min_amplitude
-#        self.mask_on_amplitude = self.amplitudes > self.min_amplitude
-#    
-#    
-#    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-#
-#        ####  set total mask ####
-#        self.total_mask[:,0] = self.mask_on_alt
-#        np.logical_and(self.total_mask[:,0], self.mask_on_X, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_Y, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_T, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S1_intensity, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S2_intensity, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S3_intensity, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S1S2distance, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S2S3distance, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_amplitude, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_convergence, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S2_RMS, out=self.total_mask[:,0])
-#        np.logical_and(self.total_mask[:,0], self.mask_on_S3_RMS, out=self.total_mask[:,0])
-#            
-#        np.logical_not(self.total_mask[:,0], out=self.total_mask[:,0]) ##becouse the meaning of the masks is flipped
-#        self.total_mask[:,1] = self.total_mask[:,0]
-#        self.total_mask[:,2] = self.total_mask[:,0]
-#        self.total_mask[:,3] = self.total_mask[:,0]
-#    
-#        #### random book keeping ####
-#        self.clear()
-#        
-#        if not self.display:
-#            return
-#        
-#        if self.color_mode == "time":
-#            color = self.locations[:,3]
-#            
-#        elif self.color_mode == "amplitude":
-#            color = np.log( self.amplitudes )
-#            
-#        elif self.color_mode == "intensity":
-#            color = self.intensities
-#            
-#        elif self.color_mode[0] == '*':
-#            color = self.color_mode[1:]
-#            
-#            
-#        #### plot ####
-#        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.masked_loc_data[:,0], Y=self.masked_loc_data[:,1],
-#                                                                 Z=self.masked_loc_data[:,2],  T=self.masked_loc_data[:,3])
-#        
-#        self.AltVsT_paths = AltVsT_axes.scatter(x=T_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-#        self.AltVsEw_paths = AltVsEw_axes.scatter(x=X_bar, y=Z_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-#        self.NsVsEw_paths = NsVsEw_axes.scatter(x=X_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-#        self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=Z_bar, y=Y_bar, c=color, marker=self.marker, s=self.marker_size, cmap=self.cmap)
-#        
-#
-#            
-#    def loc_filter(self, loc):
-#        if self.x_lims[0]<loc[0]<self.x_lims[1] and self.y_lims[0]<loc[1]<self.y_lims[1] and self.z_lims[0]<loc[2]<self.z_lims[1] and self.t_lims[0]<loc[3]<self.t_lims[1]:
-#            return True
-#        else:
-#            return False
-#
-#    def get_viewed_events(self):
-#        print("get viewed events not implemented")
-#        return []
-##        return [PSE for PSE in self.PSE_list if 
-##                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
-##                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
-#
-#    
-#    def clear(self):
-#        pass
-##        if self.AltVsT_paths is not None:
-##            self.AltVsT_paths.remove()
-##            self.AltVsT_paths = None
-##        if self.AltVsEw_paths is not None:
-##            self.AltVsEw_paths.remove()
-##            self.AltVsEw_paths = None
-##        if self.NsVsEw_paths is not None:
-##            self.NsVsEw_paths.remove()
-##            self.NsVsEw_paths = None
-##        if self.NsVsAlt_paths is not None:
-##            self.NsVsAlt_paths.remove()
-##            self.NsVsAlt_paths = None
-#        
-#    def use_ancillary_axes(self):
-#        return False
-#                
-#
-#    def toggle_on(self):
-#        self.display = True
-#    
-#    def toggle_off(self):
-#        self.display = False
-#        self.clear()
-#        
-#    def search(self, ID):
-#        try:
-#            ID = int(ID)
-#        except:
+#        if len(outX) == 0:
 #            return None
+#            
 #        
-#        for IPSE in self.IPSE_list:
-#            if IPSE.unique_index == ID:
+#        outX = np.array( outX )
+#        outY = np.array( outY )
+#        outZ = np.array( outZ )
+#        outT = np.array( outT )
+#        indeces = np.array( indeces )
+#        min_filter_datums = {name:np.array(data) for name,data in min_filter_datums.items()}
+#        max_filter_datums = {name:np.array(data) for name,data in max_filter_datums.items()}
+#        print_datums = {name:np.array(data) for name,data in print_datums.items()}
+#        color_datums = {name:np.array(data) for name,data in color_datums.items()}
+#        
+#        new_DS = DataSet_generic_PSE( outX, outY, outZ, outT, self.marker, self.marker_size, '*k', 
+#                 self.name+"_copy", self.cmap, 
+#                 min_filter_datums, max_filter_datums, print_datums, color_datums, source_IDs=indeces)
+#        
+#        new_DS.X_offset = self.X_offset
+#        new_DS.Y_offset = self.Y_offset
+#        new_DS.Z_offset = self.Z_offset
+#        new_DS.T_offset = self.T_offset
+#        
+#        for name,param in self.min_parameters.items():
+#            new_DS.set_min_param(name,param)
+#        
+#        for name,param in self.max_parameters.items():
+#            new_DS.set_max_param(name,param)
+#            
+#        return new_DS
+
+    def print_info(self, coordinate_system):
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+#        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+#        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+#        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+#        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        
+        print()
+        print()
+        N = 0
+        for i in range( len(self.X_array) ):
+            if not (self.total_mask[i] and bool_workspace[i]):
+                continue
+            
+            print('source:', self.source_IDs[i])
+            print("  X:{:.2f} Y:{:.2f} Z:{:.2f} T:{:.10f}:".format( self.X_array[i], self.Y_array[i], self.Z_array[i], self.T_array[i]) )
+            j = np.sum(bool_workspace[:i])
+            print("  plot coords X, Y, Z, Zt, T", plotX[j], plotY[j], plotZ[j], plotZt[j], plotT[j])
+            
+            for name, data in self.min_filters.items():
+                print("  ",name, data[i])
+            for name, data in self.max_filters.items():
+                print("  ",name, data[i])
+            for name, data in self.print_data.items():
+                print("  ",name, data[i])
+            print()
+            
+            N +=1
+        print(N, "source")
+        
+    
+        
+    
+#    def text_output(self):
+#        
+#        header = self.IPSE_list[0].header
+#        for ant_data in header.antenna_data:
+#            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
+#                pref_ant_loc = ant_data.location
 #                break
-#            
-#        if IPSE.unique_index != ID:
-#            print("cannot find:", ID)
-#            return None
 #        
-#        new_DS = DataSet_IPSE_threeStage( [IPSE], self.loc_stage, self.marker, self.marker_size, "*k", self.name+"_S"+str(ID), self.cmap )
-#        
-#        new_DS.set_max_S1S2distance( 10000.0 )
-#        new_DS.set_max_S2S3distance( 10000.0 )
-#        
-#        new_DS.set_min_S1intensity( 0.0 )
-#        new_DS.set_min_S3intensity( 0.0 )
-#        new_DS.set_min_S3intensity( 0.0 )
-#        
-#        new_DS.set_req_convergence( 0 )
-#        new_DS.set_min_amplitude( 0.0 )
-#        
-#        new_DS.set_max_S2_RMS( 1.0 )
-#        new_DS.set_max_S3_RMS( 1.0 )
-#        return new_DS
-#
-#    def print_info(self):
-#        print()
-#        print()
-#        i=0
-#        for IPSE_i in range(len(self.locations)):
-#            if self.loc_filter( self.locations[IPSE_i] ) and self.S1_intensities[IPSE_i]>self.min_S1intensity and self.S2_intensities[IPSE_i]>self.min_S2intensity \
-#                 and self.S3_intensities[IPSE_i]>self.min_S3intensity and self.S1S2distances[IPSE_i]<self.max_S1S2distance \
-#                 and self.S2S3distances[IPSE_i]<self.max_S2S3distance and (self.S2_converged[IPSE_i] or not self.require_S2convergence) \
-#                 and self.S2_RMS[IPSE_i]<self.max_S2_RMS and self.S3_RMS[IPSE_i]<self.max_S3_RMS and self.amplitudes[IPSE_i]>self.min_amplitude:
-#                
-#                IPSE = self.IPSE_list[IPSE_i]
-#                print("IPSE  block:", IPSE.block_index, "ID:", IPSE.IPSE_index, "unique index:", IPSE.unique_index )
-#                print("    S1-S2 D:", IPSE.S1_S2_distance, "S2-S3 D:", IPSE.S2_S3_distance)
-#                print("    S1 i:", IPSE.S1_intensity, "S2 i:",  IPSE.S2_intensity, "S3 i:", IPSE.S3_intensity)
-#                print("    amplitude:", IPSE.amplitude)
-#                print("    S2 RMS:", self.S2_RMS[IPSE_i], 'S3 RMS', self.S2_RMS[IPSE_i])
-#                print("    XYZT:", self.locations[IPSE_i])
-#                print()
-#                i+=1
-#        print(i, "sources")
-#        
-#    
-#    def copy_view(self):
-#        new_list = []
-#        for IPSE_i in range(len(self.locations)):
-#            if self.loc_filter( self.locations[IPSE_i] ) and self.S1_intensities[IPSE_i]>self.min_S1intensity and self.S2_intensities[IPSE_i]>self.min_S2intensity \
-#                 and self.S3_intensities[IPSE_i]>self.min_S3intensity and self.S1S2distances[IPSE_i]>self.max_S1S2distance \
-#                 and self.S2S3distances[IPSE_i]>self.max_S2S3distance and (self.S2_converged[IPSE_i] or not self.require_S2convergence)\
-#                 and self.S2_RMS[IPSE_i]<self.max_S2_RMS and self.S3_RMS[IPSE_i]<self.max_S3_RMS and self.amplitudes[IPSE_i]>self.min_amplitude:
-#                
-#                new_list.append( self.IPSE_list[IPSE_i] )
-#                
-#        if len(new_list) ==0:
-#            return None
-#                
-#        new_DS = DataSet_IPSE_threeStage( new_list, self.loc_stage, self.marker, self.marker_size, "*k", self.name+"_copy", self.cmap )
-#        
-#        new_DS.set_max_S1S2distance( self.max_S1S2distance )
-#        new_DS.set_max_S2S3distance( self.max_S2S3distance )
-#        
-#        new_DS.set_min_S1intensity( self.min_S1intensity )
-#        new_DS.set_min_S3intensity( self.min_S2intensity )
-#        new_DS.set_min_S3intensity( self.min_S3intensity )
-#        
-#        new_DS.set_req_convergence( self.require_S2convergence )
-#        new_DS.set_min_amplitude( self.min_amplitude )
-#        return new_DS
-        
-class DataSet_arrow(DataSet_Type):
-    """This represents a set of simple dual-polarized point sources"""
+#        with open("output.txt", 'w') as fout:
+#            for IPSE in self.IPSE_list:
+#                if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
+#                and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
+#                    ID = IPSE.unique_index
+#                    X = IPSE.loc[0]
+#                    Y = IPSE.loc[1]
+#                    Z = IPSE.loc[2]
+#                    T = IPSE.T
+#                    I = IPSE.intensity
+#                    
+#                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
+#                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
+#                    
+#                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
+#        print("done writing")
+                    
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            self._ignore_time = ignore
+        return self._ignore_time
+
+class DataSet_span(DataSet_Type):
     
-    def __init__(self, name, X, Y, Z, T, azimuth, zenith, length, color):
-        self.XYZT = np.array([X,Y,Z,T])
-        self.azimuth = azimuth
-        self.zenith = zenith
-        self.length = length
-        self.color = color
-        self.linewidth = 10
+    def __init__(self, name, T_starts, T_ends, color):
         
-        self.set_arrow()
-        
-        ## probably should call previous constructor here
         self.name = name
+        self.color = color
+        self._ignore_time = False
         self.display = True
         
-        self.in_bounds = True
+        self.T_starts = np.array(T_starts)
+        self.T_ends = np.array(T_ends)
         
-        self.AltVsT_lines = None
-        self.AltVsEw_lines = None
-        self.NsVsEw_lines = None
-        self.NsVsAlt_lines = None
+        self.T_offset = 0.0
         
+        ## probably should call previous constructor here
         
-    def set_show_all(self):
+        self.min_masks = { name:np.ones(len(self.X_array), dtype=bool) for name in self.min_filters.keys()}
+        self.max_masks = { name:np.ones(len(self.X_array), dtype=bool) for name in self.max_filters.keys()}
+        
+        self.total_mask = np.ones(len(self.X_array), dtype=bool)
+
+        self.X_TMP = np.empty(len(self.T_starts), dtype=np.double)
+        self.Y_TMP = np.empty(len(self.T_starts), dtype=np.double)
+        self.Z_TMP = np.empty(len(self.T_starts), dtype=np.double)
+    
+        #### some axis data ###
+        self.AltVsT_paths = None
+        self.AltVsEw_paths = None
+        self.NsVsEw_paths = None
+        self.NsVsAlt_paths = None
+        
+        self.transform_memory = None
+        
+    def set_show_all(self, coordinate_system, do_set_limits=True):
         """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
+             
+        ## AM HERE
         
-        return np.array([ [self.X[0], self.X[1]], [self.Y[0], self.Y[1]], [self.Z[0], self.Z[1]], [self.T[0], self.T[1]] ])
-    
-    
-    def bounding_box(self):
-        return self.set_show_all()
-    
+        if do_set_limits:
+            self.X_TMP[:] = self.X_array  
+            self.Y_TMP[:] = self.Y_array  
+            self.Z_TMP[:] = self.Z_array  
+            self.T_TMP[:] = self.T_array  
+            
+            self.X_TMP += self.X_offset
+            self.Y_TMP += self.Y_offset
+            self.Z_TMP += self.Z_offset
+            self.T_TMP += self.T_offset
+            
+            if self.transform_memory is None:
+                self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+            coordinate_system.set_workingMemory( self.transform_memory )
+            
+            plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+                self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+                make_copy=False)
+            
+            if len(plotX) > 0:
+                coordinate_system.set_plotX( np.min(plotX), np.max(plotX) )
+                coordinate_system.set_plotY( np.min(plotY), np.max(plotY) )
+                coordinate_system.set_plotZ( np.min(plotZ), np.max(plotZ) )
+                coordinate_system.set_plotZt( np.min(plotZt), np.max(plotZt) )
+                coordinate_system.set_plotT( np.min(plotT), np.max(plotT) )
+
+    def bounding_box(self, coordinate_system):
         
-    def set_T_lims(self, min, max):
-        pass
-#        self.in_bounds = self.in_bounds and min <= self.XYZT[3] <= max
+        #### get cuts ###
+        
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False)
+        
+        ## return actual bounds
+        if len(plotX) > 0:
+            Xbounds = [np.min(plotX), np.max(plotX)]
+            Ybounds = [np.min(plotY), np.max(plotY)]
+            Zbounds = [np.min(plotZ), np.max(plotZ)]
+            Ztbounds = [np.min(plotZt), np.max(plotZt)]
+            Tbounds = [np.min(plotT), np.max(plotT)]
+        else:
+            Xbounds = [0,1]
+            Ybounds = [0,1]
+            Zbounds = [0,1]
+            Ztbounds = [0,1]
+            Tbounds = [0,1]
+        
+        return Xbounds, Ybounds, Zbounds, Ztbounds, Tbounds
     
-    def set_X_lims(self, min, max):
-        pass
-#        self.in_bounds = self.in_bounds and min <= self.XYZT[0] <= max
-    
-    def set_Y_lims(self, min, max):
-        pass
-#        self.in_bounds = self.in_bounds and min <= self.XYZT[1] <= max
-    
-    def set_alt_lims(self, min, max):
-        pass
-#        self.in_bounds = self.in_bounds and min <= self.XYZT[2] <= max
-    
-    
-    def get_T_lims(self):
-        return list(self.T)
-    
-    def get_X_lims(self):
-        return list(self.X)
-    
-    def get_Y_lims(self):
-        return list(self.Y)
-    
-    def get_alt_lims(self):
-        return list(self.Z)
-    
-    
-    
+    def T_bounds(self, coordinate_system):
+        #### get cuts ###
+        self.set_total_mask()
+            
+        ## filter and shift
+        Ntmp = np.sum( self.total_mask )
+            
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        
+        ## transform and cut on bounds
+        TMP = coordinate_system.get_plotT()
+        A = TMP[0] ## need to copy
+        B = TMP[1]
+        coordinate_system.set_plotT(-np.inf, np.inf)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+        coordinate_system.set_plotT(A, B)
+        
+        ## return actual bounds
+        if len(plotT) > 0:
+            return [np.min(plotT), np.max(plotT)]
+        else:
+            return [0, 1]
+        
+        
     def get_all_properties(self):
-        return {"X":str(self.XYZT[0]), "Y":str(self.XYZT[1]), "Z":str(self.XYZT[2]), "T":str(self.XYZT[3]), 'linewidth':float(self.linewidth),
-                "length":str(self.length), "azimuth":str(self.azimuth), "zenith":str(self.zenith), "color":str(self.color)}
+        ret =  {"marker size":str(self.marker_size),  "color mode":str(self.color_mode), 'name':self.name,
+                "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
+                "T offset":self.T_offset, 'marker':self.marker}
+        
+        for name, value in self.min_parameters.items():
+            ret['min ' + name] = value
+        for name, value in self.max_parameters.items():
+            ret['max ' + name] = value
+            
+        return ret
+        
+        ## need: marker type, color map
     
     def set_property(self, name, str_value):
         
         try:
+            if name == "marker size":
+                self.marker_size = int(str_value)
                 
-            if name == "X":
-                try:
-                    self.XYZT[0] = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "color mode":
+                self.color_mode = str_value
+                    
+            elif name == 'name':
+                self.name = str_value
                 
-            elif name == "Y":
-                try:
-                    self.XYZT[1] = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "X offset":
+                self.X_offset = float( str_value )
                 
-            elif name == "Z":
-                try:
-                    self.XYZT[2] = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "Y offset":
+                self.Y_offset = float( str_value )
                 
-            elif name == "T":
-                try:
-                    self.XYZT[3] = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "Z offset":
+                self.Z_offset = float( str_value )
                 
-            elif name == "length":
-                try:
-                    self.length = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "T offset":
+                self.T_offset = float( str_value )
                 
-            elif name == "azimuth":
-                try:
-                    self.azimuth = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name == "marker":
+                self.marker = str_value
                 
-            elif name == "zenith":
-                try:
-                    self.zenith = float(str_value)
-                except:
-                    print("input error")
-                    return
-                self.set_arrow()
+            elif name[4:] in self.min_parameters:
+                self.set_min_param( name[4:], float(str_value) )
                 
-            elif name == "color":
-                self.color = str_value
-                
-            elif name == 'linewidth':
-                try:
-                    self.linewidth = float(str_value)
-                except:
-                    print("input error")
-                    return
+            elif name[4:] in self.max_parameters:
+                self.set_max_param( name[4:], float(str_value) )
                 
             else:
                 print("do not have property:", name)
         except:
             print("error in setting property", name, str_value)
             pass
-        
-    def set_arrow(self):
-        dz = np.cos(self.zenith)*self.length*0.5
-        dx = np.sin(self.zenith)*np.cos(self.azimuth)*self.length*0.5
-        dy = np.sin(self.zenith)*np.sin(self.azimuth)*self.length*0.5
-
-        X = self.XYZT[0]
-        Y = self.XYZT[1]
-        Z = self.XYZT[2]
-        T = self.XYZT[3]
-
-        self.X = np.array([X-dx,X+dx])
-        self.Y = np.array([Y-dy,Y+dy])
-        self.Z = np.array([Z-dz,Z+dz])
-        self.T = np.array([T, T])
-        
-        print('[', self.XYZT[0], ',', self.XYZT[1], ',', self.XYZT[2], ',', self.XYZT[3], ']')
-
-    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
-
     
+    def set_min_param(self, name, value):
+        self.min_parameters[name] = value
+#        self.min_masks[name][:] = self.min_filters[name] > value
+        np.greater_equal( self.min_filters[name], value, out= self.min_masks[name])
+    
+    def set_max_param(self, name, value):
+        self.max_parameters[name] = value
+#        self.max_masks[name][:] = self.max_filters[name] < value 
+        np.greater_equal( value, self.max_filters[name], out= self.max_masks[name])
+        
+    def set_total_mask(self):
+        self.total_mask[:] = True
+            
+        for name,mask in self.min_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+            
+        for name, mask in self.max_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+        
+    
+    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+        self.set_total_mask()
+        N = np.sum( self.total_mask )    
+        
         #### random book keeping ####
         self.clear()
         
-        if not self.display or not self.in_bounds:
-            return
-
+    
+        if self.color_mode in self.color_options:
+            color = self.color_options[ self.color_mode ][self.total_mask] ## should fix this to not make memory
             
+    
             
-        #### plot ####
-        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.X, Y=self.Y, Z=self.Z, T=self.T)
+        #### set cuts and transforms
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
         
-        self.AltVsT_lines = AltVsT_axes.plot(T_bar, Z_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
-        self.AltVsEw_lines = AltVsEw_axes.plot(X_bar, Z_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
-        self.NsVsEw_lines = NsVsEw_axes.plot(X_bar, Y_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
-        self.NsVsAlt_lines = NsVsAlt_axes.plot(Z_bar, Y_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
+        Xtmp = self.X_TMP[:N]
+        Ytmp = self.Y_TMP[:N]
+        Ztmp = self.Z_TMP[:N]
+        Ttmp = self.T_TMP[:N]
+        
+        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
 
-    def get_viewed_events(self):
-        print("get viewed events not implemented")
-        return []
+
+        print(self.name, "plotting", len(plotX), 'sources. showing:', self.display)
+        
+        if (not self.display) or len(plotX)==0:
+            return
+        
+        ### get color!
+        if self.color_mode == "time":
+            color = plotT
+            ARG = coordinate_system.get_plotT()
+            color_min = ARG[0]
+            color_max = ARG[1]
+            
+        elif self.color_mode[0] == '*':
+            color = self.color_mode[1:]
+            color_min = None
+            color_max = None
+            
+        elif self.color_mode in self.color_options:
+            color = color[self.total_mask[:N]]
+            color_min = np.min( color )
+            color_max = np.max( color )
+            
+        else:
+            print("bad color mode. This should be interesting!")
+            color = self.color_mode
+            color_min = None
+            color_max = None
+        
+        
+        try:
+            if not self._ignore_time:
+                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+                
+            self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+            
+            self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+        except Exception as e: print(e)
+        
+
+#    def get_viewed_events(self):
+#        print("get viewed events not implemented")
+#        return []
+#        return [PSE for PSE in self.PSE_list if 
+#                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas) 
+#                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
+
     
     def clear(self):
         pass
-#        if self.AltVsT_lines is not None:
-#            self.AltVsT_lines = None
-#            
-#        if self.AltVsEw_lines is not None:
-#            self.AltVsEw_lines = None
-#            
-#        if self.NsVsEw_lines is not None:
-#            self.NsVsEw_lines = None
-#            
-#        if self.NsVsAlt_lines is not None:
-#            self.NsVsAlt_lines = None
-            
-            
+        
     def use_ancillary_axes(self):
         return False
-
-    def print_info(self):
-        print("not implented")
                 
-    def search(self, ID):
-        print("not implmented")
-        return None
-         
-    
+
     def toggle_on(self):
         self.display = True
     
     def toggle_off(self):
         self.display = False
         self.clear()
+        
+    def search(self, ID_list):
+        
+#        outX = np.array([ self.X_array[index] ])
+#        outY = np.array([ self.Y_array[index] ])
+#        outZ = np.array([ self.Z_array[index] ])
+#        outT = np.array([ self.T_array[index] ])
+#        min_filter_datums = {name:np.array([ data[index] ]) for name,data in self.min_filters.items()}
+#        max_filter_datums = {name:np.array([ data[index] ]) for name,data in self.max_filters.items()}
+#        print_datums = {name:np.array([ data[index] ]) for name,data in self.print_data.items()}
+#        color_datums = {name:np.array([ data[index] ]) for name,data in self.color_options.items()}
+#        indeces = np.array([ID])
+        
+        N = len(ID_list)
+        outX = np.empty(N, dtype=np.double)
+        outY = np.empty(N, dtype=np.double)
+        outZ = np.empty(N, dtype=np.double)
+        outT = np.empty(N, dtype=np.double)
+        min_filter_datums = {name:np.empty(N, data.dtype) for name,data in self.min_filters.items()}
+        max_filter_datums = {name:np.empty(N, data.dtype) for name,data in self.max_filters.items()}
+        print_datums = {name:np.empty(N, data.dtype) for name,data in self.print_data.items()}
+        color_datums = {name:np.empty(N, data.dtype) for name,data in self.color_options.items()}
+        indeces = np.empty(N, self.source_IDs.dtype)
+        
+#        print(self.source_IDs)
+        
+        i = 0
+        for ID in ID_list:
+            try:
+                IDi = int(ID)
+            except:
+                print("ID", ID, 'is not an int')
+                continue
             
+            try:
+                index = next((idx for idx, val in enumerate(self.source_IDs) if val==IDi))#[0]
+            except Exception as e:
+                print(e)
+                print("ID", ID, 'cannot be found', IDi)
+                continue
             
-#class DataSet_temperature:
+            outX[i] = self.X_array[index]
+            outY[i] = self.Y_array[index]
+            outZ[i] = self.Z_array[index]
+            outT[i] = self.T_array[index]
+            
+            indeces[i] = ID
+            
+            for name,data in self.min_filters.items():
+                min_filter_datums[name][i] = data[index]
+                
+            for name,data in self.print_data.items():
+                print_datums[name][i] = data[index]
+                
+            for name,data in self.max_filters.items():
+                max_filter_datums[name][i] = data[index]
+                
+            for name,data in self.color_options.items():
+                color_datums[name][i] = data[index]
+            
+            i += 1
+            
+        if i==0:
+            return None
+            
+        outX = outX[:i]
+        outY = outY[:i]
+        outZ = outZ[:i]
+        outT = outT[:i]
+        
+        min_filter_datums = {name:data[:i] for name,data in min_filter_datums.items()}
+        max_filter_datums = {name:data[:i] for name,data in max_filter_datums.items()}
+        print_datums = {name:data[:i] for name,data in print_datums.items()}
+        color_datums = {name:data[:i] for name,data in color_datums.items()}
+        
+        new_DS = DataSet_generic_PSE( outX, outY, outZ, outT, self.marker, self.marker_size, '*k', 
+                 self.name+"_copy", self.cmap, 
+                 min_filter_datums, max_filter_datums, print_datums, color_datums, source_IDs=indeces)
+        
+        new_DS.X_offset = self.X_offset
+        new_DS.Y_offset = self.Y_offset
+        new_DS.Z_offset = self.Z_offset
+        new_DS.T_offset = self.T_offset
+        
+#        for name,param in self.min_parameters.items():
+#            new_DS.set_min_param(name,param)
+#        
+#        for name,param in self.max_parameters.items():
+#            new_DS.set_max_param(name,param)
+            
+        return new_DS
+    
+    def get_view_ID_list(self, coordinate_system):
+        
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        return [self.source_IDs[i] for i in range( len(self.X_array) ) if self.total_mask[i] and bool_workspace[i] ]
+        
+    
+    def copy_view(self, coordinate_system):
+        
+        IDS = self.get_view_ID_list( coordinate_system )
+        return self.search(IDS)
+        
+#        self.set_total_mask()
+#        
+#        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+#        
+#        self.X_TMP[:] = self.X_array  
+#        self.Y_TMP[:] = self.Y_array  
+#        self.Z_TMP[:] = self.Z_array  
+#        self.T_TMP[:] = self.T_array 
+#        
+#        Xtmp = self.X_TMP[:]
+#        Ytmp = self.Y_TMP[:]
+#        Ztmp = self.Z_TMP[:]
+#        Ttmp = self.T_TMP[:]
+#        
+##        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+##        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+##        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+##        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+#        
+#        Xtmp += self.X_offset
+#        Ytmp += self.Y_offset
+#        Ztmp += self.Z_offset
+#        Ttmp += self.T_offset
+#        
+#        if self.transform_memory is None:
+#            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+#        coordinate_system.set_workingMemory( self.transform_memory )
+#        
+#        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+#            Xtmp, Ytmp, Ztmp, Ttmp, 
+#            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+#        
+#        
+#        outX = []
+#        outY = []
+#        outZ = []
+#        outT = []
+#        indeces = []
+#        min_filter_datums = {name:[] for name in self.min_filters.keys()}
+#        max_filter_datums = {name:[] for name in self.max_filters.keys()}
+#        print_datums = {name:[] for name in self.print_data.keys()}
+#        color_datums = {name:[] for name in self.color_options.keys()}
+#
+#        for i in range( len(self.X_array) ):
+#            if not (self.total_mask[i] and bool_workspace[i]):
+#                continue
+#            
+#            outX.append( self.X_array[i] )
+#            outY.append( self.Y_array[i] )
+#            outZ.append( self.Z_array[i] )
+#            outT.append( self.T_array[i] )
+#            indeces.append( self.source_IDs[i] )
+#
+#            for name, data in self.min_filters.items():
+#                min_filter_datums[name].append( data[i] )
+#            for name, data in self.max_filters.items():
+#                max_filter_datums[name].append( data[i] )
+#            for name, data in self.print_data.items():
+#                print_datums[name].append( data[i] )
+#            for name, data in self.color_options.items():
+#                color_datums[name].append( data[i])
+#                
+#        if len(outX) == 0:
+#            return None
+#            
+#        
+#        outX = np.array( outX )
+#        outY = np.array( outY )
+#        outZ = np.array( outZ )
+#        outT = np.array( outT )
+#        indeces = np.array( indeces )
+#        min_filter_datums = {name:np.array(data) for name,data in min_filter_datums.items()}
+#        max_filter_datums = {name:np.array(data) for name,data in max_filter_datums.items()}
+#        print_datums = {name:np.array(data) for name,data in print_datums.items()}
+#        color_datums = {name:np.array(data) for name,data in color_datums.items()}
+#        
+#        new_DS = DataSet_generic_PSE( outX, outY, outZ, outT, self.marker, self.marker_size, '*k', 
+#                 self.name+"_copy", self.cmap, 
+#                 min_filter_datums, max_filter_datums, print_datums, color_datums, source_IDs=indeces)
+#        
+#        new_DS.X_offset = self.X_offset
+#        new_DS.Y_offset = self.Y_offset
+#        new_DS.Z_offset = self.Z_offset
+#        new_DS.T_offset = self.T_offset
+#        
+#        for name,param in self.min_parameters.items():
+#            new_DS.set_min_param(name,param)
+#        
+#        for name,param in self.max_parameters.items():
+#            new_DS.set_max_param(name,param)
+#            
+#        return new_DS
+
+    def print_info(self, coordinate_system):
+        self.set_total_mask()
+        
+        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+#        np.compress( self.total_mask, self.X_TMP, out=Xtmp )
+#        np.compress( self.total_mask, self.Y_TMP, out=Ytmp )
+#        np.compress( self.total_mask, self.Z_TMP, out=Ztmp )
+#        np.compress( self.total_mask, self.T_TMP, out=Ttmp )
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
+            Xtmp, Ytmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+        
+        
+        print()
+        print()
+        N = 0
+        for i in range( len(self.X_array) ):
+            if not (self.total_mask[i] and bool_workspace[i]):
+                continue
+            
+            print('source:', self.source_IDs[i])
+            print("  X:{:.2f} Y:{:.2f} Z:{:.2f} T:{:.10f}:".format( self.X_array[i], self.Y_array[i], self.Z_array[i], self.T_array[i]) )
+            j = np.sum(bool_workspace[:i])
+            print("  plot coords X, Y, Z, Zt, T", plotX[j], plotY[j], plotZ[j], plotZt[j], plotT[j])
+            
+            for name, data in self.min_filters.items():
+                print("  ",name, data[i])
+            for name, data in self.max_filters.items():
+                print("  ",name, data[i])
+            for name, data in self.print_data.items():
+                print("  ",name, data[i])
+            print()
+            
+            N +=1
+        print(N, "source")
+        
+    
+        
+    
+#    def text_output(self):
+#        
+#        header = self.IPSE_list[0].header
+#        for ant_data in header.antenna_data:
+#            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
+#                pref_ant_loc = ant_data.location
+#                break
+#        
+#        with open("output.txt", 'w') as fout:
+#            for IPSE in self.IPSE_list:
+#                if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
+#                and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
+#                    ID = IPSE.unique_index
+#                    X = IPSE.loc[0]
+#                    Y = IPSE.loc[1]
+#                    Z = IPSE.loc[2]
+#                    T = IPSE.T
+#                    I = IPSE.intensity
+#                    
+#                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
+#                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
+#                    
+#                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
+#        print("done writing")
+                    
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            self._ignore_time = ignore
+        return self._ignore_time
+    
+    
+        
+#class DataSet_arrow(DataSet_Type):
+#    """This represents a set of simple dual-polarized point sources"""
 #    
-#    def __init__(self, name, input_fname, lower_lim, upper_lim, color='b', width=10):
+#    def __init__(self, name, X, Y, Z, T, azimuth, zenith, length, color):
+#        self.XYZT = np.array([X,Y,Z,T])
+#        self.azimuth = azimuth
+#        self.zenith = zenith
+#        self.length = length
+#        self.color = color
+#        self.linewidth = 10
+#        
+#        self.set_arrow()
+#        
+#        ## probably should call previous constructor here
 #        self.name = name
 #        self.display = True
-#        self.color = color
-#        self.width = width
-#        self.lower_lim = lower_lim
-#        self.upper_lim = upper_lim
 #        
-#        self.input_fname = input_fname
-#        alt = []
-#        T = []
-#        with open(input_fname, 'r') as fin:
-#            for line in fin:
-#                A,B = line.split()
-#                alt.append( float(A) )
-#                T.append( float(B) )
-#                
-#        self.altitude = np.array( alt )
-#        self.temperature = np.array( T )
-#        self.path = None
+#        self.in_bounds = True
 #        
-#    def set_coordinate_system(self, coordinate_system):
-#        self.coordinate_system = coordinate_system
-#        self.transform_alt = np.array([ coordinate_system.transform(0.0,0.0,Z,0.0)[2] for Z in self.altitude ])
-#    
-#    def getSpaceBounds(self):
+#        self.AltVsT_lines = None
+#        self.AltVsEw_lines = None
+#        self.NsVsEw_lines = None
+#        self.NsVsAlt_lines = None
+#        
+#        
+#    def set_show_all(self):
 #        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
-#        return [[np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan], [np.nan,np.nan]]
+#        
+#        return np.array([ [self.X[0], self.X[1]], [self.Y[0], self.Y[1]], [self.Z[0], self.Z[1]], [self.T[0], self.T[1]] ])
 #    
-#    def getFilterBounds(self):
-#        """return max_RMS, min_antennas"""
-#        return [np.nan, np.nan]
 #    
+#    def bounding_box(self):
+#        return self.set_show_all()
+#    
+#        
 #    def set_T_lims(self, min, max):
 #        pass
+##        self.in_bounds = self.in_bounds and min <= self.XYZT[3] <= max
 #    
 #    def set_X_lims(self, min, max):
 #        pass
+##        self.in_bounds = self.in_bounds and min <= self.XYZT[0] <= max
 #    
 #    def set_Y_lims(self, min, max):
 #        pass
+##        self.in_bounds = self.in_bounds and min <= self.XYZT[1] <= max
 #    
 #    def set_alt_lims(self, min, max):
 #        pass
+##        self.in_bounds = self.in_bounds and min <= self.XYZT[2] <= max
 #    
-#    def set_max_RMS(self, max_RMS):
-#        pass
 #    
-#    def set_min_numAntennas(self, min_numAntennas):
-#        pass
+#    def get_T_lims(self):
+#        return list(self.T)
 #    
-#    def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes, ancillary_axes):
-#        self.path = ancillary_axes.plot(self.temperature, self.transform_alt, self.color+'o-', linewidth=self.width)
-#        ancillary_axes.set_xlim( [self.lower_lim, self.upper_lim] )
+#    def get_X_lims(self):
+#        return list(self.X)
 #    
+#    def get_Y_lims(self):
+#        return list(self.Y)
+#    
+#    def get_alt_lims(self):
+#        return list(self.Z)
+#    
+#    
+#    
+#    def get_all_properties(self):
+#        return {"X":str(self.XYZT[0]), "Y":str(self.XYZT[1]), "Z":str(self.XYZT[2]), "T":str(self.XYZT[3]), 'linewidth':float(self.linewidth),
+#                "length":str(self.length), "azimuth":str(self.azimuth), "zenith":str(self.zenith), "color":str(self.color)}
+#    
+#    def set_property(self, name, str_value):
+#        
+#        try:
+#                
+#            if name == "X":
+#                try:
+#                    self.XYZT[0] = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "Y":
+#                try:
+#                    self.XYZT[1] = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "Z":
+#                try:
+#                    self.XYZT[2] = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "T":
+#                try:
+#                    self.XYZT[3] = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "length":
+#                try:
+#                    self.length = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "azimuth":
+#                try:
+#                    self.azimuth = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "zenith":
+#                try:
+#                    self.zenith = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                self.set_arrow()
+#                
+#            elif name == "color":
+#                self.color = str_value
+#                
+#            elif name == 'linewidth':
+#                try:
+#                    self.linewidth = float(str_value)
+#                except:
+#                    print("input error")
+#                    return
+#                
+#            else:
+#                print("do not have property:", name)
+#        except:
+#            print("error in setting property", name, str_value)
+#            pass
+#        
+#    def set_arrow(self):
+#        dz = np.cos(self.zenith)*self.length*0.5
+#        dx = np.sin(self.zenith)*np.cos(self.azimuth)*self.length*0.5
+#        dy = np.sin(self.zenith)*np.sin(self.azimuth)*self.length*0.5
+#
+#        X = self.XYZT[0]
+#        Y = self.XYZT[1]
+#        Z = self.XYZT[2]
+#        T = self.XYZT[3]
+#
+#        self.X = np.array([X-dx,X+dx])
+#        self.Y = np.array([Y-dy,Y+dy])
+#        self.Z = np.array([Z-dz,Z+dz])
+#        self.T = np.array([T, T])
+#        
+#        print('[', self.XYZT[0], ',', self.XYZT[1], ',', self.XYZT[2], ',', self.XYZT[3], ']')
+#
+#    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+#
+#    
+#        #### random book keeping ####
+#        self.clear()
+#        
+#        if not self.display or not self.in_bounds:
+#            return
+#
+#            
+#            
+#        #### plot ####
+#        X_bar, Y_bar, Z_bar, T_bar = coordinate_system.transform( X=self.X, Y=self.Y, Z=self.Z, T=self.T)
+#        
+#        self.AltVsT_lines = AltVsT_axes.plot(T_bar, Z_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
+#        self.AltVsEw_lines = AltVsEw_axes.plot(X_bar, Z_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
+#        self.NsVsEw_lines = NsVsEw_axes.plot(X_bar, Y_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
+#        self.NsVsAlt_lines = NsVsAlt_axes.plot(Z_bar, Y_bar, marker='o', ls='-', color=self.color, lw=self.linewidth)
+#
 #    def get_viewed_events(self):
+#        print("get viewed events not implemented")
 #        return []
 #    
 #    def clear(self):
-#        if self.path is not None:
-#            self.path.remove()
-#    
-#    def search(self, index):
-#        return DataSet_Type(self.name+"_search", self.coordinate_system)
-#    
+#        pass
+##        if self.AltVsT_lines is not None:
+##            self.AltVsT_lines = None
+##            
+##        if self.AltVsEw_lines is not None:
+##            self.AltVsEw_lines = None
+##            
+##        if self.NsVsEw_lines is not None:
+##            self.NsVsEw_lines = None
+##            
+##        if self.NsVsAlt_lines is not None:
+##            self.NsVsAlt_lines = None
+#            
+#            
 #    def use_ancillary_axes(self):
-#        return True
+#        return False
+#
+#    def print_info(self):
+#        print("not implented")
+#                
+#    def search(self, ID):
+#        print("not implmented")
+#        return None
+#         
 #    
-#    def ancillary_label(self):
-#        return "temperature (C)"
+#    def toggle_on(self):
+#        self.display = True
+#    
+#    def toggle_off(self):
+#        self.display = False
+#        self.clear()
+#            
+           
 
 class FigureArea(FigureCanvas):
     """This is a widget that contains the central figure"""
     
-    class previous_view_state(object):
-        def __init__(self, axis_change, axis_data):
-            self.axis_change = axis_change ## 0 is XY, 1 is altitude, and 2 is T
-            self.axis_data = axis_data
+    ## note that this works in plot coordinates, and that naming is not quite correct
+    
+#    class previous_view_state(object):
+#        def __init__(self, axis_change, axis_data):
+#            self.axis_change = axis_change ## 0 is XY, 1 is altitude, and 2 is T
+#            self.axis_data = axis_data
+    
+    class previous_view_state:
+        def __init__(self, lims=None):
+            self.limits = lims
     
     
     ## ALL spatial units are km, time is in seconds
-    def __init__(self, coordinate_system, parent=None, width=5, height=4, dpi=100):
+    def __init__(self, parent=None, width=5, height=4, dpi=100):
         
+
         #### some default settings, some can be changed
         
         self.axis_label_size = 15
         self.axis_tick_size = 12
-        self.rebalance_XY = True ## keep X and Y have same ratio
+        self.rebalance_XY = True
+                
         
-#        self.default_marker_size = 5
-        
-#        cmap_name = 'plasma'
-#        min_color = 0.0 ## start at zero means take cmap from beginning
-#        max_color = 0.8 ## end at 1.0 means take cmap untill end
-#        self.cmap = gen_cmap(cmap_name, min_color, max_color)
-        
-        
-        self.coordinate_system = coordinate_system
-        
-        # initial state variables, in the above coordinate system
-        self.alt_limits = np.array([0.0, 50.0])
-        self.X_limits = np.array([0.0, 150.0])
-        self.Y_limits = np.array([0.0, 150.0])
-        self.T_limits = np.array([0.0, 20])
         
         self.previous_view_states = []
+        self.previous_depth = 100
         
 #        self.T_fraction = 1.0 ## if is 0, then do not plot any points. if 0.5, plot points halfway beteween tlims. if 1.0 plot all points
         
-        
         self.data_sets = []
-        
-#        ## data sets
-#        self.simple_pointSource_DataSets = [] ## this is a list of all Data Sets that are simple point sources
-#        self.event_searches = [] ##data sets that represent events that were searched for
-#        self.ancillary_data_sets = []
         
         #### setup figure and canvas
         self.fig = Figure(figsize=(width, height), dpi = dpi)
@@ -1904,11 +3117,7 @@ class FigureArea(FigureCanvas):
         self.fig.subplots_adjust(top=0.97, bottom=0.07)
         
         #### setup axes. We need TWO grid specs to control heights properly
-        
-#        self.top_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.0)
-#        self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.top_gs[1], hspace=0.0, wspace=0.00)
-#        self.bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec =self.top_gs[2:], wspace=0.00)
-        
+
         self.top_gs = matplotlib.gridspec.GridSpec(4,1, hspace=0.3)
         self.middle_N_bottom_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(3, 1, subplot_spec =self.top_gs[1:], hspace=0.0, wspace=0.05)
         self.middle_gs = matplotlib.gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec =self.middle_N_bottom_gs[0], hspace=0.0, wspace=0.00)
@@ -1922,35 +3131,21 @@ class FigureArea(FigureCanvas):
         self.NsVsEw_axes = self.fig.add_subplot(self.bottom_gs[0:,:2])
         self.NsVsAlt_axes = self.fig.add_subplot(self.bottom_gs[0:,2])
         
-        self.AltVsT_axes.set_xlabel(self.coordinate_system.t_label, fontsize=self.axis_label_size)
-        self.AltVsT_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
         self.AltVsT_axes.tick_params(labelsize = self.axis_tick_size)
         
         
-        self.AltVsEw_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
         self.AltVsEw_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, labelbottom=False, direction='in')
 #        self.AltVsEw_axes.get_xaxis().set_visible(False)
         
-        
-        self.NsVsEw_axes.set_xlabel(self.coordinate_system.x_label, fontsize=self.axis_label_size)
-        self.NsVsEw_axes.set_ylabel(self.coordinate_system.y_label, fontsize=self.axis_label_size)
         self.NsVsEw_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, direction='in')
         
-        
-        self.NsVsAlt_axes.set_xlabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
         self.NsVsAlt_axes.tick_params(labelsize = self.axis_tick_size, top=True,right=True, labelleft=False, direction='in')
 #        self.NsVsAlt_axes.get_yaxis().set_visible(False)
-        
         
         self.ancillary_axes.get_yaxis().set_visible(False)
         self.ancillary_axes.tick_params(labelsize = self.axis_tick_size)
         self.ancillary_axes.set_axis_off()
-            
-        
-        self.set_alt_lims(self.alt_limits[0], self.alt_limits[1])
-        self.set_T_lims(self.T_limits[0], self.T_limits[1])
-        self.set_X_lims(self.X_limits[0], self.X_limits[1])
-        self.set_Y_lims(self.Y_limits[0], self.Y_limits[1])        
+                   
         
         #### create selectors on plots
         self.mouse_move = False
@@ -1979,156 +3174,33 @@ class FigureArea(FigureCanvas):
         self.right_button_axis = None
         
         
+        bbox = self.NsVsEw_axes.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+        self.window_width = bbox.width
+        self.window_height = bbox.width
+            
+    def set_coordinate_system(self, new_coordinate_system):
+        
+        self.coordinate_system = new_coordinate_system
+        
+        self.AltVsT_axes.set_xlabel(self.coordinate_system.t_label, fontsize=self.axis_label_size)
+        self.AltVsT_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
+        
+        self.AltVsEw_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
+        
+        self.NsVsEw_axes.set_xlabel(self.coordinate_system.x_label, fontsize=self.axis_label_size)
+        self.NsVsEw_axes.set_ylabel(self.coordinate_system.y_label, fontsize=self.axis_label_size)
+        
+        self.NsVsAlt_axes.set_xlabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
+        
     def add_dataset(self, new_dataset):
         self.data_sets.append( new_dataset )
-        
-        xlim, ylim, zlim, tlim = self.coordinate_system.invert( self.X_limits, self.Y_limits, self.alt_limits, self.T_limits )
-
-        new_dataset.set_X_lims( *xlim )
-        new_dataset.set_Y_lims( *ylim )
-        new_dataset.set_alt_lims( *zlim)
-        new_dataset.set_T_lims( *tlim )
         
         if new_dataset.use_ancillary_axes():
             self.ancillary_axes.set_xlabel(new_dataset.ancillary_label(), fontsize=self.axis_label_size)
             self.ancillary_axes.set_axis_on()
         
-#    def add_simplePSE(self, PSE_list, name=None, markers=None, color_mode=None, size=None):
-#        
-#        if name is None:
-#            name = "set "+str(len(self.simple_pointSource_DataSets))
-#        if color_mode is None:
-#            color_mode = 'time'
-#        if size is None:
-#            size = self.default_marker_size
-#        if markers is None:
-#            markers = ['s', 'D']
-#        
-#        new_simplePSE_dataset = DataSet_simplePointSources(PSE_list, markers, size, color_mode, name, self.coordinate_system, self.cmap)
-#        self.simple_pointSource_DataSets.append(new_simplePSE_dataset)
-#        
-#        new_simplePSE_dataset.set_T_lims( *self.T_limits )
-#        new_simplePSE_dataset.set_X_lims( *self.X_limits )
-#        new_simplePSE_dataset.set_Y_lims( *self.Y_limits )
-#        new_simplePSE_dataset.set_alt_lims( *self.alt_limits)
-#        new_simplePSE_dataset.set_max_RMS( self.max_RMS )
-#        new_simplePSE_dataset.set_min_numAntennas( self.min_numAntennas )
-#        
-#        self.replot_data()
-#        
-#        return name
-#    
-#    def add_ancillaryData(self, dataset):
-#        self.ancillary_data_sets.append( dataset )
-#        dataset.set_coordinate_system( self.coordinate_system )
-#        
-#        if dataset.use_ancillary_axes():
-#            self.ancillary_axes.set_xlabel(dataset.ancillary_label(), fontsize=self.axis_label_size)
-#            self.ancillary_axes.set_axis_on()
-            
-            
-#    def show_all_PSE(self):
-#        min_X = np.nan
-#        max_X = np.nan
-#        
-#        min_Y = np.nan
-#        max_Y = np.nan
-#        
-#        min_Z = np.nan
-#        max_Z = np.nan
-#        
-#        min_T = np.nan
-#        max_T = np.nan
-#        
-#        max_RMS = np.nan
-#        
-#        min_ant = np.nan
-#        
-#        for DS in self.simple_pointSource_DataSets:
-#            [ds_xmin, ds_xmax], [ds_ymin, ds_ymax], [ds_zmin, ds_zmax], [ds_tmin, ds_tmax] = DS.getSpaceBounds()
-#            ds_maxRMS, ds_minAnt = DS.getFilterBounds()
-#
-#            if np.isfinite( ds_xmin ):
-#                if np.isfinite( min_X ):
-#                    min_X = min(min_X, ds_xmin)
-#                else:
-#                    min_X = ds_xmin
-#            if np.isfinite( ds_xmax ):
-#                if np.isfinite( max_X ):
-#                    max_X = max(max_X, ds_xmax)
-#                else:
-#                    max_X = ds_xmax
-#            
-#            if np.isfinite( ds_ymin ):
-#                if np.isfinite( min_Y ):
-#                    min_Y = min(min_Y, ds_ymin)
-#                else:
-#                    min_Y = ds_ymin
-#            if np.isfinite( ds_ymax ):
-#                if np.isfinite( max_Y ):
-#                    max_Y = max(max_Y, ds_ymax)
-#                else:
-#                    max_Y = ds_ymax
-#            
-#            if np.isfinite( ds_zmin ):
-#                if np.isfinite( min_Z ):
-#                    min_Z = min(min_Z, ds_zmin)
-#                else:
-#                    min_Z = ds_zmin
-#            if np.isfinite( ds_zmax ):
-#                if np.isfinite( max_Z ):
-#                    max_Z = max(max_Z, ds_zmax)
-#                else:
-#                    max_Z = ds_zmax
-#            
-#            if np.isfinite( ds_tmin ):
-#                if np.isfinite( min_T ):
-#                    min_T = min(min_T, ds_tmin)
-#                else:
-#                    min_T = ds_tmin
-#            if np.isfinite( ds_tmax ):
-#                if np.isfinite( max_T ):
-#                    max_T = max(max_T, ds_tmax)
-#                else:
-#                    max_T = ds_tmax
-#                    
-#            if np.isfinite( ds_maxRMS ):
-#                if np.isfinite( max_RMS ):
-#                    max_RMS = max(max_RMS, ds_maxRMS)
-#                else:
-#                    max_RMS = ds_maxRMS
-#                    
-#            if np.isfinite( ds_minAnt ):
-#                if np.isfinite( min_ant ):
-#                    min_ant = min(min_ant, ds_minAnt)
-#                else:
-#                    min_ant = ds_minAnt
-#        
-#        self.set_T_lims(min_T, max_T, 0.1)
-#        self.set_X_lims(min_X, max_X, 0.1)
-#        self.set_Y_lims(min_Y, max_Y, 0.1)
-#        self.set_alt_lims(min_Z, max_Z, 0.1)
-#        self.set_max_RMS(max_RMS*1.1)
-#        self.set_min_numAntennas( int(min_ant*0.9) )
-#        
-#        self.replot_data()
-
-#    def get_viewed_events(self, data_set_name):
-#        for DS in self.simple_pointSource_DataSets:
-#            if DS.name == data_set_name:
-#                return DS.get_viewed_events()
-#            
-#        return []
 
     #### set limits
-    
-    def set_all_dataset_coordinates(self):
-        xlim, ylim, zlim, tlim = self.coordinate_system.invert( self.X_limits, self.Y_limits, self.alt_limits, self.T_limits )
-        for DS in self.data_sets:    
-            DS.set_X_lims( *xlim )
-            DS.set_Y_lims( *ylim )
-            DS.set_alt_lims( *zlim)
-            DS.set_T_lims( *tlim )
         
     def set_T_lims(self, lower=None, upper=None, extra_percent=0.0):
         if lower is None:
@@ -2139,12 +3211,11 @@ class FigureArea(FigureCanvas):
         lower -= (upper-lower)*extra_percent
         upper += (upper-lower)*extra_percent
         
-        self.T_limits = np.array([lower, upper])
-        self.AltVsT_axes.set_xlim(self.T_limits)
+        self.coordinate_system.set_plotT(lower, upper)
         
-        self.set_all_dataset_coordinates()
+        self.AltVsT_axes.set_xlim([lower, upper])
         
-    def set_alt_lims(self, lower=None, upper=None, extra_percent=0.0):
+    def set_Z_lims(self, lower=None, upper=None, extra_percent=0.0):
         if lower is None:
             lower = self.alt_limits[0]
         if upper is None:
@@ -2153,15 +3224,57 @@ class FigureArea(FigureCanvas):
         lower -= (upper-lower)*extra_percent
         upper += (upper-lower)*extra_percent
         
-        self.alt_limits = np.array([lower, upper])
-        self.AltVsT_axes.set_ylim(self.alt_limits)
-        self.AltVsEw_axes.set_ylim(self.alt_limits)
-        self.NsVsAlt_axes.set_xlim(self.alt_limits)
-        self.ancillary_axes.set_ylim( self.alt_limits )
+        self.coordinate_system.set_plotZ(lower, upper)
         
-        self.set_all_dataset_coordinates()
+        self.AltVsEw_axes.set_ylim([lower, upper])
+        self.NsVsAlt_axes.set_xlim([lower, upper])
+#        self.ancillary_axes.set_ylim( self.alt_limits )
         
-    def set_X_lims(self, lower=None, upper=None, extra_percent=0.0):
+    def set_Zt_lims(self, lower=None, upper=None, extra_percent=0.0):
+        if lower is None:
+            lower = self.alt_limits[0]
+        if upper is None:
+            upper = self.alt_limits[1]
+        
+        lower -= (upper-lower)*extra_percent
+        upper += (upper-lower)*extra_percent
+        
+        self.coordinate_system.set_plotZt(lower, upper)
+        
+        self.AltVsEw_axes.set_ylim([lower, upper])
+        self.NsVsAlt_axes.set_xlim([lower, upper])  
+        
+#    def set_X_lims(self, lower=None, upper=None, extra_percent=0.0):
+#        print('set lims depreciated')
+#        if lower is None:
+#            lower = self.X_limits[0]
+#        if upper is None:
+#            upper = self.X_limits[1]
+#        
+#        lower -= (upper-lower)*extra_percent
+#        upper += (upper-lower)*extra_percent
+#        
+#        self.coordinate_system.set_plotX(lower, upper)
+#        
+#        self.NsVsEw_axes.set_xlim( [lower, upper] )
+#        self.AltVsEw_axes.set_xlim( [lower, upper])
+#        
+#    def set_Y_lims(self, lower=None, upper=None, extra_percent=0.0):
+#        print('set lims depreciated')
+#        if lower is None:
+#            lower = self.Y_limits[0]
+#        if upper is None:
+#            upper = self.Y_limits[1]
+#        
+#        lower -= (upper-lower)*extra_percent
+#        upper += (upper-lower)*extra_percent
+#        
+#        self.coordinate_system.set_plotY(lower, upper)
+#        
+#        self.NsVsAlt_axes.set_ylim( [lower, upper] )
+#        self.NsVsEw_axes.set_ylim( [lower, upper] )
+        
+    def set_just_X_lims(self, lower=None, upper=None, extra_percent=0.0):
         if lower is None:
             lower = self.X_limits[0]
         if upper is None:
@@ -2170,13 +3283,17 @@ class FigureArea(FigureCanvas):
         lower -= (upper-lower)*extra_percent
         upper += (upper-lower)*extra_percent
         
-        self.X_limits = np.array([lower, upper])
-        self.NsVsEw_axes.set_xlim(self.X_limits)
-        self.AltVsEw_axes.set_xlim(self.X_limits)
+        self.coordinate_system.set_plotX(lower, upper)
+        if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            self.coordinate_system.rebalance_Y(self.window_width, self.window_height)
+            Ylims = self.coordinate_system.get_plotY()
+            self.NsVsAlt_axes.set_ylim( Ylims )
+            self.NsVsEw_axes.set_ylim( Ylims )
         
-        self.set_all_dataset_coordinates()
+        self.NsVsEw_axes.set_xlim( [lower, upper] )
+        self.AltVsEw_axes.set_xlim( [lower, upper])
         
-    def set_Y_lims(self, lower=None, upper=None, extra_percent=0.0):
+    def set_just_Y_lims(self, lower=None, upper=None, extra_percent=0.0):
         if lower is None:
             lower = self.Y_limits[0]
         if upper is None:
@@ -2185,27 +3302,46 @@ class FigureArea(FigureCanvas):
         lower -= (upper-lower)*extra_percent
         upper += (upper-lower)*extra_percent
         
-        self.Y_limits = np.array([lower, upper])
-        self.NsVsAlt_axes.set_ylim(self.Y_limits)
-        self.NsVsEw_axes.set_ylim(self.Y_limits)
+        self.coordinate_system.set_plotY(lower, upper)
+        if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            self.coordinate_system.rebalance_X(self.window_width, self.window_height)
+            Xlims = self.coordinate_system.get_plotX()
+            self.NsVsEw_axes.set_xlim( Xlims )
+            self.AltVsEw_axes.set_xlim( Xlims)
         
-        self.set_all_dataset_coordinates()
+        self.NsVsAlt_axes.set_ylim( [lower, upper] )
+        self.NsVsEw_axes.set_ylim( [lower, upper] )
         
-#    def set_max_RMS(self, max_RMS=None):
-#        if max_RMS is not None:
-#            self.max_RMS = max_RMS
-#        
-#        for DS in self.simple_pointSource_DataSets:
-#            DS.set_max_RMS( self.max_RMS)
-#        
-#    def set_min_numAntennas(self, min_numAntennas=None):
-#        if min_numAntennas is not None:
-#            self.min_numAntennas = min_numAntennas
-#        
-#        for DS in self.simple_pointSource_DataSets:
-#            DS.set_min_numAntennas( self.min_numAntennas )
-
-
+    def set_XY_lims(self, lowerX=None, upperX=None, lowerY=None, upperY=None,extra_percent=0.0):
+        if lowerX is None:
+            lowerX = self.X_limits[0]
+        if upperX is None:
+            upperX = self.X_limits[1]
+            
+        if lowerY is None:
+            lowerY = self.Y_limits[0]
+        if upperY is None:
+            upperY = self.Y_limits[1]
+        
+        lowerX -= (upperX-lowerX)*extra_percent
+        upperX += (upperX-lowerX)*extra_percent
+        
+        lowerY -= (upperY-lowerY)*extra_percent
+        upperY += (upperY-lowerY)*extra_percent
+        
+        self.coordinate_system.set_plotX(lowerX, upperX)
+        self.coordinate_system.set_plotY(lowerY, upperY)
+        
+        if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            self.coordinate_system.rebalance_XY(self.window_width, self.window_height)
+            lowerX, upperX = self.coordinate_system.get_plotX()
+            lowerY, upperY = self.coordinate_system.get_plotY()
+        
+        self.NsVsEw_axes.set_xlim( [lowerX, upperX] )
+        self.AltVsEw_axes.set_xlim( [lowerX, upperX])
+        
+        self.NsVsAlt_axes.set_ylim( [lowerY, upperY] )
+        self.NsVsEw_axes.set_ylim( [lowerY, upperY] )
         
     def replot_data(self):
         
@@ -2223,12 +3359,12 @@ class FigureArea(FigureCanvas):
         self.AltVsT_axes.set_xlabel(self.coordinate_system.t_label, fontsize=self.axis_label_size)
         self.AltVsT_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
         
-        self.AltVsEw_axes.set_ylabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
+        self.AltVsEw_axes.set_ylabel(self.coordinate_system.zt_label, fontsize=self.axis_label_size)
         
         self.NsVsEw_axes.set_xlabel(self.coordinate_system.x_label, fontsize=self.axis_label_size)
         self.NsVsEw_axes.set_ylabel(self.coordinate_system.y_label, fontsize=self.axis_label_size)
         
-        self.NsVsAlt_axes.set_xlabel(self.coordinate_system.z_label, fontsize=self.axis_label_size)
+        self.NsVsAlt_axes.set_xlabel(self.coordinate_system.zt_label, fontsize=self.axis_label_size)
         
         
         #### create button press/release events
@@ -2237,46 +3373,26 @@ class FigureArea(FigureCanvas):
         self.button_press = self.fig.canvas.mpl_connect('button_press_event', self.button_press_event) ##mouse button
         self.button_release = self.fig.canvas.mpl_connect('button_release_event', self.button_release_event) ##mouse button
         
-        
-        
-        
-        
-        if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
-            bbox = self.NsVsEw_axes.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
-            ax_width, ax_height = bbox.width, bbox.height
-            data_width = self.X_limits[1] - self.X_limits[0]
-            data_height = self.Y_limits[1] - self.Y_limits[0]
-            
-            width_ratio = data_width/ax_width
-            height_ratio = data_height/ax_height
-            
-            if width_ratio > height_ratio:
-                new_height = ax_height*data_width/ax_width
-                middle_y = (self.Y_limits[0] + self.Y_limits[1])/2.0
-                self.set_Y_lims( middle_y-new_height/2.0, middle_y+new_height/2.0)
-                
-            else:
-                new_width = ax_width*data_height/ax_height
-                middle_X = (self.X_limits[0] + self.X_limits[1])/2.0
-                self.set_X_lims( middle_X-new_width/2.0, middle_X+new_width/2.0 )
-                
+        print()
         for DS in self.data_sets:
             DS.plot( self.AltVsT_axes, self.AltVsEw_axes, self.NsVsEw_axes, self.NsVsAlt_axes, self.ancillary_axes, self.coordinate_system )
             
             
-        ### anouther hadck ####
-        self.NsVsEw_axes.set_xlim(self.X_limits)
-        self.AltVsEw_axes.set_xlim(self.X_limits)
+        #### set limits ####
+        X, Y, Z, Zt, T = self.coordinate_system.get_limits_plotCoords()
+        self.NsVsEw_axes.set_xlim( X )
+        self.AltVsEw_axes.set_xlim( X )
         
-        self.NsVsAlt_axes.set_ylim(self.Y_limits)
-        self.NsVsEw_axes.set_ylim(self.Y_limits)
+        self.NsVsAlt_axes.set_ylim( Y )
+        self.NsVsEw_axes.set_ylim( Y )
         
-        self.AltVsT_axes.set_ylim(self.alt_limits)
-        self.AltVsEw_axes.set_ylim(self.alt_limits)
-        self.NsVsAlt_axes.set_xlim(self.alt_limits)
-        self.ancillary_axes.set_ylim( self.alt_limits )
+        self.AltVsT_axes.set_ylim( Zt )
         
-        self.AltVsT_axes.set_xlim(self.T_limits)
+        self.AltVsEw_axes.set_ylim( Z )
+        self.NsVsAlt_axes.set_xlim( Z )
+#        self.ancillary_axes.set_ylim( self.alt_limits )
+        
+        self.AltVsT_axes.set_xlim( T )
         
         
         
@@ -2311,19 +3427,25 @@ class FigureArea(FigureCanvas):
             return
         self.mouse_move = True
         
-        self.previous_view_states.append( self.previous_view_state(2, self.T_limits[:]) )
-        self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
+        self.previous_view_states.append( self.previous_view_state( self.coordinate_system.get_limits_plotCoords() ) )
+        
+        if len(self.previous_view_states) > self.previous_depth:
+            N = len(self.previous_view_states) - self.previous_depth
+            self.previous_view_states = self.previous_view_states[N:]
         
         if self.z_button_pressed: ## then we zoom out,
+            Ztlims = self.coordinate_system.get_plotZt()
+            Tlims = self.coordinate_system.get_plotT()
             
-            minT = 2.0*self.T_limits[0] - minT
-            maxT = 2.0*self.T_limits[1] - maxT
+            minT = 2.0*Tlims[0] - minT
+            maxT = 2.0*Tlims[1] - maxT
             
-            minAlt = 2.0*self.alt_limits[0] - minAlt
-            maxAlt = 2.0*self.alt_limits[1] - maxAlt
+            minAlt = 2.0*Ztlims[0] - minAlt
+            maxAlt = 2.0*Ztlims[1] - maxAlt
             
         self.set_T_lims(minT, maxT)
-        self.set_alt_lims(minAlt, maxAlt)
+        self.set_Zt_lims(minAlt, maxAlt)
+        
         self.replot_data()
         self.draw()
         
@@ -2339,18 +3461,24 @@ class FigureArea(FigureCanvas):
             return
         self.mouse_move = True
         
-        self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
-        self.previous_view_states.append( self.previous_view_state(0, (self.X_limits[:],self.Y_limits[:]) ) ) 
+        self.previous_view_states.append( self.previous_view_state( self.coordinate_system.get_limits_plotCoords() ) )
+        
+        if len(self.previous_view_states) > self.previous_depth:
+            N = len(self.previous_view_states) - self.previous_depth
+            self.previous_view_states = self.previous_view_states[N:]
             
         if self.z_button_pressed:
-            minA = 2.0*self.alt_limits[0] - minA
-            maxA = 2.0*self.alt_limits[1] - maxA
+            Xlims = self.coordinate_system.get_plotX()
+            Zlims = self.coordinate_system.get_plotZ()
             
-            minX = 2.0*self.X_limits[0] - minX
-            maxX = 2.0*self.X_limits[1] - maxX
+            minA = 2.0*Zlims[0] - minA
+            maxA = 2.0*Zlims[1] - maxA
+            
+            minX = 2.0*Xlims[0] - minX
+            maxX = 2.0*Xlims[1] - maxX
         
-        self.set_alt_lims(minA, maxA)
-        self.set_X_lims(minX, maxX)
+        self.set_Z_lims(minA, maxA)
+        self.set_just_X_lims(minX, maxX)
         self.replot_data()
         self.draw()
         
@@ -2366,19 +3494,25 @@ class FigureArea(FigureCanvas):
             return
         
         self.mouse_move = True
-        
-        self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
-        self.previous_view_states.append( self.previous_view_state(0, (self.X_limits[:],self.Y_limits[:]) ) ) 
+    
+        self.previous_view_states.append( self.previous_view_state( self.coordinate_system.get_limits_plotCoords() ) )
+    
+        if len(self.previous_view_states) > self.previous_depth:
+            N = len(self.previous_view_states) - self.previous_depth
+            self.previous_view_states = self.previous_view_states[N:]
             
         if self.z_button_pressed:
-            minA = 2.0*self.alt_limits[0] - minA
-            maxA = 2.0*self.alt_limits[1] - maxA
+            Ylims = self.coordinate_system.get_plotY()
+            Zlims = self.coordinate_system.get_plotZ()
             
-            minY = 2.0*self.Y_limits[0] - minY
-            maxY = 2.0*self.Y_limits[1] - maxY
+            minA = 2.0*Zlims[0] - minA
+            maxA = 2.0*Zlims[1] - maxA
+            
+            minY = 2.0*Ylims[0] - minY
+            maxY = 2.0*Ylims[1] - maxY
         
-        self.set_alt_lims(minA, maxA)
-        self.set_Y_lims(minY, maxY)
+        self.set_Z_lims(minA, maxA)
+        self.set_just_Y_lims(minY, maxY)
         self.replot_data()
         self.draw()
     
@@ -2391,41 +3525,40 @@ class FigureArea(FigureCanvas):
         
         if minX==maxX or minY==maxY:
             self.mouse_move = False
-#            return
-#            if len(self.data_sets)>0 and self.data_sets[0].name == "arrow":
-#                print("BIGGLES", minX, minY)
-#                C_X, C_Y, C_Z, C_T = self.coordinate_system.transform( [self.data_sets[0].XYZT[0]], [self.data_sets[0].XYZT[1]], [self.data_sets[0].XYZT[2]], [self.data_sets[0].XYZT[3]] )
-#                print(C_X, C_Y, C_Z, C_T)
-#                minX, minY, minZ, minT = self.coordinate_system.invert( [minX], [minY], C_Z, C_T )
-#                print(minX, minY, minZ, minT)
-#                self.data_sets[0].XYZT[0] = minX[0]
-#                self.data_sets[0].XYZT[1] = minY[0]
-#                self.data_sets[0].XYZT[2] = minZ[0]
-#                self.data_sets[0].XYZT[3] = minT[0]
-#                self.data_sets[0].set_arrow()
+
         else:
             self.mouse_move = True
-            self.previous_view_states.append( self.previous_view_state(0, (self.X_limits[:],self.Y_limits[:]) ) ) 
+            
+            self.previous_view_states.append( self.previous_view_state( self.coordinate_system.get_limits_plotCoords() ) )
+            
+            if len(self.previous_view_states) > self.previous_depth:
+                N = len(self.previous_view_states) - self.previous_depth
+                self.previous_view_states = self.previous_view_states[N:]
             
             if self.z_button_pressed:
-                minX = 2.0*self.X_limits[0] - minX
-                maxX = 2.0*self.X_limits[1] - maxX
+                Xlims = self.coordinate_system.get_plotX()
+                Ylims = self.coordinate_system.get_plotY()
+               
+                minX = 2.0*Xlims[0] - minX
+                maxX = 2.0*Xlims[1] - maxX
                 
-                minY = 2.0*self.Y_limits[0] - minY
-                maxY = 2.0*self.Y_limits[1] - maxY
+                minY = 2.0*Ylims[0] - minY
+                maxY = 2.0*Ylims[1] - maxY
                 
-            self.set_X_lims(minX, maxX)
-            self.set_Y_lims(minY, maxY)
+            self.set_XY_lims(minX, maxX, minY, maxY)
             
             self.replot_data()
             self.draw()
-        print("XY mouse moved:", self.mouse_move)
             
         
     def key_press_event(self, event):
 #        print "key press:", event.key
         if event.key == 'z':
             self.z_button_pressed = True
+        elif event.key == 'c':
+            print(event.inaxes)
+            print(event.xdata)
+            print(event.ydata)
         
     def key_release_event(self, event):
 #        print "key release:", event.key
@@ -2437,15 +3570,12 @@ class FigureArea(FigureCanvas):
         
         if event.button == 2 and len(self.previous_view_states)>0: ##middle mouse, back up
             previous_state = self.previous_view_states.pop(-1)
-            if previous_state.axis_change == 0:
-                xlims, ylims = previous_state.axis_data
-                self.set_X_lims(xlims[0], xlims[1])
-                self.set_Y_lims(ylims[0], ylims[1])
-            elif  previous_state.axis_change == 1:
-                self.set_alt_lims(previous_state.axis_data[0], previous_state.axis_data[1])
-            elif  previous_state.axis_change == 2:
+            X, Y, Z, Zt, T = previous_state.limits
                 
-                self.set_T_lims(previous_state.axis_data[0], previous_state.axis_data[1])
+            self.set_XY_lims(X[0], X[1], Y[0], Y[1])
+            self.set_Z_lims(Z[0], Z[1])
+            self.set_Zt_lims(Zt[0], Zt[1])
+            self.set_T_lims(T[0], T[1])
                 
             self.replot_data()
             self.draw()
@@ -2456,28 +3586,29 @@ class FigureArea(FigureCanvas):
             
     def button_release_event(self, event):
         if event.button == 1:
-            if len(self.data_sets)>0 and self.data_sets[0].name == "arrow" and not self.mouse_move:
-                print("mouse moved:", self.mouse_move)
-                C_X, C_Y, C_Z, C_T = self.coordinate_system.transform( [self.data_sets[0].XYZT[0]], [self.data_sets[0].XYZT[1]], [self.data_sets[0].XYZT[2]], [self.data_sets[0].XYZT[3]] )
-                if event.inaxes is self.AltVsT_axes:
-                    C_T[0] = event.xdata
-                    C_Z[0] = event.ydata
-                elif event.inaxes is self.NsVsEw_axes:
-                    C_X[0] = event.xdata
-                    C_Y[0] = event.ydata
-                elif event.inaxes is self.AltVsEw_axes:
-                    C_X[0] = event.xdata
-                    C_Z[0] = event.ydata
-                elif event.inaxes is self.NsVsAlt_axes:
-                    C_Z[0] = event.xdata
-                    C_Y[0] = event.ydata
-                    
-                minX, minY, minZ, minT = self.coordinate_system.invert( C_X, C_Y, C_Z, C_T )
-                self.data_sets[0].XYZT[0] = minX[0]
-                self.data_sets[0].XYZT[1] = minY[0]
-                self.data_sets[0].XYZT[2] = minZ[0]
-                self.data_sets[0].XYZT[3] = minT[0]
-                self.data_sets[0].set_arrow()
+            pass
+#            if len(self.data_sets)>0 and self.data_sets[0].name == "arrow" and not self.mouse_move:
+#                print("mouse moved:", self.mouse_move)
+#                C_X, C_Y, C_Z, C_T = self.coordinate_system.transform( [self.data_sets[0].XYZT[0]], [self.data_sets[0].XYZT[1]], [self.data_sets[0].XYZT[2]], [self.data_sets[0].XYZT[3]] )
+#                if event.inaxes is self.AltVsT_axes:
+#                    C_T[0] = event.xdata
+#                    C_Z[0] = event.ydata
+#                elif event.inaxes is self.NsVsEw_axes:
+#                    C_X[0] = event.xdata
+#                    C_Y[0] = event.ydata
+#                elif event.inaxes is self.AltVsEw_axes:
+#                    C_X[0] = event.xdata
+#                    C_Z[0] = event.ydata
+#                elif event.inaxes is self.NsVsAlt_axes:
+#                    C_Z[0] = event.xdata
+#                    C_Y[0] = event.ydata
+#                    
+#                minX, minY, minZ, minT = self.coordinate_system.invert( C_X, C_Y, C_Z, C_T )
+#                self.data_sets[0].XYZT[0] = minX[0]
+#                self.data_sets[0].XYZT[1] = minY[0]
+#                self.data_sets[0].XYZT[2] = minZ[0]
+#                self.data_sets[0].XYZT[3] = minT[0]
+#                self.data_sets[0].set_arrow()
                 
 #                self.replot_data()
 #                self.draw()
@@ -2488,29 +3619,30 @@ class FigureArea(FigureCanvas):
             deltaX = self.right_mouse_button_location[0] - event.xdata
             deltaY = self.right_mouse_button_location[1] - event.ydata
             
+            lims = self.coordinate_system.get_limits_plotCoords()
+            self.previous_view_states.append( self.previous_view_state( lims ) )
+            Xlims, Ylims, Zlims, Ztlims, Tlims = lims
+            
             if event.inaxes is self.AltVsT_axes:
-                self.previous_view_states.append( self.previous_view_state(2, self.T_limits[:]) )
-                self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
-                self.set_T_lims( self.T_limits[0] + deltaX, self.T_limits[1] + deltaX)
-                self.set_alt_lims( self.alt_limits[0] + deltaY, self.alt_limits[1] + deltaY)
                 
+                self.set_T_lims( Tlims[0] + deltaX, Tlims[1] + deltaX)
+                self.set_Zt_lims( Ztlims[0] + deltaY, Ztlims[1] + deltaY)
                 
             elif event.inaxes is self.AltVsEw_axes:
-                self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
-                ### TODO need to add y here
-                self.set_X_lims( self.X_limits[0] + deltaX, self.X_limits[1] + deltaX)
-                self.set_alt_lims( self.alt_limits[0] + deltaY, self.alt_limits[1] + deltaY)
+                self.set_just_X_lims( Xlims[0] + deltaX, Xlims[1] + deltaX)
+                self.set_Z_lims( Zlims[0] + deltaY, Zlims[1] + deltaY)
                 
             elif event.inaxes is self.NsVsEw_axes:
-                self.previous_view_states.append( self.previous_view_state(0, (self.X_limits[:],self.Y_limits[:]) ) ) 
-                self.set_X_lims( self.X_limits[0] + deltaX, self.X_limits[1] + deltaX)
-                self.set_Y_lims( self.Y_limits[0] + deltaY, self.Y_limits[1] + deltaY)
+                self.set_XY_lims( Xlims[0] + deltaX, Xlims[1] + deltaX,  Ylims[0] + deltaY, Ylims[1] + deltaY)
                 
             elif event.inaxes is self.NsVsAlt_axes:
-                self.previous_view_states.append( self.previous_view_state(1, self.alt_limits[:]) )
-                ##TODO need to add X here
-                self.set_alt_lims( self.alt_limits[0] + deltaX, self.alt_limits[1] + deltaX)
-                self.set_Y_lims( self.Y_limits[0] + deltaY, self.Y_limits[1] + deltaY)
+                self.set_Z_lims( Zlims[0] + deltaX, Zlims[1] + deltaX)
+                self.set_just_Y_lims( Ylims[0] + deltaY, Ylims[1] + deltaY)
+                
+            
+            if len(self.previous_view_states) > self.previous_depth:
+                N = len(self.previous_view_states) - self.previous_depth
+                self.previous_view_states = self.previous_view_states[N:]
                 
             self.replot_data()
             self.draw()
@@ -2536,7 +3668,10 @@ class FigureArea(FigureCanvas):
 class Active3DPlotter(QtWidgets.QMainWindow):
     """This is the main window. Contains the figure window, and controlls all the menus and buttons"""
     
-    def __init__(self, coordinate_system):
+    def __init__(self, coordinate_system_s):
+        
+        self.qApp = QtWidgets.QApplication(sys.argv)
+        
         QtWidgets.QMainWindow.__init__(self)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         self.setWindowTitle("LOFAR-LIM PSE plotter")
@@ -2544,6 +3679,13 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
 #        self.statusBar().showMessage("All hail matplotlib!", 2000) ##this shows messages on bottom left of window
 
+        try:
+            self.coordinate_systems = [cs for cs in coordinate_system_s]
+        except:
+            self.coordinate_systems = [ coordinate_system_s ]
+#        self.current_coordinate_system = 0
+            
+#        self.coordinate_system = coordinate_system
 
 
         #### menu bar ###
@@ -2551,7 +3693,11 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.file_menu = QtWidgets.QMenu('&File', self)
         self.file_menu.addAction('&Quit', self.fileQuit,
                                  QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
-        self.file_menu.addAction('&Save Plot', self.savePlot)
+
+        self.file_menu.addAction('&Save Plot PNG', self.savePlot)
+        self.menuBar().addMenu(self.file_menu)
+
+        self.file_menu.addAction('&Save Plot SVG', self.savePlotSvg)
         self.menuBar().addMenu(self.file_menu)
         
         ##plot settings
@@ -2566,8 +3712,22 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.analysis_menu.addAction('&Print Info', self.printInfo)
         self.analysis_menu.addAction('&Copy View', self.copy_view)
         self.analysis_menu.addAction('&Output Text', self.textOutput)
-#        self.analysis_menu.addAction('&Output SVG', self.svgOutput)
+        self.analysis_menu.addAction('&pickle IDs to clipboard', self.set_pickledIDs_to_clipboard)
+        self.analysis_menu.addAction('&pickle IDs from clipboard', self.get_pickledIDs_from_clipboard)
+        
         ## new actions added through add_analysis
+        
+        
+        ## coordinate system
+        self.coordinate_system_menu = QtWidgets.QMenu('&Coordinate Systems', self)
+        self.menuBar().addSeparator()
+        self.menuBar().addMenu(self.coordinate_system_menu)
+        self.coord_system_actions = []
+        for i,CS in enumerate(self.coordinate_systems):
+            ac = self.coordinate_system_menu.addAction(
+                    '&'+CS.name, lambda j=i: self.set_coordinate_system(j) ) ## dfined strange so that i will be copied, not taken as referance
+            
+            self.coord_system_actions.append( ac )
 
         ##help
         self.help_menu = QtWidgets.QMenu('&Help', self)
@@ -2589,7 +3749,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         horizontal_divider.addSpacing(300)
         
         ##place figures on the right
-        self.figure_space = FigureArea(coordinate_system, self.main_widget)
+        self.figure_space = FigureArea(self.main_widget)
+#        self.figure_space.set_coordinate_system( coordinate_system )
         horizontal_divider.addWidget( self.figure_space )
         
         
@@ -2692,7 +3853,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.XLabel = QtWidgets.QLabel(self)
         self.XLabel.move(5, 250)
         self.XLabel.resize(30,25)
-        self.XLabel.setText("X:")
+#        self.XLabel.setText( coordinate_system.x_display_label )
         ## X min box
         self.Xmin_txtBox = QtWidgets.QLineEdit(self)
         self.Xmin_txtBox.move(40, 250)
@@ -2706,7 +3867,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.YLabel = QtWidgets.QLabel(self)
         self.YLabel.move(5, 280)
         self.YLabel.resize(30,25)
-        self.YLabel.setText("Y:")
+#        self.YLabel.setText( coordinate_system.y_display_label )
         ## Y min box
         self.Ymin_txtBox = QtWidgets.QLineEdit(self)
         self.Ymin_txtBox.move(40, 280)
@@ -2720,7 +3881,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.ZLabel = QtWidgets.QLabel(self)
         self.ZLabel.move(5, 310)
         self.ZLabel.resize(30,25)
-        self.ZLabel.setText("Z:")
+#        self.ZLabel.setText( coordinate_system.z_display_label )
         ## Z min box
         self.Zmin_txtBox = QtWidgets.QLineEdit(self)
         self.Zmin_txtBox.move(40, 310)
@@ -2734,7 +3895,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.TLabel = QtWidgets.QLabel(self)
         self.TLabel.move(5, 340)
         self.TLabel.resize(30,25)
-        self.TLabel.setText("T:")
+#        self.TLabel.setText( coordinate_system.t_display_label )
         ## T min box
         self.Tmin_txtBox = QtWidgets.QLineEdit(self)
         self.Tmin_txtBox.move(40, 340)
@@ -2802,99 +3963,16 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
         
         
+        self.set_coordinate_system( 0 )
+        
         ##TODO:
         #animation
         #custom analysis
-        # rename datasets
+	# save state in some way
         
+        self.setWindowTitle("LOFAR-LIM data viewer")
         
-        #### add an arrow data set for stuff
-        source_arrow = DataSet_arrow('arrow', -15059, 10394, 5156, 1.25215163805, azimuth=-np.pi/4, zenith=np.pi/2, length=10, color='k')
-        self.add_dataset( source_arrow )
-        
-        
-        #### buttans and controlls on left
-        ## max RMS box
-#        self.max_RMS_input = QtWidgets.QLineEdit(self)
-#        self.max_RMS_input.move(105, 120)
-#        self.max_RMS_input.resize(50,25)
-#        ## input txt box
-#        self.max_RMS_label = QtWidgets.QLabel(self)
-#        self.max_RMS_label.setText("max RMS (ns):")
-#        self.max_RMS_label.move(5, 120)
-#        
-#        ## min numStations box
-#        self.min_numAntennas_input = QtWidgets.QLineEdit(self)
-#        self.min_numAntennas_input.move(125, 150)
-#        self.min_numAntennas_input.resize(70,25)
-#        ## input txt box
-#        self.min_numAntennas_label = QtWidgets.QLabel(self)
-#        self.min_numAntennas_label.setText("min. num antennas:")
-#        self.min_numAntennas_label.move(5, 150)
-#        
-#        
-#        ## show all PSE button
-#        self.showAll_button = QtWidgets.QPushButton(self)
-#        self.showAll_button.move(10, 30)
-#        self.showAll_button.setText("show all")
-#        self.showAll_button.clicked.connect(self.showAllButtonPressed)
-#        
-#        ## send the settings button
-#        self.set_button = QtWidgets.QPushButton(self)
-#        self.set_button.move(10, 70)
-#        self.set_button.setText("set")
-#        self.set_button.clicked.connect(self.setButtonPressed)
-#        
-#        ## refresh button
-#        self.get_button = QtWidgets.QPushButton(self)
-#        self.get_button.move(160, 70)
-#        self.get_button.setText("get")
-#        self.get_button.clicked.connect(self.getButtonPressed)
-        
-        
-        
-        ### animation controlls 
-#        self.animation_label = QtWidgets.QLabel(self)
-#        self.animation_label.setText("animation time (s):")
-#        self.animation_label.resize(160,25)
-#        self.animation_label.move(5, 500)
-#        
-#        self.animation_input = QtWidgets.QLineEdit(self)
-#        self.animation_input.move(120, 500)
-#        self.animation_input.resize(40,25)
-#        
-#        self.animation_FPS_label = QtWidgets.QLabel(self)
-#        self.animation_FPS_label.setText("FPS:")
-#        self.animation_FPS_label.resize(40,25)
-#        self.animation_FPS_label.move(80, 530)
-#        
-#        self.animation_FPS_input = QtWidgets.QLineEdit(self)
-#        self.animation_FPS_input.move(120, 530)
-#        self.animation_FPS_input.resize(40,25)
-#        
-#        self.animate_button = QtWidgets.QPushButton(self)
-#        self.animate_button.move(160, 500)
-#        self.animate_button.setText("animate")
-#        self.animate_button.clicked.connect(self.animateButtonPressed)
-#        
-        
-#        ### search button
-#        self.search_input = QtWidgets.QLineEdit(self)
-#        self.search_input.move(120, 700)
-#        self.search_input.resize(40,25)
-#        
-#        self.animate_button = QtWidgets.QPushButton(self)
-#        self.animate_button.move(5, 700)
-#        self.animate_button.setText("search")
-#        self.animate_button.clicked.connect(self.searchButtonPressed)
-        
-        
-        
-        ### set the fields
-#        self.getButtonPressed()
-        
-        
-        #    #### menu bar call backs ####
+            #### menu bar call backs ####
     ## file
     def fileQuit(self):
         self.close()
@@ -2902,6 +3980,26 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     def savePlot(self):
         output_fname = "./plot_save.png"
         self.figure_space.fig.savefig(output_fname, format='png')
+        
+    def savePlotSvg(self):
+        output_fname = "./plot_save.svg"
+        self.figure_space.fig.savefig(output_fname, format='svg')
+        
+    def set_coordinate_system(self, index):
+        CS = self.coordinate_systems[index]
+#        CS_ac = self.coord_system_actions[index]
+        self.figure_space.set_coordinate_system( CS )
+        
+        self.XLabel.setText( CS.x_display_label )
+        self.YLabel.setText( CS.y_display_label )
+        self.ZLabel.setText( CS.z_display_label )
+        self.TLabel.setText( CS.t_display_label )
+        
+#        self.coordinate_system_menu.setActiveAction( CS_ac )
+        
+        self.position_get()
+        self.figure_space.replot_data()
+        self.figure_space.draw()
         
     ##help
     def about(self):
@@ -2916,27 +4014,31 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     
     def add_dataset(self, new_dataset):
         self.figure_space.add_dataset( new_dataset )
-        self.refresh_analysis_list()
-        self.DS_drop_list_choose( self.DS_drop_list.currentIndex() )
+        self.refresh_analysis_list( self.current_data_set )
         
         
     #### control choosing data set and variables ####
-    def refresh_analysis_list(self):
+    def refresh_analysis_list(self, choose=None):
         self.DS_drop_list.clear()
         self.DS_drop_list.addItems( [DS.name for DS in self.figure_space.data_sets] )
         if len(self.figure_space.data_sets) > 0:
-            self.DS_drop_list_choose( 0 )
+            if choose is None or choose<0:
+                choose=0
+            self.DS_drop_list_choose( choose )
         
     def DS_drop_list_choose(self, data_set_index):
         self.current_data_set = data_set_index
         self.refresh_DSvariable_list()
         
-        if self.current_data_set!=-1 and self.current_data_set<len(self.figure_space.data_sets):
+        if (self.current_data_set is not None) and (self.current_data_set!=-1) and (self.current_data_set<len(self.figure_space.data_sets)):
+            self.DS_drop_list.setCurrentIndex( self.current_data_set )
+            
             DS = self.figure_space.data_sets[ self.current_data_set ]
             self.ignoreTimeCheckBox.setChecked( DS.ignore_time() )
             
             self.DSvariable_get()
-            self.DSposition_get()
+            self.toggleColorSet()
+#            self.DSposition_get()
         
     
     def refresh_DSvariable_list(self):
@@ -2964,41 +4066,71 @@ class Active3DPlotter(QtWidgets.QMainWindow):
                 value = str(properties[variable_name])
                 self.variable_txtBox.setText( value )
                 
-    def DSposition_get(self):
-        if self.current_data_set != -1:
-            DS = self.figure_space.data_sets[ self.current_data_set ]
-            tmin, tmax = DS.get_T_lims()
-            xmin, xmax = DS.get_X_lims()
-            ymin, ymax = DS.get_Y_lims()
-            zmin, zmax = DS.get_alt_lims()
+    def position_get(self):
+        display_limits = self.figure_space.coordinate_system.get_displayLimits()
             
-            self.Xmin_txtBox.setText( str(xmin) )
-            self.Xmax_txtBox.setText( str(xmax) )
-            
-            self.Ymin_txtBox.setText( str(ymin) )
-            self.Ymax_txtBox.setText( str(ymax) )
-            
-            self.Zmin_txtBox.setText( str(zmin) )
-            self.Zmax_txtBox.setText( str(zmax) )
-            
-            self.Tmin_txtBox.setText( str(tmin) )
-            self.Tmax_txtBox.setText( str(tmax) )
+        self.Xmin_txtBox.setText( str(display_limits[0][0]) )
+        self.Xmax_txtBox.setText( str(display_limits[0][1]) )
+        
+        self.Ymin_txtBox.setText( str(display_limits[1][0]) )
+        self.Ymax_txtBox.setText( str(display_limits[1][1]) )
+        
+        self.Zmin_txtBox.setText( str(display_limits[2][0]) )
+        self.Zmax_txtBox.setText( str(display_limits[2][1]) )
+        
+        self.Tmin_txtBox.setText( str(display_limits[3][0]) )
+        self.Tmax_txtBox.setText( str(display_limits[3][1]) )
+        
+#        if self.current_data_set != -1:
+#            DS = self.figure_space.data_sets[ self.current_data_set ]
+#            tmin, tmax = DS.get_T_lims()
+#            xmin, xmax = DS.get_X_lims()
+#            ymin, ymax = DS.get_Y_lims()
+#            zmin, zmax = DS.get_alt_lims()
+#            
+#            self.Xmin_txtBox.setText( str(xmin) )
+#            self.Xmax_txtBox.setText( str(xmax) )
+#            
+#            self.Ymin_txtBox.setText( str(ymin) )
+#            self.Ymax_txtBox.setText( str(ymax) )
+#            
+#            self.Zmin_txtBox.setText( str(zmin) )
+#            self.Zmax_txtBox.setText( str(zmax) )
+#            
+#            self.Tmin_txtBox.setText( str(tmin) )
+#            self.Tmax_txtBox.setText( str(tmax) )
         
     
     
     #### buttons ####
     def showAllButtonPressed(self):
-        DS = self.figure_space.data_sets[ self.current_data_set ]
-        X_bounds, Y_bounds, Z_bounds, T_bounds = DS.set_show_all()
-        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
         
-        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
-        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
-        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+#        X_bounds, Y_bounds, Z_bounds, T_bounds = DS.set_show_all()
+#        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
+#        
+#        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
+#        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
+#        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+#        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
+        
+        
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        
+        DS.set_show_all( self.figure_space.coordinate_system )
+        
+        
+        X_bounds = self.figure_space.coordinate_system.get_plotX()
+        Y_bounds = self.figure_space.coordinate_system.get_plotY()
+        self.figure_space.set_XY_lims( X_bounds[0], X_bounds[1], Y_bounds[0], Y_bounds[1], 0.05 )
+        Z_bounds = self.figure_space.coordinate_system.get_plotZ()
+        self.figure_space.set_Z_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+        Zt_bounds = self.figure_space.coordinate_system.get_plotZt()
+        self.figure_space.set_Zt_lims( Zt_bounds[0], Zt_bounds[1], 0.05 )
+        T_bounds = self.figure_space.coordinate_system.get_plotT()
         self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
         
         self.DSvariable_get()
-        self.DSposition_get()
+        self.position_get()
         
         self.figure_space.replot_data()
         self.figure_space.draw()
@@ -3010,8 +4142,17 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         else:
             DS.toggle_on()
         
+        self.toggleColorSet()
+        
         self.figure_space.replot_data()
         self.figure_space.draw()
+        
+    def toggleColorSet(self):
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        if DS.display:
+            self.toggleDS_button.setStyleSheet("background-color:green;");
+        else:
+            self.toggleDS_button.setStyleSheet("background-color:red;");
         
     def deleteDSButtonPressed(self):
         if self.current_data_set is not None and self.current_data_set != -1: ## is this needed?
@@ -3053,12 +4194,14 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         DS = self.figure_space.data_sets[ self.current_data_set ]
         DS.set_property(self.current_variable_name, inputTXT)
         
+        self.refresh_analysis_list( choose=self.current_data_set)
+        
         self.figure_space.replot_data()
         self.figure_space.draw()
         
     def getButtonPressed(self):
         self.DSvariable_get()
-        self.DSposition_get()
+        self.position_get()
         
     def setPositionPressed(self):
         try:
@@ -3077,17 +4220,28 @@ class Active3DPlotter(QtWidgets.QMainWindow):
             print("bad input")
             return
         
+        self.figure_space.coordinate_system.set_displayLimits( [xmin,xmax], [ymin,ymax], [zmin,zmax], [tmin,tmax] )
         
-        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( 
-                np.array([xmin,xmax]), np.array([ymin,ymax]), np.array([zmin, zmax]), np.array([tmin,tmax]) )
+        X_bounds = self.figure_space.coordinate_system.get_plotX()
+        Y_bounds = self.figure_space.coordinate_system.get_plotY()
+        self.figure_space.set_XY_lims( X_bounds[0], X_bounds[1], Y_bounds[0], Y_bounds[1])
+        Z_bounds = self.figure_space.coordinate_system.get_plotZ()
+        self.figure_space.set_Z_lims( Z_bounds[0], Z_bounds[1])
+        Zt_bounds = self.figure_space.coordinate_system.get_plotZt()
+        self.figure_space.set_Zt_lims( Zt_bounds[0], Zt_bounds[1])
+        T_bounds = self.figure_space.coordinate_system.get_plotT()
+        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1])
         
-        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.00 )
-        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.00 )
-        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.00 )
-        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.00 )
+#        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( 
+#                np.array([xmin,xmax]), np.array([ymin,ymax]), np.array([zmin, zmax]), np.array([tmin,tmax]) )
+        
+#        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.00 )
+#        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.00 )
+#        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.00 )
+#        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.00 )
         
         self.DSvariable_get()
-        self.DSposition_get()
+        self.position_get()
         
         self.figure_space.replot_data()
         self.figure_space.draw()
@@ -3101,35 +4255,48 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
     def showAllTimePressed(self):
         DS = self.figure_space.data_sets[ self.current_data_set ]
-        X_bounds = DS.get_X_lims()
-        Y_bounds = DS.get_Y_lims()
-        Z_bounds = DS.get_alt_lims()
-        trash, trash, trash, T_bounds = DS.bounding_box()
-        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
         
-        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
-        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
-        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
-        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
+        Tbounds = DS.T_bounds( self.figure_space.coordinate_system )
+        self.figure_space.coordinate_system.set_plotT( Tbounds[0], Tbounds[1] )
+        
+        self.figure_space.set_T_lims( Tbounds[0], Tbounds[1], 0.05 )
+        
+#        X_bounds = DS.get_X_lims()
+#        Y_bounds = DS.get_Y_lims()
+#        Z_bounds = DS.get_alt_lims()
+#        trash, trash, trash, T_bounds = DS.bounding_box()
+#        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
+        
+#        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
+#        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
+#        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+#        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
         
         self.DSvariable_get()
-        self.DSposition_get()
+        self.position_get()
         
         self.figure_space.replot_data()
         self.figure_space.draw()
         
     def showAllPositionsButtonPressed(self):
         DS = self.figure_space.data_sets[ self.current_data_set ]
-        X_bounds, Y_bounds, Z_bounds, T_bounds = DS.bounding_box()
-        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
+        X_bounds, Y_bounds, Z_bounds, Zt_bounds, T_bounds = DS.bounding_box( self.figure_space.coordinate_system )
+#        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
+#        
+
+        self.figure_space.coordinate_system.set_plotX( X_bounds[0], X_bounds[1] )
+        self.figure_space.coordinate_system.set_plotY( Y_bounds[0], Y_bounds[1] )
+        self.figure_space.coordinate_system.set_plotT( T_bounds[0], T_bounds[1] )
+        self.figure_space.coordinate_system.set_plotZ( Z_bounds[0], Z_bounds[1] )
+        self.figure_space.coordinate_system.set_plotZt( Zt_bounds[0], Zt_bounds[1] )
         
-        self.figure_space.set_X_lims( X_bounds[0], X_bounds[1], 0.05 )
-        self.figure_space.set_Y_lims( Y_bounds[0], Y_bounds[1], 0.05 )
-        self.figure_space.set_alt_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+        self.figure_space.set_XY_lims( X_bounds[0], X_bounds[1], Y_bounds[0], Y_bounds[1],0.05 )
+        self.figure_space.set_Z_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+        self.figure_space.set_Zt_lims( Zt_bounds[0], Zt_bounds[1], 0.05 )
         self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
         
         self.DSvariable_get()
-        self.DSposition_get()
+        self.position_get()
         
         self.figure_space.replot_data()
         self.figure_space.draw()
@@ -3155,38 +4322,46 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         #### assume text is in same format as boundsToClipboard, but do not use python parsing (is dangerous)
         
         text = QApplication.clipboard().text()
-        bits = text.split(',')
+        
+        try:
+            text = "".join(text.split()) ## remove all white space
+            bits = text.split(',')
+        except:
+            print("clipboard text is not compatible")
+            return
+            
+            
         if len(bits) != 8:
             print("clipboard text is not compatible")
             return
         
         try:
-            Xmin = bits[0][2:]
-            Xmax = bits[1][:-1]
+            Xmin = float( bits[0][2:]  )
+            Xmax = float( bits[1][:-1] )
             
-            Ymin = bits[2][1:]
-            Ymax = bits[3][:-1]
+            Ymin = float( bits[2][1:]  )
+            Ymax = float( bits[3][:-1] )
             
-            Zmin = bits[4][1:]
-            Zmax = bits[5][:-1]
+            Zmin = float( bits[4][1:]  )
+            Zmax = float( bits[5][:-1] )
             
-            Tmin = bits[6][1:]
-            Tmax = bits[7][:-2]
+            Tmin = float( bits[6][1:]  )
+            Tmax = float( bits[7][:-2] )
         except:
             print("clipboard text is not compatible")
             return
         
-        self.Xmin_txtBox.setText( Xmin )
-        self.Xmax_txtBox.setText( Xmax )
+        self.Xmin_txtBox.setText( str(Xmin) )
+        self.Xmax_txtBox.setText( str(Xmax) )
         
-        self.Ymin_txtBox.setText( Ymin )
-        self.Ymax_txtBox.setText( Ymax )
+        self.Ymin_txtBox.setText( str(Ymin) )
+        self.Ymax_txtBox.setText( str(Ymax) )
         
-        self.Zmin_txtBox.setText( Zmin )
-        self.Zmax_txtBox.setText( Zmax )
+        self.Zmin_txtBox.setText( str(Zmin) )
+        self.Zmax_txtBox.setText( str(Zmax) )
         
-        self.Tmin_txtBox.setText( Tmin )
-        self.Tmax_txtBox.setText( Tmax )
+        self.Tmin_txtBox.setText( str(Tmin) )
+        self.Tmax_txtBox.setText( str(Tmax) )
         
         
     def searchButtonPressed(self):
@@ -3194,7 +4369,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         if self.current_data_set is not None and self.current_data_set != -1: ## is this needed?
             search_ID = self.search_txtBox.text()
             
-            ret = self.figure_space.data_sets[ self.current_data_set ].search(search_ID)
+            ret = self.figure_space.data_sets[ self.current_data_set ].search( [search_ID] )
             
             if ret is not None:
                 self.add_dataset( ret )
@@ -3218,12 +4393,12 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     #### analysis
     def printInfo(self):
         DS = self.figure_space.data_sets[ self.current_data_set ]
-        DS.print_info()
+        DS.print_info( self.figure_space.coordinate_system )
         
     def copy_view(self):
         
         if self.current_data_set is not None and self.current_data_set != -1: ## is this needed?
-            ret = self.figure_space.data_sets[ self.current_data_set ].copy_view()
+            ret = self.figure_space.data_sets[ self.current_data_set ].copy_view( self.figure_space.coordinate_system )
             
             if ret is not None:
                 print("adding dataset")
@@ -3236,6 +4411,31 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     def textOutput(self):
         DS = self.figure_space.data_sets[ self.current_data_set ]
         DS.text_output()
+        
+    def set_pickledIDs_to_clipboard(self):
+        IDs = self.figure_space.data_sets[ self.current_data_set ].get_view_ID_list( self.figure_space.coordinate_system )
+        
+        if IDs is not None:
+            pickled_IDs = dumps(IDs)
+            QApplication.clipboard().setText( pickled_IDs.hex() )
+            
+    
+    def get_pickledIDs_from_clipboard(self):
+        newDS = None
+        try:
+            IDs = loads( bytes.fromhex( QApplication.clipboard().text() ) )
+            newDS = self.figure_space.data_sets[ self.current_data_set ].search( IDs )
+        
+        except:
+            print('cannot load ids')
+            return
+        
+        if newDS is not None:
+            print("adding dataset")
+            self.add_dataset( newDS )
+            self.figure_space.replot_data()
+            self.figure_space.draw()
+            
             
 #    def svgOutput(self):
 #        DS = self.figure_space.data_sets[ self.current_data_set ]
@@ -3377,104 +4577,104 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 #        self.figure_space.event_search( event_index )
 
 ###### some default analysis ######
-def print_details_analysis(PSE_list):
-    for PSE in PSE_list:
-        print( PSE.unique_index )
-        print( " even fitval:", PSE.PolE_RMS )
-        print( "   loc:", PSE.PolE_loc )
-        print( " odd fitval:", PSE.PolO_RMS )
-        print( "   loc:", PSE.PolO_loc )
-        print()
+#def print_details_analysis(PSE_list):
+#    for PSE in PSE_list:
+#        print( PSE.unique_index )
+#        print( " even fitval:", PSE.PolE_RMS )
+#        print( "   loc:", PSE.PolE_loc )
+#        print( " odd fitval:", PSE.PolO_RMS )
+#        print( "   loc:", PSE.PolO_loc )
+#        print()
+#
+#class plot_data_analysis:
+#    def __init__(self, antenna_locations):
+#        self.ant_locs = antenna_locations
+#        
+#    def __call__(self, PSE_list):
+#        for PSE in PSE_list:
+#            print( "plotting:", PSE.unique_index )
+#            print( " even fitval:", PSE.PolE_RMS )
+#            print( "   loc:", PSE.PolE_loc )
+#            print( " odd fitval:", PSE.PolO_RMS )
+#            print( "   loc:", PSE.PolO_loc )
+#            print( " Even is Green, Odd is Magenta" )
+#            print() 
+#            PSE.plot_trace_data(self.ant_locs)
 
-class plot_data_analysis:
-    def __init__(self, antenna_locations):
-        self.ant_locs = antenna_locations
-        
-    def __call__(self, PSE_list):
-        for PSE in PSE_list:
-            print( "plotting:", PSE.unique_index )
-            print( " even fitval:", PSE.PolE_RMS )
-            print( "   loc:", PSE.PolE_loc )
-            print( " odd fitval:", PSE.PolO_RMS )
-            print( "   loc:", PSE.PolO_loc )
-            print( " Even is Green, Odd is Magenta" )
-            print() 
-            PSE.plot_trace_data(self.ant_locs)
-
-        
-class print_ave_ant_delays:
-    def __init__(self, ant_locs):
-        self.ant_locs = ant_locs
-        
-    def __call__(self, PSE_list):
-        max_RMS = 2.00e-9
-        
-        ant_delay_dict = {}
-        
-        for PSE in PSE_list:
-            PSE.load_antenna_data(False)
-            
-            for ant_name, ant_info in PSE.antenna_data.items():
-                loc = self.ant_locs[ant_name]
-                
-                if ant_name not in ant_delay_dict:
-                    ant_delay_dict[ant_name] = [[],  []]
-                
-                if (ant_info.antenna_status==0 or ant_info.antenna_status==2) and PSE.PolE_RMS<max_RMS:
-                    model = np.linalg.norm(PSE.PolE_loc[0:3] - loc)/v_air + PSE.PolE_loc[3]
-                    data = ant_info.PolE_peak_time
-                    ant_delay_dict[ant_name][0].append( data - model )
-                
-                if (ant_info.antenna_status==0 or ant_info.antenna_status==1) and PSE.PolO_RMS<max_RMS:
-                    model = np.linalg.norm(PSE.PolO_loc[0:3] - loc)/v_air + PSE.PolO_loc[3]
-                    data = ant_info.PolO_peak_time
-                    ant_delay_dict[ant_name][1].append( data - model )
-            
-        for ant_name, (even_delays, odd_delays) in ant_delay_dict.items():
-            PolE_ave = np.average(even_delays)
-            PolE_std = np.std(even_delays)
-            PolE_N = len(even_delays)
-            PolO_ave = np.average(odd_delays)
-            PolO_std = np.std(odd_delays)
-            PolO_N = len(odd_delays)
-
-            print(ant_name)
-            print("   even:", PolE_ave, "+/-", PolE_std/np.sqrt(PolE_N), '(', PolE_std, PolE_N, ')')
-            print("    odd:", PolO_ave, "+/-", PolO_std/np.sqrt(PolO_N), '(', PolO_std, PolO_N, ')')
-        print("done")
-        print()
-
-class histogram_amplitudes:
-    def __init__(self, station, pol=0):
-        self.station=station
-        self.polarization=pol #0 is even, 1 is odd
-        
-    def __call__(self, PSE_list):
-        
-        amplitudes = []
-        for PSE in PSE_list:
-            PSE.load_antenna_data(False)
-            total = 0.0
-            N = 0
-            for antenna_name, data in PSE.antenna_data.items():
-                if antenna_name[0:3] == self.station:
-                    if self.polarization == 0 and (data.antenna_status==0 or data.antenna_status==2):
-                        total += data.PolE_HE_peak
-                        N += 1
-                        
-                    elif self.polarization == 1 and (data.antenna_status==0 or data.antenna_status==1):
-                        total += data.PolO_HE_peak
-                        N += 1
-                        
-            if N != 0:
-                amplitudes.append( total/N )
-            
-        print(len(amplitudes), int(np.sqrt(len(amplitudes))) )
-        print("average and std of distribution:", np.average(amplitudes), np.std(amplitudes))
-        plt.hist(amplitudes, 2*int(np.sqrt(len(amplitudes))) )
-        plt.xlim((0,1500))
-        plt.tick_params(labelsize=40)
-        plt.show()
+#        
+#class print_ave_ant_delays:
+#    def __init__(self, ant_locs):
+#        self.ant_locs = ant_locs
+#        
+#    def __call__(self, PSE_list):
+#        max_RMS = 2.00e-9
+#        
+#        ant_delay_dict = {}
+#        
+#        for PSE in PSE_list:
+#            PSE.load_antenna_data(False)
+#            
+#            for ant_name, ant_info in PSE.antenna_data.items():
+#                loc = self.ant_locs[ant_name]
+#                
+#                if ant_name not in ant_delay_dict:
+#                    ant_delay_dict[ant_name] = [[],  []]
+#                
+#                if (ant_info.antenna_status==0 or ant_info.antenna_status==2) and PSE.PolE_RMS<max_RMS:
+#                    model = np.linalg.norm(PSE.PolE_loc[0:3] - loc)/v_air + PSE.PolE_loc[3]
+#                    data = ant_info.PolE_peak_time
+#                    ant_delay_dict[ant_name][0].append( data - model )
+#                
+#                if (ant_info.antenna_status==0 or ant_info.antenna_status==1) and PSE.PolO_RMS<max_RMS:
+#                    model = np.linalg.norm(PSE.PolO_loc[0:3] - loc)/v_air + PSE.PolO_loc[3]
+#                    data = ant_info.PolO_peak_time
+#                    ant_delay_dict[ant_name][1].append( data - model )
+#            
+#        for ant_name, (even_delays, odd_delays) in ant_delay_dict.items():
+#            PolE_ave = np.average(even_delays)
+#            PolE_std = np.std(even_delays)
+#            PolE_N = len(even_delays)
+#            PolO_ave = np.average(odd_delays)
+#            PolO_std = np.std(odd_delays)
+#            PolO_N = len(odd_delays)
+#
+#            print(ant_name)
+#            print("   even:", PolE_ave, "+/-", PolE_std/np.sqrt(PolE_N), '(', PolE_std, PolE_N, ')')
+#            print("    odd:", PolO_ave, "+/-", PolO_std/np.sqrt(PolO_N), '(', PolO_std, PolO_N, ')')
+#        print("done")
+#        print()
+#
+#class histogram_amplitudes:
+#    def __init__(self, station, pol=0):
+#        self.station=station
+#        self.polarization=pol #0 is even, 1 is odd
+#        
+#    def __call__(self, PSE_list):
+#        
+#        amplitudes = []
+#        for PSE in PSE_list:
+#            PSE.load_antenna_data(False)
+#            total = 0.0
+#            N = 0
+#            for antenna_name, data in PSE.antenna_data.items():
+#                if antenna_name[0:3] == self.station:
+#                    if self.polarization == 0 and (data.antenna_status==0 or data.antenna_status==2):
+#                        total += data.PolE_HE_peak
+#                        N += 1
+#                        
+#                    elif self.polarization == 1 and (data.antenna_status==0 or data.antenna_status==1):
+#                        total += data.PolO_HE_peak
+#                        N += 1
+#                        
+#            if N != 0:
+#                amplitudes.append( total/N )
+#            
+#        print(len(amplitudes), int(np.sqrt(len(amplitudes))) )
+#        print("average and std of distribution:", np.average(amplitudes), np.std(amplitudes))
+#        plt.hist(amplitudes, 2*int(np.sqrt(len(amplitudes))) )
+#        plt.xlim((0,1500))
+#        plt.tick_params(labelsize=40)
+#        plt.show()
         
 #from scipy.stats import linregress
 #from matplotlib.widgets import LassoSelector

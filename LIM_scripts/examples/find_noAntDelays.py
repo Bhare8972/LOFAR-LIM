@@ -7,17 +7,20 @@ from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
     
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20190424T194432.504Z"
     threshold = 1.0E-16
+    stations_to_ignore = ['CS201']
     
     raw_fpaths = filePaths_by_stationName(timeID)
     
     for station, fpaths in raw_fpaths.items():
+        if station in stations_to_ignore:
+            continue
         print(station)
         TBB_data = MultiFile_Dal1( fpaths)
         antenna_names = TBB_data.get_antenna_names()

@@ -6,6 +6,7 @@ from os import mkdir, listdir
 from os.path import isdir, isfile
 from itertools import chain
 from pickle import load
+from random import choice
 
 #external
 import numpy as np
@@ -20,7 +21,7 @@ import h5py
 #mine
 from LoLIM.prettytable import PrettyTable
 from LoLIM.utilities import logger, processed_data_dir, v_air, SId_to_Sname, Sname_to_SId_dict, RTD
-from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
+#from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
 from LoLIM.antenna_response import LBA_ant_calibrator
 from LoLIM.porta_code import code_logger, pyplot_emulator
 from LoLIM.signal_processing import parabolic_fit, remove_saturation, data_cut_at_index
@@ -126,6 +127,83 @@ class stochastic_fitter_dt:
     def employ_result(self, source_object_list):
         
         param_i = self.num_delays
+        for PSE in source_object_list:
+            PSE.append_solution( self.last_fit[param_i:param_i+4] )
+            param_i += 4
+            
+class stochastic_fitter_dt_loc:
+    def __init__(self, source_object_list):
+        self.source_object_list = source_object_list
+    
+    ## assume globals: 
+#    max_itters_per_loop 
+#    itters_till_convergence
+#    max_jitter_width
+#    min_jitter_width 
+#    cooldown
+    
+#    sorted_antenna_names
+    
+        self.num_antennas = len(sorted_antenna_names)
+        self.num_measurments = self.num_antennas*len(source_object_list)
+        self.num_delays = len(station_order)
+        
+        self.station_indeces = np.empty( len(ant_locs), dtype=np.int )
+        for station_index, index_range in enumerate(station_to_antenna_index_list):
+            first,last = index_range
+            self.station_indeces[first:last] = station_index
+    
+        self.fitter = stationDelay_fitter(ant_locs, self.station_indeces, len(self.source_object_list), self.num_delays)
+        for source in self.source_object_list:
+            self.fitter.set_event( source.pulse_times )
+            
+#        self.one_fitter = stationDelay_fitter(ant_locs, self.station_indeces, 1, self.num_delays)
+#        self.one_fitter.set_event( self.source_object_list[0] )
+        
+        #### make guess ####
+        self.num_DOF = -self.num_delays
+        self.solution = np.zeros(  4*len(source_object_list) )
+        param_i = 0
+        for PSE in source_object_list:
+            self.solution[param_i:param_i+4] = PSE.guess_XYZT
+            param_i += 4
+            self.num_DOF += PSE.num_DOF()
+            
+        self.fitter.prep_for_random_pert()
+        
+        self.tmp_array = np.zeros(  self.num_delays+4*len(source_object_list) )
+        self.current_delays = current_delays_guess   
+        
+    def obj_func(self, vals):
+        self.tmp_array[:self.num_delays] = self.current_delays
+        self.tmp_array[self.num_delays:] = vals
+        return self.fitter.objective_fun( self.tmp_array )
+        
+    def rerun(self, station_delays, deviation, antenna_error_deviation):
+        
+        self.fitter.random_perturbation( deviation, antenna_error_deviation )
+        self.current_delays = station_delays
+        
+        new_guess = np.array(self.solution)
+        new_guess[3::4] += np.random.normal(scale=100E-9, size=len(self.source_object_list))
+        
+        new_guess[::4] = 0.0
+        new_guess[1::4] = 0.0
+        new_guess[2::4] = 0.0
+        
+        fit_res = least_squares(self.obj_func, self.solution, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+
+        self.last_fit = fit_res.x
+
+        self.tmp_array[:self.num_delays] = self.current_delays
+        self.tmp_array[self.num_delays:] = fit_res.x
+        total_RMS = self.fitter.RMS(self.tmp_array, self.num_DOF)
+        
+        return total_RMS
+    
+    def employ_result(self, source_object_list):
+        
+        param_i = 0
         for PSE in source_object_list:
             PSE.append_solution( self.last_fit[param_i:param_i+4] )
             param_i += 4
@@ -654,7 +732,8 @@ num_stat_per_table = 10
 #station_to_antenna_index_dict = None
 def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               ref_station="CS002", min_ant_amplitude=10, num_itters=1000, error_deviation=0.5E-9, antenna_error=0.5E-9):
+               ref_station="CS002", min_ant_amplitude=10, num_itters=1000, error_deviation=0.5E-9, antenna_error=0.5E-9,
+               source_XYZ_to_test=[]):
     
     ##### holdovers. These globals need to be fixed, so not global....
     global station_locations, station_to_antenna_index_list, stations_with_fits, station_to_antenna_index_dict
@@ -773,6 +852,23 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
 
             
         source_to_add.prep_for_fitting(polarity, guess_timings)
+        
+    print("prepping test sources")
+    test_sources = []
+    for XYZ in source_XYZ_to_test:
+        XYZT = np.append(XYZ, [0.0])
+        base_ID = choice(souces_to_fit)
+        
+        
+        ## make source
+        source_ID, input_name = input_manager.known_source( base_ID )
+        source_to_add = source_object(source_ID, input_name, XYZT, source_stations_to_exclude[source_ID], source_antennas_to_exclude[source_ID], num_itters )
+        
+        polarity = source_polarizations[source_ID]
+        source_to_add.prep_for_fitting(polarity, guess_timings)
+        
+        
+        test_sources.append( source_to_add )
 
 
 
@@ -780,14 +876,23 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
 
 
     fitter = stochastic_fitter_dt(current_sources)
+    location_fitter = stochastic_fitter_dt_loc( test_sources )
     
     all_delays = np.empty( (num_itters, fitter.num_delays), dtype=np.double )
     all_RMSs = np.empty( num_itters, dtype=np.double )
+    loc_RMSs = np.empty( num_itters, dtype=np.double )
     for i in range(num_itters):
         all_delays[ i, :], all_RMSs[i] = fitter.rerun(error_deviation, antenna_error)
     
         fitter.employ_result( current_sources )
         print('run', i, 'RMS:', all_RMSs[i])
+        
+        if len(test_sources) != 0:
+            station_delays = all_delays[ i ]
+            loc_RMSs[i] = location_fitter.rerun(station_delays, error_deviation, antenna_error)
+            location_fitter.employ_result( test_sources )
+            print("    loc. RMS", loc_RMSs[i])
+            
         
     print()
     print()
@@ -831,6 +936,45 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
     print()
     
     print("average RMS", np.average(all_RMSs), "std of RMS", np.std(all_RMSs))
+    
+    
+    ### same for location fits
+    if len(test_sources) != 0:
+        print()
+        print()
+        print("location source tests")
+        ave_X = np.zeros( num_itters )
+        ave_Y = np.zeros( num_itters )
+        ave_Z = np.zeros( num_itters )
+        
+        for source in test_sources:
+            ave_X += source.solutions[: , 0]
+            ave_Y += source.solutions[: , 1]
+            ave_Z += source.solutions[: , 2]
+            
+        ave_X /= len(test_sources)
+        ave_Y /= len(test_sources)
+        ave_Z /= len(test_sources)
+        
+        print("absolute location errors:")
+        print("X", np.std(ave_X), "Y", np.std(ave_Y), "Z", np.std(ave_Z))
+        
+        print()
+        print()
+        print("relative location errors")
+        
+        for i, source in enumerate(test_sources):
+            source.solutions[: , 0] -= ave_X
+            source.solutions[: , 1] -= ave_Y
+            source.solutions[: , 2] -= ave_Z
+        
+            print("loc. source", i)
+            print("  ", np.std(source.solutions[:,0]), np.std(source.solutions[:,1]), np.std(source.solutions[:,2]))
+            
+        print()
+        print()
+        
+        print("average RMS", np.average(loc_RMSs), "std of RMS", np.std(loc_RMSs))
     
     
     

@@ -455,7 +455,46 @@ cdef void measure_close_dt(double Zenith, double Azimuth, planewave_locate_struc
         peak_location += data_struct.antenna_delays[ant_i]
         data_struct.measured_dt[ant_i] = peak_location
         data_struct.current_workspace[ant_i] -= peak_location
+        
+cdef void measure_peak_dt(planewave_locate_struct* data_struct):
+    """find the T of the highest peak. places the residual in current_workspace."""
+        
+    cdef long ant_i
+    cdef double* CC
+    cdef long CC_length
     
+    cdef double current_amp
+    cdef long best_i
+    cdef long current_i
+    
+    cdef double peak_location
+    
+    for ant_i in range( data_struct.num_antennas ):
+        if data_struct.mask[ant_i] == 0:
+            data_struct.measured_dt[ant_i] = 0
+            data_struct.current_workspace[ant_i] = 0
+            continue
+        
+        CC = &data_struct.cross_correlation_data[ data_struct.total_cross_correlation_length*ant_i ]
+        CC_length = data_struct.used_CC_length[ant_i]
+        
+        current_amp = CC[0]
+        best_i = 0
+        
+        for current_i in range(CC_length):
+            if CC[current_i] > current_amp:
+                current_amp = CC[current_i]
+                best_i = current_i
+                    
+        peak_location = fit_parabola( CC, best_i, CC_length, data_struct.parabolic_fitter )
+        
+        if peak_location >  data_struct.used_CC_length[ant_i]/2:
+            peak_location -= data_struct.used_CC_length[ant_i]
+            
+        peak_location *= data_struct.CC_sample_time
+        peak_location += data_struct.antenna_delays[ant_i]
+        data_struct.measured_dt[ant_i] = peak_location
+        data_struct.current_workspace[ant_i] -= peak_location 
 
 cdef int planewave_residuals(const void* ZeAz, void* data_struct_void, void* out_residuals) nogil:
     
@@ -531,6 +570,9 @@ cdef class planewave_locator_helper:
     def __dealloc__(self):
         gsl_multifit_nlinear_free( self.fit_workspace )
         
+    def get_test_points(self):
+        return np.array(self.ZeAz_test_points)
+        
     def set_memory(self, np.ndarray[double, ndim=2] cross_correlations, np.ndarray[double, ndim=2] relative_antenna_locs, np.ndarray[double, ndim=1] antenna_delays,
                    np.ndarray[double, ndim=1] workspace, np.ndarray[double, ndim=1] measured_dt, np.ndarray[long, ndim=1] mask, np.ndarray[long, ndim=1] CC_lengths):
         
@@ -557,19 +599,23 @@ cdef class planewave_locator_helper:
                 out_ZeAz[0] = self.ZeAz_test_points[i,0]
                 out_ZeAz[1] = self.ZeAz_test_points[i,1]
                 
-        if out_ZeAz[0] <= 0:
-            out_ZeAz[0] = 0.0001
-        if out_ZeAz[0] >= np.pi/2:
-            out_ZeAz[0] = (np.pi/2)*0.99
-        if out_ZeAz[1] <= 0:
-            out_ZeAz[1] = 0.0001
-        if out_ZeAz[1] >= np.pi*2:
-            out_ZeAz[1] = (np.pi*2)*0.99
+#        if out_ZeAz[0] <= 0:
+#            out_ZeAz[0] = 0.0001
+#        if out_ZeAz[0] >= np.pi/2:
+#            out_ZeAz[0] = (np.pi/2)*0.99
+#        if out_ZeAz[1] <= 0:
+#            out_ZeAz[1] = 0.0001
+#        if out_ZeAz[1] >= np.pi*2:
+#            out_ZeAz[1] = (np.pi*2)*0.99
+            
+    def image_value(self, ZeAz):
+        return image(ZeAz[0], ZeAz[1], &self.planewave_data)
     
     def run_minimizer(self, np.ndarray[double, ndim=1] guess_ZeAz, int max_itters, double xtol, double gtol, double ftol):
         """ tries to fit the given info. returns True if it has converged, False otherwise. Also returns final ZeAz and RMS"""
         
         measure_close_dt(guess_ZeAz[0], guess_ZeAz[1], &self.planewave_data) ## sets the measured data
+#        measure_peak_dt(&self.planewave_data) ## sets the measured data
         
         gsl_vector_set(self.vector_ZeAz, 0, guess_ZeAz[0])
         gsl_vector_set(self.vector_ZeAz, 1, guess_ZeAz[1])
@@ -600,6 +646,10 @@ cdef class planewave_locator_helper:
     
     def get_num_iters(self):
         return gsl_multifit_nlinear_niter( self.fit_workspace )
+    
+    def get_model_dt(self, ZeAz):
+        """sets planewave model to the input workspace. Note: other functions could overwrite this data!"""
+        set_planewave_model(ZeAz[0], ZeAz[1], &self.planewave_data)
         
         
 #### pointsource fitter ####

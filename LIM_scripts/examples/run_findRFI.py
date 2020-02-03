@@ -19,19 +19,19 @@ from pickle import dump
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20190424T194432.504Z"
     output_folder = "/findRFI"
     out_fname = "/findRFI_results"
     block_size = 2**16
-    initial_block = 500
+    initial_block = 250
     num_blocks = 20
-    max_blocks = 1000
+    max_blocks = 500
     
-    skip_stations = []
+    skip_stations = ['CS201']
     
     
     processed_data_dir = processed_data_dir(timeID)

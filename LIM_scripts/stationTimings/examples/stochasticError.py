@@ -71,7 +71,15 @@ known_polarizations = {
 200 : 1 ,
 }
     
-#0. 2,1    
+source_locations_to_test = [
+        [-35000,-15000,4000.0],
+        [-40000,-10000,6500.0],
+        [-40000,-10000,4000.0],
+        [-47000,-7500,3000.0],
+        [-47000,-7500,5000.0],
+        [-45000,-9000,3000.0],
+        [-45000,-9000,5000.0],
+        ] 
 
 ## these are stations to exclude
 stations_to_exclude = {
@@ -131,7 +139,7 @@ bad_antennas = [
 
 
 run_fitter(timeID="D20180921T194259.023Z", 
-           output_folder = "autoCorrelator_fitter_ERROR",
+           output_folder = "autoCorrelator_fitter_ERRORTST",
            pulse_input_folders = ["pulse_finding"],
            guess_timings = guess_timings,
            souces_to_fit=known_sources, ## note that the index here is file_index + source_index*10
@@ -145,4 +153,5 @@ run_fitter(timeID="D20180921T194259.023Z",
            num_itters=100, 
            error_deviation=0.001E-9,
            antenna_error = 0.8E-9,
+           source_XYZ_to_test = source_locations_to_test
            )

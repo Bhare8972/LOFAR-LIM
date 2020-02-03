@@ -63,6 +63,99 @@ def make_antennaID_filter(antennaIDs):
 
 #### read callibration data ###
 
+#def getStationPhaseCalibration(station, antennaset, file_location=None):
+#    """Read phase calibration data for a station.
+#
+#    Required arguments:
+#
+#    ================== ====================================================
+#    Parameter          Description
+#    ================== ====================================================
+#    *station*          station name (as str) or ID.
+#    *mode*             observation mode.
+#    ================== ====================================================
+#    
+#    returns weights for 512 subbands.
+#
+#    Examples::
+#
+#        >>> metadata.getStationPhaseCalibration("CS002","LBA_OUTER")
+#        array([[ 1.14260161 -6.07397622e-18j,  1.14260161 -6.05283530e-18j,
+#             1.14260161 -6.03169438e-18j, ...,  1.14260161 +4.68675289e-18j,
+#             1.14260161 +4.70789381e-18j,  1.14260161 +4.72903474e-18j],
+#           [ 0.95669876 +2.41800591e-18j,  0.95669876 +2.41278190e-18j,
+#             0.95669876 +2.40755789e-18j, ...,  0.95669876 -2.41017232e-19j,
+#             0.95669876 -2.46241246e-19j,  0.95669876 -2.51465260e-19j],
+#           [ 0.98463207 +6.80081617e-03j,  0.98463138 +6.89975906e-03j,
+#             0.98463069 +6.99870187e-03j, ...,  0.98299670 +5.71319125e-02j,
+#             0.98299096 +5.72306908e-02j,  0.98298520 +5.73294686e-02j],
+#           ...,
+#           [ 1.03201290 +7.39535744e-02j,  1.03144532 +8.14880844e-02j,
+#             1.03082273 +8.90182487e-02j, ..., -0.82551740 -6.23731331e-01j,
+#            -0.82094046 -6.29743206e-01j, -0.81631975 -6.35721497e-01j],
+#           [ 1.12370332 -1.15296909e-01j,  1.12428451 -1.09484545e-01j,
+#             1.12483564 -1.03669252e-01j, ..., -0.92476286 +6.48703460e-01j,
+#            -0.92810503 +6.43912711e-01j, -0.93142239 +6.39104744e-01j],
+#           [ 1.10043006 -6.18995646e-02j,  1.10075250 -5.58731668e-02j,
+#             1.10104193 -4.98450938e-02j, ..., -1.01051042 +4.40052904e-01j,
+#            -1.01290481 +4.34513198e-01j, -1.01526883 +4.28960464e-01j]])
+#
+#        >>> metadata.getStationPhaseCalibration(122,"LBA_OUTER")
+#        Calibration data not yet available. Returning 1
+#        array([[ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j],
+#           [ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j],
+#           [ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j],
+#           ...,
+#           [ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j],
+#           [ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j],
+#           [ 1.+0.j,  1.+0.j,  1.+0.j, ...,  1.+0.j,  1.+0.j,  1.+0.j]])
+#
+#    """
+#
+#    # Return mode nr depending on observation mode
+#    antennasetToMode = {"LBA_OUTER": "1",
+#                         "LBA_INNER": "3",
+#                         "HBA": "5",
+#                         "HBA_0": "5",
+#                         "HBA_1": "5",
+#                         }
+#
+#    antennaset = mapAntennasetKeyword( antennaset )
+#
+#    if antennaset not in antennasetToMode.keys():
+#        raise KeyError("Not a valid antennaset " + antennaset)
+#
+#    modenr = antennasetToMode[antennaset]
+#    if not isinstance(station, str):
+#        # Convert a station id to a station name
+#        station = SId_to_Sname[station]
+#
+#    stationNr = station[2:]
+#
+#    # filename
+#    if file_location is None:
+#        file_location = MetaData_directory + '/lofar/StaticMetaData/CalTables'
+#
+#    filename = file_location + '/CalTable_' + stationNr + '_mode' + modenr + '.dat'
+#    with open(filename, 'rb') as fin:
+#        # Test for header record above raw data - present in newer caltables (starting 2012)
+#        line = fin.readline().decode()
+#        if 'HeaderStart' in line:
+#            while not 'HeaderStop' in line:
+#                line = fin.readline().decode()
+#        else:  # no header present, seek to starting position
+#            fin.seek(0)
+#            
+#        data = np.fromfile(fin, dtype=np.double)
+#        
+#    data.resize(512, 96, 2)
+#
+#    complexdata = np.empty(shape=(512, 96), dtype=complex)
+#    complexdata.real = data[:, :, 0]
+#    complexdata.imag = data[:, :, 1]
+#
+#    return complexdata.transpose()
+
 def getStationPhaseCalibration(station, antennaset, file_location=None):
     """Read phase calibration data for a station.
 
@@ -113,11 +206,11 @@ def getStationPhaseCalibration(station, antennaset, file_location=None):
     """
 
     # Return mode nr depending on observation mode
-    antennasetToMode = {"LBA_OUTER": "1",
-                         "LBA_INNER": "3",
-                         "HBA": "5",
-                         "HBA_0": "5",
-                         "HBA_1": "5",
+    antennasetToMode = {"LBA_OUTER": "LBA_OUTER-10_90",
+                         "LBA_INNER": "LBA_INNER-10_90",
+                         "HBA": "HBA-110_190",
+                         "HBA_0": "HBA-110_190",
+                         "HBA_1": "HBA-110_190",
                          }
 
     antennaset = mapAntennasetKeyword( antennaset )
@@ -125,7 +218,7 @@ def getStationPhaseCalibration(station, antennaset, file_location=None):
     if antennaset not in antennasetToMode.keys():
         raise KeyError("Not a valid antennaset " + antennaset)
 
-    modenr = antennasetToMode[antennaset]
+    mode_name = antennasetToMode[antennaset]
     if not isinstance(station, str):
         # Convert a station id to a station name
         station = SId_to_Sname[station]
@@ -136,7 +229,7 @@ def getStationPhaseCalibration(station, antennaset, file_location=None):
     if file_location is None:
         file_location = MetaData_directory + '/lofar/StaticMetaData/CalTables'
 
-    filename = file_location + '/CalTable_' + stationNr + '_mode' + modenr + '.dat'
+    filename = file_location + '/CalTable-' + stationNr + '-' + mode_name + '.dat'
     with open(filename, 'rb') as fin:
         # Test for header record above raw data - present in newer caltables (starting 2012)
         line = fin.readline().decode()
@@ -597,7 +690,7 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     return ret
     
 def geoditic_to_ITRF(latLonAlt):
-    """for a latLonAlt, (can be list of three numpy arrays), convert to ITRF coordinates. Using information at: https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#Geodetic_to/from_ENU_coordinates and 
+    """for a latLonAlt in degrees, (can be list of three numpy arrays), convert to ITRF coordinates. Using information at: https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#Geodetic_to/from_ENU_coordinates and 
     http://itrf.ensg.ign.fr/faq.php?type=answer"""
     
     a = 6378137.0  #### semi-major axis, m
@@ -617,6 +710,56 @@ def geoditic_to_ITRF(latLonAlt):
     
     return np.array( [X,Y,Z] )
 
+from scipy.optimize import least_squares
+def ITRF_to_geoditic(ITRF_XYZ):
+    """given an ITRF XYZ  in meters, return lat, lon, and altitude in degrees and meters. Uses geoditic_to_ITRF with least_squares minimization. Only works with one set of coordinates at a time (no numpy arrays) """
+    
+#    a = 6378137.0  #### semi-major axis, m
+#    e2 = 0.00669438002290 ## eccentricity squared
+#    me2 = 1-e2
+#    b2 = a*a*me2 ## semi-minor axis squared
+#    
+#    r2 = ITRF_XYZ[0]*ITRF_XYZ[0]
+#    r2 += ITRF_XYZ[1]*ITRF_XYZ[1]
+#    r = np.sqrt(r2)
+#    Z2 = ITRF_XYZ[2]*ITRF_XYZ[2]
+#    
+#    F = Z2*(54*b2)
+#    G = r2 + me2*Z2 - e2*(a*a - b2)
+#    c = e2*e2*F*r2/(G*G*G)
+#    s = np.cbrt( 1 + c + np.sqrt(c*c + 2*c) )
+#    P = G*(1+s+1/s)
+#    P = F/(3*P*P)
+#    Q = np.sqrt( 1 + 2*e2*e2*P )
+#    
+#    Ro = -P*e2*r/(1+Q) + np.sqrt( a*a*(1+1/Q)*0.5 - P*me2*Z2/(Q*(1+Q)) - P*r2*0.5 )
+#    N = r-e2*Ro
+#    U = np.sqrt( N*N + Z2 )
+#    V = np.sqrt( N*N + me2*Z2 )
+#    zo = b2*ITRF_XYZ[2]/(a*V)
+#    
+#    h = U*(1-b2/(a*V))
+#    lat = np.arctan( (ITRF_XYZ[2]+e2*zo)/r )*RTD
+#    lon = np.arctan2(ITRF_XYZ[1], ITRF_XYZ[0])*RTD
+#    return lat, lon, h
+    
+    class minimizer:
+        def __init__(self, X,Y,Z):
+            self.X = X
+            self.Y = Y
+            self.Z = Z
+        def __call__(self, lat_lon_h):
+            ret =  geoditic_to_ITRF( lat_lon_h )
+            ret[0] -= self.X
+            ret[1] -= self.Y
+            ret[2] -= self.Z
+            return ret
+    
+    guess = np.append( latlonCS002, [0.0] )
+    ret = least_squares(minimizer(ITRF_XYZ[0], ITRF_XYZ[1], ITRF_XYZ[2]), guess, x_scale='jac' )
+    return ret.x
+    
+    
 
 
 #### previously known clock offsets. Only used for compatibility with past data ####

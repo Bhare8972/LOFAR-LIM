@@ -160,7 +160,7 @@ def plot_stations_AllData(timeID, input_file_name, source_XYZT, known_station_de
     plt.show()
     
     
-def plot_one_station(timeID, polarization, input_file_name, source_XYZT, known_station_delays, station, referance_station="CS002", min_antenna_amplitude=10, plot_real=False):
+def plot_one_station(timeID, polarization, input_file_name, source_XYZT, known_station_delays, station, referance_station="CS002", min_antenna_amplitude=10, plot_real=False, antennas_to_exclude=[]):
     """Plot all pulses on all stations in an autocorrelator file. polarization should be 0 or 1. station should be station name """
 
     if polarization == 0:
@@ -194,7 +194,7 @@ def plot_one_station(timeID, polarization, input_file_name, source_XYZT, known_s
         trace = np.array( ant_dataset[dataset_index] )
         trace_amp = np.max(trace)
         
-        if trace_amp<min_antenna_amplitude:
+        if trace_amp<min_antenna_amplitude or ant_name in antennas_to_exclude:
             continue
         
         

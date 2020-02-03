@@ -55,6 +55,7 @@ There are a few complications with reading the data.
 
 
 import os
+import datetime
 
 import numpy as np
 import h5py
@@ -103,18 +104,72 @@ def read_antenna_pol_flips(fname):
 
 def read_bad_antennas(fname):
     bad_antenna_data = []
+    
+    def parse_line_v1(line):
+        ant_name, pol = line.split()[0:2]
+        bad_antenna_data.append((ant_name,int(pol)))
+    
+    def parse_line_v2(line):
+        ant_name = line.split()[0]
+        pol = 0
+        if not util.antName_is_even(ant_name):
+            ant_name = util.even_antName_to_odd(ant_name)
+            pol = 1
+        bad_antenna_data.append((ant_name,pol))
+        
+    version = 1
     with open(fname) as fin:
+        is_line_0 = True
         for line in fin:
-            ant_name, pol = line.split()[0:2]
-            bad_antenna_data.append((ant_name,int(pol)))
+            if is_line_0 and line[:2] == 'v2':
+                version = 2
+            else:
+                if version == 1:
+                    parse_line_v1( line )
+                elif version == 2:
+                    parse_line_v2( line )
+                
+            if is_line_0:
+                is_line_0 = False
+                
+                
+            
     return bad_antenna_data
 
 def read_antenna_delays(fname):
     additional_ant_delays = {}
+    
+    def parse_line_v1(line):
+        ant_name, pol_E_delay, pol_O_delay = line.split()[0:3]
+        additional_ant_delays[ant_name] = [float(pol_E_delay), float(pol_O_delay)]
+        
+    def parse_line_v2(line):
+        ant_name, delay = line.split()[0:2]
+        pol = 0
+        if not util.antName_is_even(ant_name):
+            ant_name = util.even_antName_to_odd(ant_name)
+            pol = 1
+            
+        if ant_name not in additional_ant_delays:
+            additional_ant_delays[ant_name] = [0.0, 0.0]
+            
+        additional_ant_delays[ant_name][pol] = float(delay)
+    
+    parse_function = parse_line_v1
     with open(fname) as fin:
+        is_line_0=True
         for line in fin:
-            ant_name, pol_E_delay, pol_O_delay = line.split()[0:3]
-            additional_ant_delays[ant_name] = [float(pol_E_delay), float(pol_O_delay)]
+            if is_line_0 and line[0] == 'v':
+                if line[:2]=='v1':
+                    pass
+                elif line[:2]=='v2':
+                    parse_function = parse_line_v2
+            else:
+                parse_function(line)
+                
+            if is_line_0:
+                is_line_0 = False
+            
     return additional_ant_delays
 
 def read_station_delays(fname):
@@ -198,8 +253,8 @@ class TBBData_Dal1:
             
             
             
-        if self.have_metadata and not self.forcemetadata_delays:
-            self.calibrationDelays = np.empty( len(self.dipoleNames), dtype=np.double )
+        self.calibrationDelays = np.zeros( len(self.dipoleNames), dtype=np.double ) ## defined as callibration values in file. Never from external metadata!
+        if self.have_metadata:# and not self.forcemetadata_delays:
             
             for i,dipole in enumerate(self.dipoleNames):
                 self.calibrationDelays[i] = self.file[ self.stationKey ][dipole].attrs['DIPOLE_CALIBRATION_DELAY_VALUE']
@@ -285,11 +340,11 @@ class TBBData_Dal1:
         phase_calibration = phase_calibration[ self.antenna_filter ]
         return phase_calibration
     
-    def get_timing_callibration_delays(self):
+    def get_timing_callibration_delays(self, force_file_delays=False):
         """return the timing callibration of the anntennas, as a 1D np array. If not included in the metadata, will look
         for a data file in the same directory as this file. Otherwise returns None"""
         
-        if self.have_metadata and not self.forcemetadata_delays:
+        if (self.have_metadata and not self.forcemetadata_delays) or force_file_delays:
             return self.calibrationDelays
         else:
             fpath = os.path.dirname(self.filename) + '/'+self.StationName
@@ -317,7 +372,7 @@ class TBBData_Dal1:
                 
 class MultiFile_Dal1:
     """A class for reading the data from one station from multiple files"""
-    def __init__(self, filename_list, force_metadata_ant_pos=False, polarization_flips=None, bad_antennas=[], additional_ant_delays=None, station_delay=0.0, only_complete_pairs=True):
+    def __init__(self, filename_list, force_metadata_ant_pos=False, polarization_flips=None, bad_antennas=[], additional_ant_delays=None, station_delay=0.0, only_complete_pairs=True, pol_flips_are_bad=False):
         """filename_list:  list of filenames for this station for this event.
             force_metadata_ant_pos -if True, then load antenna positions from a metadata file and not the raw data file. Default False
             polarization_flips     -list of even antennas where it is known that even and odd antenna names are flipped in file. This is assumed to apply both to data and timing calibration
@@ -327,16 +382,24 @@ class MultiFile_Dal1:
                                         assumed to be found BEFORE antenna flips are accounted for
             station_delay          -a single number that represents the clock offset of this station, as a delay
             NOTE: polarization_flips, bad_antennas, additional_ant_delays, and station_delay can now be strings that are file names. If this is the case, they will be read automatically
-            only_complete_pairs    -if True, discards antenna if the other in pair is not present or is bad. If False, keeps all good antennas with a 'none' value if other antenna in pair is missing"""
+            only_complete_pairs    -if True, discards antenna if the other in pair is not present or is bad. If False, keeps all good antennas with a 'none' value if other antenna in pair is missing
+            pol_flips_are_bad      -if True, antennas that are in pol-flips are included in 'bad_antennas' 
+        NOTE: This always defaults to using antenna timing calibration from metadata."""
         
         self.files = [TBBData_Dal1(fname, force_metadata_ant_pos) for fname in filename_list]
         
         if isinstance(polarization_flips, str):
             polarization_flips = read_antenna_pol_flips( polarization_flips )
         if isinstance(bad_antennas, str):
-            bad_antennas = read_bad_antennas( read_bad_antennas )
+            bad_antennas = read_bad_antennas( bad_antennas )
         if isinstance(additional_ant_delays, str):
             additional_ant_delays = read_antenna_delays( additional_ant_delays )
+            
+        if polarization_flips is not None and pol_flips_are_bad:
+            for even_ant in polarization_flips:
+                bad_antennas.append( (even_ant,0) )
+                bad_antennas.append( (even_ant,1) )
+            polarization_flips = []
         
         #### get some data that should be constant #### TODO: change code to make use of getters
         self.antennaSet = self.files[0].antennaSet
@@ -561,6 +624,10 @@ class MultiFile_Dal1:
         """return the POSIX timestamp of the first data point"""
         return self.Time
     
+    def get_timestamp_as_datetime(self):
+        """return the POSIX timestampe of the first data point as a python datetime localized to UTC"""
+        return datetime.datetime.fromtimestamp( self.get_timestamp(), tz=datetime.timezone.utc )
+    
     def get_full_data_lengths(self):
         """get the number of samples stored for each antenna. Note that due to the fact that the antennas do not start recording
         at the exact same instant (in general), this full data length is not all usable
@@ -622,7 +689,7 @@ class MultiFile_Dal1:
                     
         return np.array(out)
     
-    def get_timing_callibration_delays(self, out=None):
+    def get_timing_callibration_delays(self, out=None, force_file_delays=False):
         """return the timing callibration of the anntennas, as a 1D np array. If not included in the metadata, will look
         for a data file in the same directory as this file. Otherwise returns None.
         if out is a numpy array, it is used to store the antenna delays, otherwise a new array is allocated. 
@@ -633,7 +700,7 @@ class MultiFile_Dal1:
             out = np.zeros( len(self.dipoleNames) )
         
         for TBB_file in self.files:
-            ret = TBB_file.get_timing_callibration_delays()
+            ret = TBB_file.get_timing_callibration_delays(force_file_delays)
             if ret is None:
                 return None
             
@@ -651,7 +718,7 @@ class MultiFile_Dal1:
                     if even_ant_name in self.additional_ant_delays:
                         if even_ant_name in self.even_ant_pol_flips:
                             antenna_polarization = int(not antenna_polarization)
-                        out[ant_i] += self.additional_ant_delays[ even_ant_name ][ antenna_polarization ] ## 90% sure this is correct sign
+                        out[ant_i] += self.additional_ant_delays[ even_ant_name ][ antenna_polarization ]
                         
         out[1::2] += self.odd_pol_additional_timing_delay
             
@@ -668,11 +735,17 @@ class MultiFile_Dal1:
         
         return delays
     
+    def get_time_from_second(self, out=None):
+        """ return the time (in units of seconds) since the second of each antenna (which should be get_timestamp). accounting for delays. This is literally just the oppisite of get_total_delays"""
+        out = self.get_total_delays(out)
+        out *= -1
+        return out
+    
     def get_geometric_delays(self, source_location, out=None, antenna_locations=None):
         """Calculate travel time from a XYZ location to each antenna. out can be an array of length equal to number of antennas. 
         antenna_locations is the table of antenna locations, given by get_LOFAR_centered_positions(). If None, it is calculated. Note that antenna_locations CAN be modified in this function.
         If antenna_locations is less then all antennas, then the returned array will be correspondingly shorter.
-        The output of this function plus get_total_delays plus emission time of the source is the time the source is seen on each antenna."""
+        The output of this function plus??? get_total_delays plus emission time of the source is the time the source is seen on each antenna."""
         
         if antenna_locations is None:
             antenna_locations = self.get_LOFAR_centered_positions()

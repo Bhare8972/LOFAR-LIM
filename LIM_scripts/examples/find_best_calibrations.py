@@ -21,13 +21,13 @@ from LoLIM.get_phase_callibration import get_station_history, get_ordered_revisi
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 
 if __name__ == "__main__":
     
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20190424T194432.504Z"
     output_folder = "/find_calibration_out"
     
     actually_find_callibration = True ## if true, loops over every astron callibration in time, and finds best
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     min_num_planewaves = 100
     RMS_cut = 1.0E-8
     
-    max_dt = timedelta(days = 365)
+    max_dt = timedelta(days = 2*365)
     
     initial_block = 3000
     number_of_blocks = 2000
@@ -71,7 +71,8 @@ if __name__ == "__main__":
     fpaths = filePaths_by_stationName(timeID)
     polarization_flips = processed_data_folder + '/' + "polarization_flips.txt"
     bad_antennas = processed_data_folder + '/' + "bad_antennas.txt"
-    additional_antenna_delays = processed_data_folder + '/' + "ant_delays.txt"
+   # additional_antenna_delays = processed_data_folder + '/' + "ant_delays.txt"
+    additional_antenna_delays = None
     
     
     station_log = logger()
@@ -80,8 +81,8 @@ if __name__ == "__main__":
         
         #### open the station
         
-        print("processing", sname)
         station_log.set(output_fpath+'/'+sname+'_log.txt')
+        print("processing", sname)
         
         TBB_data = MultiFile_Dal1( fpaths[sname], polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays )
     

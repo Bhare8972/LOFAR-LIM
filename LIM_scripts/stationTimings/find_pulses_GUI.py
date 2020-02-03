@@ -9,7 +9,7 @@
 ## include the stochastic fitter somehow
 ## try to have a guided pulse-finder
 ## metric to estimate "goodness" metric of the pulse shape?
-## essentually, try to automate things mroe, but one small step at a time
+## essentually, try to automate things more, but one small step at a time
 
 from os import listdir
 
@@ -85,11 +85,11 @@ class clock_offsets:
 class frames:
     """The frame is the set of stations and blocks that are presently being displayed. This class manages that"""
     
-    def __init__(self, initial_block, block_shift, station_names, max_num_stations, referance_station, block_size, num_blocks):
+    def __init__(self, initial_block, block_shift, station_names, max_num_stations, referance_station, display_block_size, num_blocks):
         self.current_block = initial_block
         self.current_set = 0
         self.block_shift = block_shift
-        self.block_size = block_size
+        self.display_block_size = display_block_size
         self.num_blocks = num_blocks
         
         self.station_sets = []
@@ -122,11 +122,14 @@ class frames:
     def decrement_block(self):
         self.current_block -= self.block_shift
         
+    def set_block(self, i):
+        self.current_block = i
+        
     def get_block(self):
         return self.current_block
     
     def get_T_bounds(self):
-        return self.current_block*5.0E-9*self.block_size, (self.current_block+self.num_blocks+1)*5.0E-9*self.block_size
+        return self.current_block*5.0E-9*self.display_block_size, (self.current_block+self.num_blocks+1)*5.0E-9*self.display_block_size
         
     def increment_station_set(self):
         self.current_set += 1
@@ -234,6 +237,22 @@ class pulses:
         
     def increment_pulse(self):
         self.set_current_event_index( self.current_event_index+1 )
+        
+    def set_unique_pulse_ID(self):
+        current_IDs = list( self.editable_pulses.keys() )
+        i = 0
+        while i in current_IDs:
+            i += 1
+        self.set_current_event_index( i )
+        
+    def print_pulse_info(self):
+        for ID, data in self.editable_pulses.items():
+            print()
+            print()
+            print("pulse", ID)
+            stations = list( data.keys() )
+            print("  ", len(stations), "stations saved:")
+            print("  ", stations)
         
     def select_pulse(self, station, minT, maxT):
         TBB_data = self.TBB_data_dict[station]
@@ -447,16 +466,44 @@ class pulses:
                         plt.annotate(str(pulse_I), (ave, height+0.5), fontsize=15)
                         
                         
-                        
+    def search_for_pulse(self, sname, I):
+        if I in self.editable_pulses:
+            return np.average( self.editable_pulses[I][sname][0] )
+        else:
+            print("cannot find pulse ", I)
+            return None
                         
                         
         
     
 class plot_stations:
     def __init__(self, timeID, guess_delays, block_size, initial_block, num_blocks, working_folder, other_folder=None, max_num_stations=np.inf, guess_location = None, 
-                bad_stations=[], polarization_flips="polarization_flips.txt", bad_antennas = "bad_antennas.txt", additional_antenna_delays = "ant_delays.txt",
+                bad_stations=[], polarization_flips="polarization_flips.txt", bad_antennas = "bad_antennas.txt", additional_antenna_delays = None,
                 do_remove_saturation = True, do_remove_RFI = True, positive_saturation = 2046, negative_saturation = -2047, saturation_post_removal_length = 50,
                 saturation_half_hann_length = 50, referance_station = "CS002", pulse_length=50, upsample_factor=4, min_antenna_amplitude=5, fix_polarization_delay=True):
+        
+        #### disable matplotlib shortcuts
+        plt.rcParams['keymap.save'] = ''
+        plt.rcParams['keymap.fullscreen'] = ''
+        plt.rcParams['keymap.home'] = ''
+        plt.rcParams['keymap.back'] = ''
+        plt.rcParams['keymap.forward'] = ''
+        plt.rcParams['keymap.pan'] = ''
+        plt.rcParams['keymap.zoom'] = ''
+        plt.rcParams['keymap.save'] = ''
+        plt.rcParams['keymap.quit_all'] = ''
+        plt.rcParams['keymap.grid'] = ''
+        plt.rcParams['keymap.grid_minor'] = ''
+        plt.rcParams['keymap.yscale'] = ''
+        plt.rcParams['keymap.xscale'] = ''
+        plt.rcParams['keymap.all_axes'] = ''
+        plt.rcParams['keymap.copy'] = ''
+
+#keymap.help : f1                    ## display help about active tools
+#keymap.quit : ctrl+w, cmd+w, q      ## close the current figure
+        
+        
+        
         
         self.pressed_data = None
         #guess_location = np.array(guess_location[:3])
@@ -470,13 +517,16 @@ class plot_stations:
         self.saturation_half_hann_length = saturation_half_hann_length
         self.do_remove_saturation = do_remove_saturation
         self.do_remove_RFI = do_remove_RFI
+        self.referance_station = referance_station
         
         #### open data ####
         processed_data_folder = processed_data_dir(timeID)
         polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + polarization_flips )
         bad_antennas = read_bad_antennas( processed_data_folder + '/' + bad_antennas )
-        additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + additional_antenna_delays )
-            
+        if additional_antenna_delays is not None:
+            additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + additional_antenna_delays )
+            print("WARNING: Additional antenna delays should probably be None!")
+                
         raw_fpaths = filePaths_by_stationName(timeID)
         station_names = [sname for sname in raw_fpaths.keys() if sname not in bad_stations]
         self.TBB_files = {sname:MultiFile_Dal1(raw_fpaths[sname], polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays) \
@@ -502,9 +552,13 @@ class plot_stations:
 #                    print("  ", delays[even_ant_i+1]-delays[even_ant_i])
             
         self.RFI_filters = {sname:window_and_filter(timeID=timeID,sname=sname) for sname in station_names}
+        self.edge_width = int( self.block_size*0.1 )
+        self.display_block_size = self.block_size - 2*self.edge_width
     
         #### some data things ####
         self.antenna_time_corrections = {sname:TBB_file.get_total_delays() for sname,TBB_file in self.TBB_files.items()}
+        self.ave_ref_ant_delay = np.average( self.antenna_time_corrections[ referance_station ] )
+        
 #        ref_antenna_delay = self.antenna_time_corrections[ referance_station ][0]
 #        for station_corrections in self.antenna_time_corrections.values():
 #            station_corrections -= ref_antenna_delay
@@ -522,7 +576,7 @@ class plot_stations:
         #### make managers
         guess_delays = {sname:delay for sname,delay in guess_delays.items() if sname not in bad_stations}
         self.clock_offset_manager = clock_offsets(referance_station, guess_delays, guess_location, self.TBB_files)
-        self.frame_manager = frames(initial_block, int(num_blocks/2), station_names, max_num_stations, referance_station, block_size, num_blocks)
+        self.frame_manager = frames(initial_block, int(num_blocks/2), station_names, max_num_stations, referance_station, self.display_block_size, num_blocks)
         
         rem_sat_curry = cur( remove_saturation, 5 )(positive_saturation=positive_saturation, negative_saturation=negative_saturation, post_removal_length=saturation_post_removal_length, half_hann_length=saturation_half_hann_length)
         self.pulse_manager = pulses(pulse_length=pulse_length, block_size=block_size, out_folder=working_folder, other_folder=other_folder, TBB_data_dict=self.TBB_files, used_delay_dict=self.antenna_time_corrections, 
@@ -532,7 +586,9 @@ class plot_stations:
         
         self.plot()
         
-        self.mode = 0 ##0 is change delay, 1 is set peak
+        self.mode = 0 ##0 is change delay, 1 is set peak, etc...
+        self.input_mode = 0 ## 0 is normal. press 's' to enter 1, where numbers are used to enter event. press 's' again to go back to 0, and search for event
+        self.search_string = ''
         self.rect_selector = RectangleSelector(plt.gca(), self.rectangle_callback, useblit=True, 
                                                rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
         
@@ -560,7 +616,7 @@ class plot_stations:
         print("plotting", sname)
         
         station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
-        antenna_delays = self.antenna_time_corrections[sname]
+        antenna_delays = self.antenna_time_corrections[sname] - self.ave_ref_ant_delay
         TBB_file = self.TBB_files[sname]
         RFI_filter = self.RFI_filters[sname]
         initial_block = self.frame_manager.get_block()
@@ -575,7 +631,8 @@ class plot_stations:
             delay_points = int(total_delay/5.0E-9)
             
             for block_i in range(self.num_blocks):
-                block_start = (block_i+initial_block)*self.block_size
+                #block_start = (block_i+initial_block)*self.block_size
+                block_start = (initial_block + block_i)*self.display_block_size
                 
                 ##### even #### 
                 self.temp_data_block[even_ant_i, block_i, :] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i)
@@ -610,7 +667,7 @@ class plot_stations:
                     station_max = peak
                     
         #### plot saturated bits ####
-        time_by_block = {block_i:(self.time_array + (block_i+initial_block)*self.block_size*5.0E-9) for block_i in range(self.num_blocks)}
+        time_by_block = {block_i:(self.time_array + (initial_block + block_i)*self.display_block_size*5.0E-9) for block_i in range(self.num_blocks)}
         for block_i, ranges in saturated_ranges.items():
             T = time_by_block[block_i]
             for imin,imax in ranges:
@@ -626,10 +683,10 @@ class plot_stations:
             odd_odd = pair_i*2 + 1
             
             for block_i in range(self.num_blocks):
-                block_start = (block_i+initial_block)*self.block_size
+                block_start = (initial_block + block_i)*self.display_block_size 
                 
-                even_trace = self.temp_data_block[even_ant, block_i]
-                odd_trace = self.temp_data_block[odd_odd, block_i]
+                even_trace = self.temp_data_block[even_ant, block_i][ self.edge_width:-self.edge_width  ]
+                odd_trace = self.temp_data_block[odd_odd, block_i][ self.edge_width:-self.edge_width ]
                 
                 even_trace /= station_max
                 odd_trace /= station_max
@@ -637,99 +694,161 @@ class plot_stations:
                 even_trace += height
                 odd_trace += height
                 
-                T = time_by_block[block_i]
+                T = time_by_block[block_i][ self.edge_width:-self.edge_width ]
                 plt.plot(T, even_trace, 'g')
                 plt.plot(T, odd_trace, 'm')
                 
         minT, maxT = self.frame_manager.get_T_bounds()
-        self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset)
+        self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset - self.ave_ref_ant_delay)
                 
     def key_press_event(self, event):
         ### modes ###
         print("letter:", event.key)
-        if event.key == '0':
-            self.mode=0
-            print("MODE: OFF")
-        elif event.key == '1':
-            self.mode=1
-            print("MODE: positive shift")
+        if self.input_mode == 0:
+            if event.key == '0':
+                self.mode=0
+                print("MODE: OFF")
+            elif event.key == '1':
+                self.mode=1
+                print("MODE: positive shift")
+                
+            elif event.key == '2':
+                self.mode=2
+                print("MODE: negative shift")
+                
+            elif event.key == 'z':
+                self.mode =3
+                print("MODE: zoom in")
+                
+            elif event.key == 'c':
+                self.mode =4
+                print("MODE: zoom out")
+                
+            elif event.key == '3':
+                self.mode=5
+                print("MODE: find pulse index", self.pulse_manager.current_event_index)
+                
+            ### change frame ###
+            elif event.key == 'w':
+                self.frame_manager.increment_station_set()
+                self.plot()
+                plt.draw()
+                
+            elif event.key == 'x':
+                self.frame_manager.decrement_station_set()
+                self.plot()
+                plt.draw()
+                
+            elif event.key == 'd':
+                self.frame_manager.increment_block()
+                self.plot()
+                plt.draw()
+                
+            elif event.key == 'a':
+                self.frame_manager.decrement_block()
+                self.plot()
+                plt.draw()
+                
+            elif event.key == 'e':
+                self.mode=6
+                print("MODE: erase pulse")
+                
+            elif event.key == 'i':
+                self.input_mode = 1
+                self.search_string = ''
+                print("WARNING: entering input mode, normal keys will not help you here!")
+                
+            ### other commands ###
+            elif event.key == 'j':
+                self.axes.set_xlim( self.home_lims[0][0], self.home_lims[0][1] )
+                self.axes.set_ylim( self.home_lims[1][0], self.home_lims[1][1] )
+                plt.draw()
+                
+            elif event.key == 'p':
+                self.clock_offset_manager.print_delays()
+                
+            elif event.key == 'b':
+                print('current block is', self.frame_manager.current_block)
+                
+            elif event.key == 'o':
+                self.pulse_manager.print_pulse_info()
+                
+            elif event.key == '+':
+                self.pulse_manager.increment_pulse()
+                
+            elif event.key == '-':
+                self.pulse_manager.decrement_pulse()
+                
+            elif event.key == 'n':
+                self.pulse_manager.set_unique_pulse_ID()
             
-        elif event.key == '2':
-            self.mode=2
-            print("MODE: negative shift")
-            
-        elif event.key == 'z':
-            self.mode =3
-            print("MODE: zoom in")
-            
-        elif event.key == 'c':
-            self.mode =4
-            print("MODE: zoom out")
-            
-        elif event.key == '3':
-            self.mode=5
-            print("MODE: find pulse index", self.pulse_manager.current_event_index)
-            
-        ### change frame ###
-        elif event.key == 'w':
-            self.frame_manager.increment_station_set()
-            self.plot()
-            plt.draw()
-            
-        elif event.key == 'x':
-            self.frame_manager.decrement_station_set()
-            self.plot()
-            plt.draw()
-            
-        elif event.key == 'd':
-            self.frame_manager.increment_block()
-            self.plot()
-            plt.draw()
-            
-        elif event.key == 'a':
-            self.frame_manager.decrement_block()
-            self.plot()
-            plt.draw()
-            
-        ### other commands ###
-        elif event.key == 'h':
-            self.axes.set_xlim( self.home_lims[0][0], self.home_lims[0][1] )
-            self.axes.set_ylim( self.home_lims[1][0], self.home_lims[1][1] )
-            plt.draw()
-            
-        elif event.key == 'p':
-            self.clock_offset_manager.print_delays()
-            
-        elif event.key == '+':
-            self.pulse_manager.increment_pulse()
-            
-        elif event.key == '-':
-            self.pulse_manager.decrement_pulse()
-            
-        elif event.key == 'e':
-            self.mode=6
-            print("MODE: erase pulse")
-            
-        elif event.key == 'q':
-            print("how to use:")
-            print(" press 'w' and 'x' to change group of stations. Referance station always stays at bottom")
-            print(" press 'a' and 'd' to view later or earlier blocks")
-            print(" 'p' prints current delays")
-            print(" hold middle mouse button and drag to translate view")
-            print(" there are multiple modes, that define what happens when main mouse button is dragged")
-            print("   '+' and '-' increase and decrease the pulse number that is being saved to.")
-            print("   'z' and 'c' enter zoom-in and zoom-out modes")
-            print("   '1' and '2' shift stations right or left, and adjust timing accordingly. (they shift the station below the mouse, so draw a horizontal line).")
-            print("   '3' selects pulses for all stations that the box crosses")
-            print("   'e' erases pulses, for the station immediatly below the mouse")
-            print("   '0' is 'off', nothing happens if you drag mouse")
-            print(" every selected pulse gets a red line, and an annotation on the referance station.")
-            print(" pulses from the other_folder get a black line")
-            print(" areas of the traces affected by saturation are covered by a red box")
-            
-            
-        else:
-            print("pressed:", event.key)
+            elif event.key == 'h':
+                print("how to use:")
+                print(" press 'w' and 'x' to change group of stations. Referance station always stays at bottom")
+                print(" press 'a' and 'd' to view later or earlier blocks")
+                print(" 'p' prints current delays")
+                print(" 'b' prints current block")
+                print(" 'o' prints current pulse info")
+                print(" hold middle mouse button and drag to translate view")
+                print(" j resets view (zoom and translate) back to default.")
+                print()
+                print(" there are multiple modes, that define what happens when main mouse button is dragged")
+                print("   '+' and '-' increase and decrease the pulse number that is being saved to.")
+                print("   'n' will set the pulse number to a new pulse.") ## TODO
+                print("   'z' and 'c' enter zoom-in and zoom-out modes")
+                print("   '1' and '2' shift stations right or left, and adjust timing accordingly. (they shift the station below the mouse, so draw a horizontal line).")
+                print("   '3' selects pulses for all stations that the box crosses")
+                print("   'e' erases pulses, for the station immediatly below the mouse")
+                print("   '0' is 'off', nothing happens if you drag mouse")
+                print()
+                print(" every selected pulse gets a red line, and an annotation on the referance station.")
+                print(" pulses from the other_folder get a black line")
+                print(" areas of the traces affected by saturation are covered by a red box")
+                print()
+                print(" in order to search for a particular pulse, enter 'input mode' by pressing 'i'")
+                print("    then type the index of the event you want to search for")
+                print("    press 'i' again to finish and center on the event")
+                print(" in order to jump to a different block, enter 'input mode' by pressing 'i'")
+                print("    then type the number of the block you want to jump to")
+                print("    then press 'j' to do the jump")
+                
+            else:
+                print("pressed:", event.key, ". press 'h' for help")
+                
+        elif self.input_mode == 1:
+            if event.key in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']:
+                self.search_string += event.key
+                print('input number:', self.search_string)
+                
+            elif event.key == 'i':
+                try:
+                    index = int(self.search_string)
+                except:
+                    print("not a valid index")
+                else:
+                    T = self.pulse_manager.search_for_pulse(  self.referance_station, index )
+                    if T is not None:
+                        ## the "delay" for ref-station is zero, so do not delete it
+                        print('showning event:', index)
+                        T += self.ave_ref_ant_delay
+                        block = int(T/(self.display_block_size*5.0E-9)) - 1
+                        self.frame_manager.set_block(block)
+                        self.plot()
+                        plt.draw()
+                self.search_string = ''
+                self.input_mode = 0
+            elif event.key == 'j':
+                try:
+                    index = int(self.search_string)
+                except:
+                    print("not a block number")
+                else:
+                    print('going to block:', index)
+                    self.frame_manager.set_block(index)
+                    self.plot()
+                    plt.draw()
+                self.search_string = ''
+                self.input_mode = 0
             
             
             
@@ -750,6 +869,7 @@ class plot_stations:
             relea_H = -1
         
         if self.mode==1 and click_H==relea_H:
+            ## add positive shift
             station = self.frame_manager.sname_from_index( click_H )
             offset = erelease.xdata - eclick.xdata
             new_offsets, replot_all = self.clock_offset_manager.shift_data_right(station, np.abs(offset) )
@@ -761,6 +881,7 @@ class plot_stations:
             plt.draw()
             
         elif self.mode==2 and click_H==relea_H:
+            ## add negative shift
             station = self.frame_manager.sname_from_index( click_H )
             offset = erelease.xdata - eclick.xdata
             new_offsets, replot_all = self.clock_offset_manager.shift_data_right(station, -np.abs(offset) )
@@ -772,6 +893,7 @@ class plot_stations:
             plt.draw()
             
         elif self.mode==3:
+            ## zoom in 
             minX = min(eclick.xdata, erelease.xdata)
             maxX = max(eclick.xdata, erelease.xdata)
             minY = min(eclick.ydata, erelease.ydata)
@@ -781,6 +903,7 @@ class plot_stations:
             plt.draw()
             
         elif self.mode==4:
+            ## zoom out
             minX = min(eclick.xdata, erelease.xdata)
             maxX = max(eclick.xdata, erelease.xdata)
             minY = min(eclick.ydata, erelease.ydata)
@@ -805,6 +928,7 @@ class plot_stations:
             plt.draw()
             
         elif self.mode==5:
+            ## select pulse
             min_H = min(click_H, relea_H )
             max_H = max(click_H, relea_H )
             minT = min(eclick.xdata, erelease.xdata)
@@ -814,7 +938,7 @@ class plot_stations:
                 if station is None:
                     continue
                 print(station, H)
-                delay = self.clock_offset_manager.get_visual_offsets()[station]
+                delay = self.clock_offset_manager.get_visual_offsets()[station] - self.ave_ref_ant_delay
                 self.pulse_manager.select_pulse(station, minT+delay, maxT+delay)
                 
             Xlims, Ylims = self.axes.get_xlim(), self.axes.get_ylim()
@@ -824,13 +948,14 @@ class plot_stations:
             plt.draw()
             
         elif self.mode==6 and click_H==relea_H:
+            ## erase pulse
             station = self.frame_manager.sname_from_index( click_H )
             minT = min(eclick.xdata, erelease.xdata)
             maxT = max(eclick.xdata, erelease.xdata)
             if station is None:
                 return
             
-            delay = self.clock_offset_manager.get_visual_offsets()[station]
+            delay = self.clock_offset_manager.get_visual_offsets()[station] - self.ave_ref_ant_delay
             self.pulse_manager.erase_pulse(station, minT+delay, maxT+delay)
                 
             Xlims, Ylims = self.axes.get_xlim(), self.axes.get_ylim()

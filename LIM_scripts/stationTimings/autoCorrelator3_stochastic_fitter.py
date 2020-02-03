@@ -5,12 +5,12 @@ import time
 from os import mkdir, listdir
 from os.path import isdir, isfile
 from itertools import chain
-from pickle import load
+#from pickle import load
 
 #external
 import numpy as np
 from scipy.optimize import least_squares, minimize, approx_fprime
-from scipy.signal import hilbert
+#from scipy.signal import hilbert
 from matplotlib import pyplot as plt
 
 
@@ -20,12 +20,12 @@ import h5py
 #mine
 from LoLIM.prettytable import PrettyTable
 from LoLIM.utilities import logger, processed_data_dir, v_air, SId_to_Sname, Sname_to_SId_dict, RTD
-from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
-from LoLIM.antenna_response import LBA_ant_calibrator
+#from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
+#from LoLIM.antenna_response import LBA_ant_calibrator
 from LoLIM.porta_code import code_logger, pyplot_emulator
-from LoLIM.signal_processing import parabolic_fit, remove_saturation, data_cut_at_index
+#from LoLIM.signal_processing import parabolic_fit, remove_saturation, data_cut_at_index
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
-from LoLIM.findRFI import window_and_filter
+#from LoLIM.findRFI import window_and_filter
 from LoLIM.stationTimings.autoCorrelator_tools import stationDelay_fitter
 #from RunningStat import RunningStat
 
@@ -1427,7 +1427,6 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
     
     
     
-    
     #### sort antennas and stations ####
     station_order = list(guess_timings.keys())## note this doesn't include reference station
     sorted_antenna_names = []
@@ -1530,249 +1529,6 @@ def run_fitter(timeID, output_folder, pulse_input_folders, guess_timings, souces
         print(source.ID, rel_loc-source.guess_XYZT)
     
     
-    
-#if __name__ == "__main__": 
-#    timeID = "D20180813T153001.413Z"
-#    output_folder = "autoCorrelator_fitter"
-#    
-#    part1_inputs = ["correlate_foundPulses"]
-#    
-#    
-#    #### fitter settings ####
-#    max_itters_per_loop = 2000
-#    itters_till_convergence = 100
-#    max_jitter_width = 100000E-9
-#    min_jitter_width = 1E-9
-#    cooldown = 10.0 ## 10.0
-#    strong_cooldown = 100.0
-#    
-##    ## quality control
-#    min_antenna_amplitude = 10
-#    
-#    #### initial guesses ####
-#    referance_station = "CS002"
-#    
-#    guess_timings = {
-##'RS305' :  7.20258598963e-06 , ## diff to guess: 1.37699440122e-09 ## station has issues
-#
-#'CS001' :  2.24401370043e-06 , ## diff to guess: 1.29235299643e-11
-#'CS003' :  1.40707229239e-06 , ## diff to guess: 7.82040168843e-12
-#'CS004' :  4.40099666751e-07 , ## diff to guess: 9.61678512336e-12
-#'CS005' :  -2.17656598125e-07 , ## diff to guess: 4.84705827503e-12
-#'CS006' :  4.3066400857e-07 , ## diff to guess: 4.14197713031e-12
-#'CS007' :  3.99397678429e-07 , ## diff to guess: 5.94789283395e-12
-#'CS011' :  -5.89552623913e-07 , ## diff to guess: 7.1660845422e-12
-#'CS013' :  -1.81291223725e-06 , ## diff to guess: 1.51169225377e-11
-#'CS017' :  -8.4552014264e-06 , ## diff to guess: 2.2686025574e-11
-#'CS021' :  9.23663075135e-07 , ## diff to guess: 0.0
-#'CS024' :  2.33044421347e-06 , ## diff to guess: 1.05806343653e-11
-#'CS026': 0.0,
-#'CS030' :  -2.73967591383e-06 , ## diff to guess: 5.67213694396e-11
-#'CS031':    0.0,
-#'CS032' :  8.13571009217e-07 , ## diff to guess: 7.6275878917e-11
-#'CS101' :  -8.21547824735e-06 , ## diff to guess: 5.62878278313e-11
-#'CS103' :  -2.85886460604e-05 , ## diff to guess: 3.66485536647e-10
-#'CS201' :  -1.0510490799e-05 , ## diff to guess: 7.84117944321e-11
-#'CS301' :  -6.87213017423e-07 , ## diff to guess: 1.12597989423e-11
-#'CS302' :  -5.26869559665e-06 , ## diff to guess: 2.91420217558e-10
-#'CS501' :  -9.63030140489e-06 , ## diff to guess: 1.96524840723e-11
-#'RS106' :  6.77057764028e-06 , ## diff to guess: 8.64777505687e-09
-#'RS205' :  7.09038531806e-06 , ## diff to guess: 4.90898285216e-10
-#'RS306' :  7.39624369246e-06 , ## diff to guess: 1.00577633859e-08
-#'RS307' :  7.75277120373e-06 , ## diff to guess: 3.30790236347e-08
-#'RS310' :  7.48047034028e-06 , ## diff to guess: 2.75667095084e-07
-#'RS406' :  6.95643701513e-06 , ## diff to guess: 5.33683986172e-09
-#'RS407' :  6.82677458363e-06 , ## diff to guess: 2.2068065121e-09
-#'RS409' :  7.27907399068e-06 , ## diff to guess: 8.93964436744e-08
-#'RS503' :  6.92357363203e-06 , ## diff to guess: 2.13873992035e-10
-#'RS508' :  6.36091523007e-06 , ## diff to guess: 0.000429378832772
-#        }
-#
-#        
-#    if referance_station in guess_timings:
-#        ref_T = guess_timings[referance_station]
-#        guess_timings = {station:T-ref_T for station,T in guess_timings.items() if station != referance_station}
-#        
-##        del guess_timings[referance_station]
-#    
-#    
-#    known_sources = [0, 10] ## note that the index here is file_index + source_index*10
-#    
-#    ### locations of fitted sources
-#    known_source_locations = {
-# 0 :[ 2.82860910223 , -50739.3349291 , 0.0 , 1.56124937368 ],
-#10 :[ 2.82860910223 , -50739.3349291 , 0.0 , 1.56124937368 ],
-#    }
-#    
-#    ### polarization of fitted sources
-#    known_polarizations = {
-# 0 : 0 ,
-#10 : 0 ,
-#    }
-#    
-#    
-#    ## these are stations to exclude
-#    stations_to_exclude = {
-#            0:[],
-#           10:["CS302", "CS301", "CS031", "CS026","RS106","RS205","RS306","RS307","RS310","RS406","RS407","RS409","RS503","RS508", "CS101", "CS032", "CS030"],
-#            }
-#    
-#    antennas_to_exclude = {
-#            0:[],
-#           10:[],
-#            }
-#    
-#    
-#    bad_antennas = [
-#            ##CS002
-#            ##CS003
-#            ##CS004
-#            ##CS005
-#            ##CS006
-#            ##CS007
-#            ##CS011
-#            ##CS013
-#            ##CS017
-#            ##CS021
-#            ##CS030
-#            ##CS032
-#            ##CS101
-#            ##CS103
-#            ##CS301
-#            ##CS302
-#            ##CS401
-#            ##CS501
-#            ##RS208
-#            ##RS306
-#            ##RS307
-#            ##RS310
-#            ##RS406
-#            ##RS409
-#            ##RS503  
-#            ##RS508
-#            ##RS509
-#                    ]
-#    
-#    #### setup directory variables ####
-#    processed_data_dir = processed_data_dir(timeID)
-#    
-#    data_dir = processed_data_dir + "/" + output_folder
-#    if not isdir(data_dir):
-#        mkdir(data_dir)
-#        
-#    logging_folder = data_dir + '/logs_and_plots'
-#    if not isdir(logging_folder):
-#        mkdir(logging_folder)
-#
-#
-#
-#    #Setup logger and open initial data set
-#    log.set(logging_folder + "/log_out.txt") ## TODo: save all output to a specific output folder
-#    log.take_stderr()
-#    log.take_stdout()
-#    
-#        #### open data and data processing stuff ####
-#    print("loading data")
-#    raw_fpaths = filePaths_by_stationName(timeID)
-#    raw_data_files = {sname:MultiFile_Dal1(fpaths, force_metadata_ant_pos=True) for sname,fpaths in raw_fpaths.items() if sname in chain(guess_timings.keys(), [referance_station]) }
-#    
-#    
-#    
-#    
-#    #### sort antennas and stations ####
-#    station_order = list(guess_timings.keys())## note this doesn't include reference station
-#    sorted_antenna_names = []
-#    station_to_antenna_index_dict = {}
-#    ant_loc_dict = {}
-#    
-#    for sname in station_order + [referance_station]:
-#        first_index = len(sorted_antenna_names)
-#        
-#        stat_data = raw_data_files[sname]
-#        even_ant_names = stat_data.get_antenna_names()[::2]
-#        even_ant_locs = stat_data.get_LOFAR_centered_positions()[::2]
-#        
-#        sorted_antenna_names += even_ant_names
-#        
-#        for ant_name, ant_loc in zip(even_ant_names,even_ant_locs):
-#            ant_loc_dict[ant_name] = ant_loc
-#                
-#        station_to_antenna_index_dict[sname] = (first_index, len(sorted_antenna_names))
-#    
-#    ant_locs = np.zeros( (len(sorted_antenna_names), 3))
-#    for i, ant_name in enumerate(sorted_antenna_names):
-#        ant_locs[i] = ant_loc_dict[ant_name]
-#    
-#    station_locations = {sname:ant_locs[station_to_antenna_index_dict[sname][0]] for sname in station_order + [referance_station]}
-#    station_to_antenna_index_list = [station_to_antenna_index_dict[sname] for sname in station_order + [referance_station]]
-#    
-#    
-#    #### sort the delays guess, and account for station locations ####
-#    current_delays_guess = np.array([guess_timings[sname] for sname in station_order])
-#    original_delays = np.array( current_delays_guess )        
-#    
-#    
-#    
-#    
-#    #### open info from part 1 ####
-#
-#    input_manager = Part1_input_manager( part1_inputs )
-#
-#
-#
-#    #### first we fit the known sources ####
-#    current_sources = []
-##    next_source = 0
-#    for knownID in known_sources:
-#        
-#        source_ID, input_name = input_manager.known_source( knownID )
-#        
-#        print("prep fitting:", source_ID)
-#            
-#            
-#        location = known_source_locations[source_ID]
-#        
-#        ## make source
-#        source_to_add = source_object(source_ID, input_name, location, stations_to_exclude[source_ID], antennas_to_exclude[source_ID] )
-#        current_sources.append( source_to_add )
-#
-#
-#        polarity = known_polarizations[source_ID]
-#
-#            
-#        source_to_add.prep_for_fitting(polarity)
-#        
-#    print()
-#    print("fitting known sources")
-##    fitter = stochastic_fitter(current_sources)
-#    fitter = stochastic_fitter_dt(current_sources)
-##    fitter = stochastic_fitter_FitLocs(current_sources)
-#    
-#    fitter.employ_result( current_sources )
-#    stations_with_fits = fitter.get_stations_with_fits()
-#    
-#    print()
-#    fitter.print_locations( current_sources )
-#    print()
-#    fitter.print_station_fits( current_sources, num_stat_per_table )
-#    print()
-#    fitter.print_delays( original_delays )
-#    print()
-#    print()
-#    
-#    print("locations")
-#    for source in current_sources:
-#        print(source.ID,':[', source.guess_XYZT[0], ',', source.guess_XYZT[1], ',', source.guess_XYZT[2], ',', source.guess_XYZT[3], '],')
-#    
-#    print()
-#    print()
-#    print("REL LOCS")
-#    rel_loc = current_sources[0].guess_XYZT
-#    for source in current_sources:
-#        print(source.ID, rel_loc-source.guess_XYZT)
-#    
-        
-        
     
     
     

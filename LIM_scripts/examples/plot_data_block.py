@@ -15,13 +15,15 @@ from LoLIM.findRFI import window_and_filter
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+#utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
-    station = "RS205"
-    point = int( 4*(2**16) )
+    timeID = "D20190424T194432.504Z"
+    station = "RS509"
+    point = int( 3000*(2**16) )
+#    point = int( 3700*(2**16) )
     block_size = 2**16
     
     bad_antennas = 'bad_antennas.txt'
@@ -56,6 +58,7 @@ if __name__ == "__main__":
         remove_saturation(data, positive_saturation, negative_saturation, saturation_post_removal_length, saturation_half_hann_length)
         filtered_data = RFI_filter.filter( data )
         even_HE = np.abs(filtered_data)
+        even_real = np.real(filtered_data)
         
         #plt.plot(data)
         
@@ -71,5 +74,8 @@ if __name__ == "__main__":
         plt.plot(T, even_HE+H, 'r' )
         plt.plot(T, odd_HE+H, 'g' )
         H += peak
+#        plt.plot(T, even_HE+H, 'C1', linewidth=3 )
+#        plt.plot(T, even_real+H, 'C0', linewidth=3 )
+#        H += 3*peak
             
     plt.show()

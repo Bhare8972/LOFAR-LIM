@@ -4,6 +4,7 @@ from os import mkdir, listdir
 from os.path import isdir, isfile
 #import time
 from collections import deque
+import datetime
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -119,6 +120,8 @@ class make_header:
         ref_station_i = None
         referance_station_set = None
         station_i = 0
+        self.posix_timestamp = None
+        
         for station, fpaths  in raw_fpaths.items():
             if (station in station_timing_offsets) and (station not in self.stations_to_exclude ):
                 print('opening', station)
@@ -128,6 +131,12 @@ class make_header:
                 
                 raw_data_file.set_station_delay( station_timing_offsets[station] )
                 raw_data_file.find_and_set_polarization_delay()
+                
+                if self.posix_timestamp is None:
+                    self.posix_timestamp = raw_data_file.get_timestamp()
+                elif self.posix_timestamp != raw_data_file.get_timestamp():
+                    print("ERROR: POSIX timestamps are different")
+                    quit()
                 
                 if self.referance_station is None:
                     if (referance_station_set is None) or ( int(station[2:]) < int(referance_station_set[2:]) ): ## if no referance station, use one with smallist number
@@ -230,7 +239,7 @@ class make_header:
         header_outfile.attrs["minimize_gtol"] = self.minimize_gtol
         
         header_outfile.attrs["refStat_delay"] = station_timing_offsets[  self.station_data_files[0].get_station_name()  ]
-        header_outfile.attrs["refStat_timestamp"] = self.station_data_files[0].get_timestamp()
+        header_outfile.attrs["refStat_timestamp"] = self.posix_timestamp#self.station_data_files[0].get_timestamp()
         header_outfile.attrs["refStat_sampleNumber"] = self.station_data_files[0].get_nominal_sample_number()
         
         header_outfile.attrs["stations_to_exclude"] = np.array(self.stations_to_exclude, dtype='S')
@@ -281,7 +290,8 @@ class read_header:
         self.timeID = header_infile.attrs['timeID']
         self.initial_datapoint = header_infile.attrs["initial_datapoint"]
         self.max_antennas_per_station = header_infile.attrs["max_antennas_per_station"]
-        self.referance_station = header_infile.attrs["referance_station"]#.decode()
+        if "referance_station" in header_infile.attrs:
+            self.referance_station = header_infile.attrs["referance_station"]#.decode()
         
         self.station_delays_fname = header_infile.attrs["station_delays_fname"]#.decode()
         self.additional_antenna_delays_fname = header_infile.attrs["additional_antenna_delays_fname"]#.decode()
@@ -473,7 +483,11 @@ class read_header:
         return fname
         
     
-    ##### INFO TO LOAD DATA  #####
+    ##### INFO TO LOAD DATA  ####
+    
+    def timestamp_as_datetime(self):
+        return datetime.datetime.fromtimestamp( self.refStat_timestamp, tz=datetime.timezone.utc )
+    
     class PSE_source:
         def __init__(self):
             self.ID = None
@@ -486,6 +500,7 @@ class read_header:
             self.refAmp = None
             self.numThrows = None
             self.cov_matrix = np.empty( (3,3), dtype=np.double )
+            self.__cov_eig__ = None
             
         def in_BoundingBox(self, BB):
             inX = BB[0,0] <= self.XYZT[0] <= BB[0,1]
@@ -496,11 +511,19 @@ class read_header:
         
         def cov_eig(self):
             """returns np.eig( cov_matrix ). Returns None if cov_matrix isn't finite"""
-            if not np.all( np.isfinite(self.cov_matrix) ):
-                return None
-            else:
-                return np.linalg.eig(self.cov_matrix)
+            if self.__cov_eig__ is None:
+                if not np.all( np.isfinite(self.cov_matrix) ):
+                    self.__cov_eig__ = None
+                else:
+                    self.__cov_eig__ = np.linalg.eig(self.cov_matrix)
+            return self.__cov_eig__
         
+        def max_sqrtEig(self):
+            cov_eigs = self.cov_eig()
+            if cov_eigs is None:
+                return np.inf
+            else:
+                return np.sqrt(np.max(cov_eigs[0]))
         
     def load_data_as_sources(self, maxRMS=None, maxRChi2=None, minRS=None, minAmp=None, bounds=None ):
         """returns sources as deques"""
@@ -635,8 +658,8 @@ class raw_data_manager:
             self.station_locations[ stat_i ] = np.average( self.antenna_locations[ first_ant_i:next_ant_i ], axis=0 )
             self.station_to_antSpan[ stat_i, 0] = first_ant_i
             self.station_to_antSpan[ stat_i, 1] = next_ant_i
-            self.is_RS[ stat_i ] = sname[:2]=='RS'
-                
+            self.is_RS[ stat_i ] = sname[:2]=='RS'       
+        
         #### allocate memory ####
         self.raw_data = np.empty( [header.num_total_antennas,self.blocksize], dtype=np.complex )
         self.tmp_workspace = np.empty( self.blocksize, dtype=np.complex )
@@ -877,6 +900,12 @@ class planewave_locator:
         ref_time = self.start_times[ self.ref_ant_i ]
         
         ## get data from all other antennas
+        traces = [None for i in range(len(self.start_times))]
+        traces[ self.ref_ant_i ] = ref_trace
+        self.cal_delta_storage[ self.ref_ant_i ] = 0.0
+        self.measured_dt[ self.ref_ant_i ] = 0.0 ## ??
+        self.workspace[ self.ref_ant_i ] = 0.0 ##??
+
         for i, (data,start_time) in enumerate(zip(self.data_block,self.start_times)):
             if i == self.ref_ant_i:
                 self.antenna_mask[i] = 0
@@ -899,6 +928,8 @@ class planewave_locator:
                 self.antenna_mask[i] = False
                 continue
             
+            traces[i] = trace
+            
             cross_corelation = self.correlator.correlate( trace )
             CC_length = len(cross_corelation)
             np.abs(cross_corelation, out = self.cross_correlation_storage[i, :CC_length])
@@ -917,7 +948,7 @@ class planewave_locator:
         
         ## now run minimizer
         succeeded, RMS = self.locator.run_minimizer( self.ZeAz, self.max_itters, self.xtol, self.gtol, self.ftol)
-        
+    
         return self.ZeAz, RMS, self.measured_dt, self.antenna_mask, N
     
     def num_itters(self):
@@ -1254,7 +1285,7 @@ class iterative_mapper:
 #                if planewave_num_ants > 3:
                 self.reload_data()
 #                else:
-#                    self.reload_data_and_plot(old_red_chi_sq)
+#                self.reload_data_and_plot(current_red_chi_sq)
                 
 #                if 190 <= event_i <= 194:
 #                    self.reload_data_and_plot( current_red_chi_sq )

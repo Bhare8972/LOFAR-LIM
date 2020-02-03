@@ -77,7 +77,6 @@ def get_phase_callibration(station, revision, folder, mode=None, force=False):
                            "HBA": "HBA-110_190"}[ mode ] ## this seems like a wierd way to do this.....
         stationNr = station[2:] ## oddly not the stationID
         
-        
         cmd = "svn export"+force_CMD+"-r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+ '/CalTable-' + stationNr + '-' + mode_name + '.dat'+" "+folder+'/'+station + '/CalTable-' + stationNr + '-' + mode_name + '.dat'
     else:
         cmd = "svn export"+force_CMD+"-r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+" "+folder+'/'+station

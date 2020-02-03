@@ -8,6 +8,7 @@ import os
 
 from time import sleep
 from pickle import dumps, loads
+import datetime
 
 import matplotlib
 # Make sure that we are using QT5
@@ -25,7 +26,6 @@ import matplotlib.colors as colors
 
 ## mine
 from LoLIM.utilities import v_air, processed_data_dir
-from LoLIM.read_LMA import read_LMA_folder_data
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
     cmap = plt.get_cmap(cmap_name)
@@ -1437,6 +1437,44 @@ def IPSE_to_DataSet(IPSE, name, cmap, marker='s', marker_size=5, color_mode='tim
                                        source_IDs = uniqueID
                                        )
     return new_dataset
+
+def LMA_to_DataSet(LMA_data, name, cmap, zero_datetime, marker='s', marker_size=5, color_mode='time'):
+    """ note that zero_datetime should be a python datetime.datetime object"""
+    X = np.empty(len(LMA_data), dtype=np.double)
+    Y = np.empty(len(LMA_data), dtype=np.double)
+    Z = np.empty(len(LMA_data), dtype=np.double)
+    T = np.empty(len(LMA_data), dtype=np.double)
+    power = np.empty(len(LMA_data), dtype=np.double)
+    red_chi_squared = np.empty(len(LMA_data), dtype=np.double)
+    ID = np.empty(len(LMA_data), dtype=np.int)
+    
+    midnight_datetime = datetime.datetime.combine(zero_datetime.date(),  datetime.time(0), tzinfo= datetime.timezone.utc )
+    
+    for i,source in enumerate(LMA_data):
+        XYZ = source.get_XYZ()
+        X[i] = XYZ[0]
+        Y[i] = XYZ[1]
+        Z[i] = XYZ[2]
+        
+        TD = datetime.timedelta(seconds = source.time_of_day)
+        excess = source.time_of_day - TD.total_seconds() 
+        
+        source_datetime = midnight_datetime + TD
+        source_time = (source_datetime - zero_datetime).total_seconds() + excess
+        T[i] = source_time
+        
+        power[i] = source.power
+        red_chi_squared[i] = source.red_chi_squared
+        ID[i] = i
+    
+    new_dataset = DataSet_generic_PSE( X, Y, Z, T,
+                                       marker=marker, marker_size=marker_size, color_mode=color_mode, 
+                                       name=name, cmap=cmap,
+                                       min_filters = {'power':power},
+                                       max_filters = {'red. chi sq.':red_chi_squared},
+                                       source_IDs = ID
+                                       )
+    return new_dataset
  
 def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mode='time', eigMode='normal'):
     X = np.empty(len(iterPSE), dtype=np.double)
@@ -1449,6 +1487,7 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
     numRS = np.empty(len(iterPSE), dtype=np.int)
     block = np.empty(len(iterPSE), dtype=np.int)
     ID = np.empty(len(iterPSE), dtype=np.int)
+    blockID = np.empty(len(iterPSE), dtype=np.int)
     numThrows = np.empty(len(iterPSE), dtype=np.int)
     
     eigMode = {'normal':1}[eigMode]
@@ -1463,6 +1502,7 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
         numRS[i] = itPSE.numRS
         block[i] = itPSE.block
         ID[i] = itPSE.uniqueID
+        blockID[i] = itPSE.ID
         numThrows[i] = itPSE.numThrows
         
         if eigMode == 1:
@@ -1484,7 +1524,7 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
                                        name=name, cmap=cmap,
                                        min_filters = {'amp':RefAmp, 'numRS':numRS},
                                        max_filters = {'RMS':RMS, 'sqrtEig':maxSqrtEig, 'numThrows':numThrows},
-                                       print_info = {'block':block},
+                                       print_info = {'block':block, 'blockID':blockID},
                                        source_IDs = ID
                                        )
     return new_dataset

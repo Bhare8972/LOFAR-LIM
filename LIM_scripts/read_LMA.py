@@ -9,9 +9,97 @@ from LoLIM.IO.metadata import geoditic_to_ITRF, convertITRFToLocal
 
 class LMA_header:
     """LMA header data. Doesn't do much yet"""
-    def __init__(self):
-        pass
-
+    
+    class ant_info:
+        def __init__(self, line):
+            data = line.split()
+            self.id = data[1]
+            self.name = data[2]
+            self.lat = float(data[3])
+            self.lon = float(data[4])
+            self.alt = float(data[5])
+            self.antenna_delay = float(data[6])
+            self.board_rev = int(data[7])
+            self.rec_ch = int(data[8])
+    
+    def __init__(self, fin):
+        self.file_name = fin.name
+        
+        self.antenna_info_list = [] ##NOTE: order is critical!
+        
+        for line in fin:
+            line = line.decode()
+            
+            if len(line)>17 and line[:17]=='Number of events:':
+                self.number_events = int( line[17:] )
+                return
+            elif len(line)>9 and line[:9]=="Sta_info:":
+                new_antenna = LMA_header.ant_info( line )
+                self.antenna_info_list.append( new_antenna )
+                
+    def read_aux_file(self, fname=None):
+        
+        class aux_data:
+            def __init__(self, peak_times, raw_powers, above_thresholds, upper_covariance_tri):
+                self.peak_times = peak_times
+                self.raw_powers = raw_powers
+                self.above_thresholds = above_thresholds
+                self.upper_covariance_tri = upper_covariance_tri
+        
+        if fname is not None:
+            new_fname = fname
+        else:
+            new_fname = self.file_name.replace('dat', 'aux')
+        
+        if new_fname[-3:] =='.gz':
+            func = gzip.open
+            symbol = 'rb'
+        else:
+            func = open
+            symbol = 'r'
+            
+        return_data = []
+            
+        with func(new_fname, symbol) as file:
+            
+            for line in file:
+                line = line.decode()
+                
+                if len(line)>=12 and line[:12] == "*** data ***":
+                    break
+                
+            for source_i in range(self.number_events):
+                peak_times = file.readline().decode().split()
+                raw_powers = file.readline().decode().split()
+                above_threshold = file.readline().decode().split()
+                upper_tri_covariance = file.readline().decode().split()
+                
+                N = len(peak_times)
+                if N != len(self.antenna_info_list):
+                    print("ERROR A")
+                    quit()
+                if N != len(raw_powers):
+                    print("ERROR B")
+                    quit()
+                if N != len(above_threshold):
+                    print("ERROR C")
+                    quit()
+                if len(upper_tri_covariance) != 10:
+                    print("ERROR D")
+                    quit()
+                    
+                peak_times = np.array([float(d) for d in peak_times])
+                raw_powers = np.array([int(d) for d in raw_powers])
+                above_threshold = np.array([int(d) for d in above_threshold])
+                upper_tri_covariance = np.array([float(d) for d in upper_tri_covariance])
+                    
+                new_data = aux_data(peak_times, raw_powers, above_threshold, upper_tri_covariance)
+                return_data.append( new_data )
+                
+        return return_data
+                    
+            
+            
 class LMA_source:
     def __init__(self, header):
         self.header = header
@@ -45,7 +133,6 @@ def LMA_fname_info(fname):
     return array_name, date, time, int(seconds_processed), is_gzip
     
 def read_LMA_file_data(fname):
-    header = LMA_header()
     source_list = []
     
     is_gzip = fname[-3:] =='.gz'
@@ -58,10 +145,13 @@ def read_LMA_file_data(fname):
     
     status = 0 ## 0 means read header, 1 means read source
     with func(fname, symbol) as file:
-        for line_number, line in enumerate(file):
+        
+        header = LMA_header(file)
+        
+        for line in file:
             line = line.decode()
             
-            if line[:12] == "*** data ***":
+            if len(line)>=12 and line[:12] == "*** data ***":
                 status = 1
             elif status==0:
                 pass ## nothing here yet

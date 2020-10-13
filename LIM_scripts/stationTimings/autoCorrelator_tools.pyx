@@ -356,6 +356,76 @@ cdef class delay_fitter:
         #print(diffs)
         return np.sqrt( np.sum(diffs)/num_DOF )
     
+    def print_antenna_info(self, int antenna_index, np.ndarray[double , ndim=1] guess):
+        
+        cdef double[:] station_delays = guess[ : self.num_station_delays]
+        cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:] event_XYZTs = guess[self.num_station_delays+self.num_antenna_recalibrations : ]
+            
+        cdef double antX = self.antenna_locations[antenna_index, 0]
+        cdef double antY = self.antenna_locations[antenna_index, 1]
+        cdef double antZ = self.antenna_locations[antenna_index, 2]
+        print("antenna XYZ")
+        print(" ", antX, antY, antZ)
+        
+        
+        cdef double total_delay = 0.0
+        cdef int station_i = self.station_indexes[ antenna_index ]
+        if station_i != self.num_station_delays:
+            total_delay = guess[ station_i ]
+        print("station delay:", total_delay)
+        cdef int recalibrate_i = self.antenna_recalibration_indeces[ antenna_index ]
+        if recalibrate_i != -1:
+            print("recalibration with delay:", antenna_delays[ recalibrate_i ])
+            total_delay += antenna_delays[ recalibrate_i ]
+        print("total delay", total_delay)
+        
+        
+        cdef double X
+        cdef double Y
+        cdef double Z
+        cdef double T
+        
+        cdef double dx
+        cdef double dy
+        cdef double dz
+        cdef double dt
+        
+        cdef int event_i
+        
+        print()
+        
+        cdef double[:] measurement_slice
+        cdef np.uint8_t[:] filter_slice
+        for event_i in range(self.num_events):
+            print( event_i)
+            
+            measurement_slice = self.measurement_times[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            filter_slice = self.measurement_filter[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+                        
+            X = event_XYZTs[ event_i*4 + 0]
+            Y = event_XYZTs[ event_i*4 + 1]
+            Z = event_XYZTs[ event_i*4 + 2]
+            Z = fabs(Z)
+            T = event_XYZTs[ event_i*4 + 3]
+            print(" ", X,Y,Z,T)
+            
+            if filter_slice[antenna_index]:
+                
+                dx = antX - X
+                dy = antY - Y
+                dz = antZ - Z
+                    
+                print('R:', sqrt(dx*dx + dy*dy + dz*dz)*c_air_inverse)
+                dt = sqrt(dx*dx + dy*dy + dz*dz)*c_air_inverse + T + total_delay
+                print('model:', dt)
+                dt -= measurement_slice[ antenna_index ]
+                print('error:', dt)
+            else:
+                print( " antenna not used in event" )
+                
+            print()
+    
     def event_SSqE(self, event_i, guess, ant_range=None):
         if ant_range is None:
             start = 0
@@ -953,6 +1023,119 @@ cdef class delay_fitter_polT:
                 num_ants += 1
                 
         return SSqE, num_ants
+    
+    def print_antenna_info(self, int antenna_index, np.ndarray[double , ndim=1] guess):
+        
+        cdef double[:] station_delays = guess[ : self.num_station_delays]
+        cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:] event_XYZTs = guess[self.num_station_delays+self.num_antenna_recalibrations : ]
+            
+        cdef double antX = self.antenna_locations[antenna_index, 0]
+        cdef double antY = self.antenna_locations[antenna_index, 1]
+        cdef double antZ = self.antenna_locations[antenna_index, 2]
+        print("antenna XYZ")
+        print(" ", antX, antY, antZ)
+        
+        
+        cdef int antenna_polarization = 0 # just to guess
+        
+        
+        cdef double total_delay = 0.0
+        cdef int station_i = self.station_indexes[ antenna_index ]
+        if station_i != self.num_station_delays:
+            total_delay = guess[ station_i ]
+        print("station delay:", total_delay)
+        cdef int recalibrate_i = self.antenna_recalibration_indeces[ antenna_index ]
+        if recalibrate_i != -1:
+            print("recalibration with delay:", antenna_delays[ recalibrate_i ])
+            total_delay += antenna_delays[ recalibrate_i ]
+        print("total delay", total_delay)
+        
+        
+        cdef double X
+        cdef double Y
+        cdef double Z
+        cdef double T
+        
+        cdef double Xodd = 0
+        cdef double Yodd = 0
+        cdef double Zodd = 0
+        cdef double Todd = 0
+        
+        cdef double X_to_use
+        cdef double Y_to_use
+        cdef double Z_to_use
+        cdef double T_to_use
+        
+        cdef double dx
+        cdef double dy
+        cdef double dz
+        cdef double dt
+        
+        cdef int event_i
+        cdef long event_polarization
+        cdef long current_param_i = 0
+        
+        print()
+        
+        cdef double[:] measurement_slice
+        cdef np.uint8_t[:] filter_slice
+        for event_i in range(self.num_events):
+            print('event', event_i)
+            
+            measurement_slice = self.measurement_times[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            filter_slice = self.measurement_filter[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+                    
+            event_polarization = self.event_polarizations[ event_i ]
+            
+            X = event_XYZTs[ event_i*4 + 0]
+            Y = event_XYZTs[ event_i*4 + 1]
+            Z = event_XYZTs[ event_i*4 + 2]
+            Z = fabs(Z)
+            T = event_XYZTs[ event_i*4 + 3]
+            
+            current_param_i += 4
+            if event_polarization == 2:
+                Todd = event_XYZTs[ current_param_i ]
+                current_param_i += 1
+            elif  event_polarization == 3:
+                Xodd = event_XYZTs[ current_param_i + 0]
+                Yodd = event_XYZTs[ current_param_i + 1]
+                Zodd = event_XYZTs[ current_param_i + 2]
+                Zodd = fabs(Zodd)
+                Todd = event_XYZTs[ current_param_i + 3]
+                current_param_i += 4
+            
+            print(" ", X,Y,Z,T)
+            
+            if filter_slice[antenna_index]:
+                
+                X_to_use = X
+                Y_to_use = Y
+                Z_to_use = Z
+                T_to_use = T
+                if event_polarization==2 and antenna_polarization==1:
+                    T_to_use = Todd
+                elif event_polarization==3 and antenna_polarization==1:
+                    X_to_use = Xodd
+                    Y_to_use = Yodd
+                    Z_to_use = Zodd
+                    T_to_use = Todd
+            
+                dx = antX - X_to_use
+                dy = antY - Y_to_use
+                dz = antZ - Z_to_use
+                    
+                print(dx, dy, dz)
+                print(' R:', sqrt(dx*dx + dy*dy + dz*dz))
+                dt = sqrt(dx*dx + dy*dy + dz*dz)*c_air_inverse + T_to_use + total_delay
+                print(' model:', dt)
+                dt -= measurement_slice[ antenna_index ]
+                print(' error:', dt)
+            else:
+                print( " antenna not used in event" )
+                
+            print()
     
             
     def fit_by_antenna(self, np.ndarray[double , ndim=1] guess):

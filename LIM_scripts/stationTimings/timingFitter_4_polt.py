@@ -31,6 +31,8 @@ from LoLIM.stationTimings.autoCorrelator_tools import delay_fitter, delay_fitter
 
 
 ## TODO: 
+# RMS by station
+# whitelist of stations
 # cross correlations
 # fix error estimate
 # simulataniously fitting even and odd for same source
@@ -411,7 +413,7 @@ class run_fitter:
         offset = 0
         for i,source in enumerate(self.current_sources):
             
-            print(source.ID,':[', source_locs[offset+0], ',', source_locs[offset+1], ',', source_locs[offset+2], ',', source_locs[offset+3], end=' ')# '],')
+            print(source.ID,':[', source_locs[offset+0], ',', source_locs[offset+1], ',', np.abs(source_locs[offset+2]), ',', source_locs[offset+3], end=' ')# '],')
             
             offset += 4
             if source.polarization == 2:
@@ -419,7 +421,7 @@ class run_fitter:
                 offset += 1
             elif  source.polarization == 3:
                 print(',')
-                print("   ", source_locs[offset+0], ',', source_locs[offset+1], ',', source_locs[offset+2], ',', source_locs[offset+3], '],' )
+                print("   ", source_locs[offset+0], ',', source_locs[offset+1], ',', np.abs(source_locs[offset+2]), ',', source_locs[offset+3], '],' )
                 offset += 4
             else: ## end pol = 0 or 1
                 print('],')
@@ -432,15 +434,16 @@ class run_fitter:
         offset = 0
         for i,source in enumerate(self.current_sources):
             X,Y,Z,T = source_locs[offset:offset+4]
-            print(source.ID,':[', X-refX, ',',  Y-refY, ',', Z-refZ, ',', T-refT, '],')
+            print(source.ID,':[', X-refX, ',',  Y-refY, ',', np.abs(Z)-np.abs(refZ), ',', T-refT, '],')
             offset +=4
             if source.polarization == 2:
                 offset += 1
                 
                 
-        ## find RMS for individual antennas. 
-        print()
-        print()
+    def print_antenna_info(self, antname):
+        self.fitter.print_antenna_info( self.sorted_antenna_names.index( antname ), self.current_solution )
+
+    def print_antenna_RMS(self):
         print("goodness of fit by antenna")
         print("antenna   number   RMS<2.0E-9   RMS")
         print()

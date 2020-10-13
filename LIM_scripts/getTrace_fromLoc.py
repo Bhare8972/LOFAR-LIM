@@ -19,6 +19,20 @@ class getTrace_fromLoc():
         if station_timing_calibration is not None:
             for sname, TBB_file in data_file_dict.items():
                 TBB_file.set_station_delay( station_timing_calibration[sname] )
+                
+    def source_recieved_index(self, XYZT, ant_name):
+        
+        station_name = SId_to_Sname[ int(ant_name[:3]) ]
+        station_data = self.data_file_dict[ station_name ]
+        file_antenna_index = station_data.get_antenna_names().index( ant_name )
+        
+        total_time_offset = station_data.get_total_delays()[ file_antenna_index ]
+        antenna_locations = station_data.get_LOFAR_centered_positions()
+        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1]) + XYZT[3]
+        
+        data_arrival_index = int( predicted_arrival_time/5.0E-9 + total_time_offset/5.0E-9 )
+        
+        return data_arrival_index
         
     def get_trace_fromLoc(self, XYZT, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, half_hann_length=50):
         """given the location of the source in XYZT, name of the antenna, and width (in num data samples) of the desired pulse, 
@@ -97,6 +111,10 @@ if __name__ == '__main__':
     from LoLIM.interferometry import read_interferometric_PSE as R_IPSE
     
     from matplotlib import pyplot as plt
+    
+    
+    ##### NOTE: general structure of this code is good, but somethings are outdated ####
+    
     
     timeID = "D20170929T202255.000Z"
     input_folder = "interferometry_out4"

@@ -3,7 +3,10 @@ import os
 import numpy as np
 import gzip
 
-from LoLIM.IO.metadata import geoditic_to_ITRF, convertITRFToLocal
+
+import datetime
+
+from LoLIM.IO.metadata import geoditic_to_ITRF, convertITRFToLocal, latlonCS002, ITRFCS002
 
 """ this is a set of code designed to read LMA data """
 
@@ -21,21 +24,85 @@ class LMA_header:
             self.antenna_delay = float(data[6])
             self.board_rev = int(data[7])
             self.rec_ch = int(data[8])
-    
-    def __init__(self, fin):
+            
+        def add_station_data(self, line):
+            data = line.split()
+            if data[1] != self.id:
+                print("PROBLEM IN LMA HEADER 1")
+                quit()
+                
+            if len(data) != 10:
+                print("PROBLEM IN LMA HEADER 2")
+                quit()
+                
+            self.window = int( data[3] )
+            self.data_ver = int( data[4] )
+            self.RMS_error = float( data[5] )
+            self.sources = int( data[6] )
+            self.percent = float( data[7] )
+            self.power_fraction = float( data[8] )
+            self.active = data[9]
+            
+        def get_XYZ(self, center='LOFAR'):
+            ## TODO: use python package instead.
+            
+            ITRF = geoditic_to_ITRF( [self.lat, self.lon, self.alt] )
+            
+            if center=='LOFAR':
+                phase_center = ITRFCS002
+                reflatlon = latlonCS002
+            elif center=="LMA":
+                array_latlonalt = np.array([ self.array_lat, self.array_lon, self.array_alt ])
+                reflatlon = array_latlonalt[:2]
+                phase_center = geoditic_to_ITRF( array_latlonalt )
+            else:
+                ## assume center is lat lon alt
+                array_latlonalt = np.array( center )
+                reflatlon = array_latlonalt[:2]
+                phase_center = geoditic_to_ITRF( array_latlonalt )
+            
+            return convertITRFToLocal( np.array( [ITRF] ), phase_center, reflatlon )[0]
+                
+    def __init__(self, fin, decode_func):
         self.file_name = fin.name
         
         self.antenna_info_list = [] ##NOTE: order is critical!
+        self.num_stations = 0
         
+        sta_data_index = 0
+         
         for line in fin:
-            line = line.decode()
+            line = decode_func(line)
             
             if len(line)>17 and line[:17]=='Number of events:':
                 self.number_events = int( line[17:] )
                 return
+            
+            elif len(line)>17 and line[:16] == "Data start time:":
+                line_data = line.split()
+                self.start_date = line_data[-2]
+                self.start_time = line_data[-1]
+            
             elif len(line)>9 and line[:9]=="Sta_info:":
                 new_antenna = LMA_header.ant_info( line )
                 self.antenna_info_list.append( new_antenna )
+                self.num_stations += 1
+                
+            elif len(line)>17 and line[:17] == "Coordinate center":
+                lat,lon,alt = line.split()[-3:]
+                self.array_lat = float(lat)
+                self.array_lon = float(lon)
+                self.array_alt = float(alt)
+                
+            elif len(line)>9 and line[:9]=="Sta_data:":
+                self.antenna_info_list[ sta_data_index ].add_station_data( line )
+                sta_data_index += 1
+                
+    def midnight_datetime(self):
+        month,day,year = self.start_date.split('/')
+        date = datetime.date( day=int(day), month=int(month), year=int(year) )
+        
+        return datetime.datetime.combine(date,  datetime.time(0), tzinfo= datetime.timezone.utc )
                 
     def read_aux_file(self, fname=None):
         
@@ -45,6 +112,31 @@ class LMA_header:
                 self.raw_powers = raw_powers
                 self.above_thresholds = above_thresholds
                 self.upper_covariance_tri = upper_covariance_tri
+                
+            def get_covariance_matrix(self):
+                covariance_matrix = np.empty( (4,4) )
+                covariance_matrix[0,0] = self.upper_covariance_tri[0]
+                covariance_matrix[0,1] = self.upper_covariance_tri[1]
+                covariance_matrix[0,2] = self.upper_covariance_tri[2]
+                covariance_matrix[0,3] = self.upper_covariance_tri[3]
+                
+                covariance_matrix[1,1] = self.upper_covariance_tri[4]
+                covariance_matrix[1,2] = self.upper_covariance_tri[5]
+                covariance_matrix[1,3] = self.upper_covariance_tri[6]
+                
+                covariance_matrix[2,2] = self.upper_covariance_tri[7]
+                covariance_matrix[2,3] = self.upper_covariance_tri[8]
+                
+                covariance_matrix[3,3] = self.upper_covariance_tri[9]
+                
+                covariance_matrix[1,0] = covariance_matrix[0,1]
+                covariance_matrix[2,0] = covariance_matrix[0,2]
+                covariance_matrix[3,0] = covariance_matrix[0,3] 
+                covariance_matrix[2,1] = covariance_matrix[1,2]
+                covariance_matrix[3,1] = covariance_matrix[1,3]
+                covariance_matrix[3,2] = covariance_matrix[2,3]
+                
+                return covariance_matrix
         
         if fname is not None:
             new_fname = fname
@@ -113,14 +205,55 @@ class LMA_source:
         self.mask = None
         self.local_XYZ = None
         
-    def get_XYZ(self):
+    def get_XYZ(self, center='LOFAR'):
+        
+        ## TODO: use python package instead.
         
         if self.local_XYZ is None:
             ITRF = geoditic_to_ITRF( [self.latitude, self.longitude, self.altitude] )
-            self.local_XYZ = convertITRFToLocal( np.array( [ITRF] ) )[0]
+            
+            if center=='LOFAR':
+                phase_center = ITRFCS002
+                reflatlon = latlonCS002
+            elif center=="LMA":
+                array_latlonalt = np.array([ self.header.array_lat, self.header.array_lon, self.header.array_alt ])
+                reflatlon = array_latlonalt[:2]
+                phase_center = geoditic_to_ITRF( array_latlonalt )
+            else:
+                ## assume center is lat lon alt
+                array_latlonalt = np.array( center )
+                reflatlon = array_latlonalt[:2]
+                phase_center = geoditic_to_ITRF( array_latlonalt )
+            
+            self.local_XYZ = convertITRFToLocal( np.array( [ITRF] ), phase_center, reflatlon )[0]
         
         
         return self.local_XYZ
+    
+    def in_XYZ_bounds(self, bounds, center='LOFAR'):
+        XYZ = self.get_XYZ(center)
+        in_X = ( bounds[0][0] <= XYZ[0] <= bounds[0][1] )
+        in_Y = ( bounds[1][0] <= XYZ[1] <= bounds[1][1] )
+        in_Z = ( bounds[2][0] <= XYZ[2] <= bounds[2][1] )
+        return in_X and in_Y and in_Z
+        
+    
+    def get_number_stations(self):
+        mask_str = '{0:0'+str(self.header.num_stations)+'d}'
+        mask2 = mask_str.format(int(bin(int(self.mask, 16))[2:]))
+        self.num_stations = mask2.count('1')
+        return self.num_stations
+    
+    def time_as_datetime(self, midnight_datetime = None):
+        """returns datetime, accurate to microsecond, and excess time beyond that (in units of seconds)"""
+        TD = datetime.timedelta(seconds = self.time_of_day)
+        excess = self.time_of_day - TD.total_seconds() 
+        
+        if midnight_datetime is None:
+            midnight_datetime = self.header.midnight_datetime()
+        
+        return midnight_datetime + TD, excess
+        
         
 def LMA_fname_info(fname):
     info = fname.split('_')
@@ -139,17 +272,19 @@ def read_LMA_file_data(fname):
     if is_gzip:
         func = gzip.open
         symbol = 'rb'
+        decode_func = lambda X: X.decode()
     else:
         func = open
         symbol = 'r'
+        decode_func = lambda X: X
     
     status = 0 ## 0 means read header, 1 means read source
     with func(fname, symbol) as file:
         
-        header = LMA_header(file)
+        header = LMA_header(file, decode_func)
         
         for line in file:
-            line = line.decode()
+            line = decode_func( line )
             
             if len(line)>=12 and line[:12] == "*** data ***":
                 status = 1

@@ -25,7 +25,7 @@ from matplotlib.widgets import SpanSelector, RectangleSelector
 import matplotlib.colors as colors
 
 ## mine
-from LoLIM.utilities import v_air, processed_data_dir
+from LoLIM.utilities import v_air, processed_data_dir, SId_to_Sname
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
     cmap = plt.get_cmap(cmap_name)
@@ -46,8 +46,6 @@ def gen_olaf_cmap(num=256):
     return colors.LinearSegmentedColormap.from_list( 'OlafOfManyColors', RGBlist, N=num)
 
         
-
-### TODO: make a data set that is a map of the stations!!!!
 
 ### TODO: make rebalancing x-y as part of coordinate system!
 ### make buttons to 'show all' for individual coordinates and settings
@@ -140,6 +138,12 @@ class coordinate_transform:
         """like transform, but filters based on bounds"""
         return [[0], [0], [0], [0], [0]]
     
+    def filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, 
+                make_copy=True, ignore_T=False, bool_workspace=None):  
+        """ only filters data in plot coordinates.. hopefully"""
+        print("filter function in transform not implemented")
+        quit()
+    
 class typical_transform( coordinate_transform ):
     """display in km and ms, with an arbitrary space zero and arbitrary time zero."""
     
@@ -149,11 +153,17 @@ class typical_transform( coordinate_transform ):
         self.space_center = space_center
         self.time_center = time_center
         
-        self.x_label = "distance east-west [km]"
-        self.y_label = "distance north-south [km]"
-        self.z_label = "altitude [km]"
-        self.zt_label = "altitude [km]"
-        self.t_label = "time [ms]"
+        # self.x_label = "distance east-west [km]"
+        # self.y_label = "distance north-south [km]"
+        # self.z_label = "altitude [km]"
+        # self.zt_label = "altitude [km]"
+        # self.t_label = "time [ms]"
+        
+        self.x_label = "Easting [km]"
+        self.y_label = "Northing [km]"
+        self.z_label = "Altitude [km]"
+        self.zt_label = "Altitude [km]"
+        self.t_label = "Time [ms]"
         
         ## these are in km and ms
         self.X_bounds = [0,1]
@@ -288,7 +298,50 @@ class typical_transform( coordinate_transform ):
     def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
                 make_copy=True, ignore_T=False, bool_workspace=None):
         """like transform, but filters based on bounds"""
-        outX, outY, outZ, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
+        outX, outY, outZ, outZt, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
+        return self.filter(outX, outY, outZ, outZt, outT, make_copy=False, ignore_T=ignore_T, bool_workspace=bool_workspace)
+        
+#        if bool_workspace is None:
+#            bool_workspace = np.ones( len(outX), dtype=np.bool )
+#        else:
+#            bool_workspace = bool_workspace[:len(outX)]
+#            bool_workspace[:] = True
+#            
+#        np.greater_equal( outX, self.X_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.X_bounds[1], outX, out=bool_workspace, where=bool_workspace )
+#            
+#        np.greater_equal( outY, self.Y_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.Y_bounds[1], outY, out=bool_workspace, where=bool_workspace )
+#            
+#        np.greater_equal( outZ, self.Z_bounds[0], out=bool_workspace, where=bool_workspace )
+#        np.greater_equal( self.Z_bounds[1], outZ, out=bool_workspace, where=bool_workspace )
+#            
+#        if not ignore_T:
+#            np.greater_equal( outT, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
+#            np.greater_equal( self.T_bounds[1], outT, out=bool_workspace, where=bool_workspace )
+#        
+#        N = np.sum( bool_workspace )
+#        
+#        np.compress( bool_workspace, outX, out=outX[:N] )
+#        np.compress( bool_workspace, outY, out=outY[:N] )
+#        np.compress( bool_workspace, outZ, out=outZ[:N] )
+#        np.compress( bool_workspace, outT, out=outT[:N] )
+#        
+#        return outX[:N], outY[:N], outZ[:N], outZ[:N], outT[:N]
+    
+    def filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, 
+                make_copy=True, ignore_T=False, bool_workspace=None):  
+        
+        if make_copy:
+            outX = np.array( Xplot )
+            outY = np.array( Yplot )
+            outZ = np.array( Zplot )
+            outT = np.array( Tplot )
+        else:
+            outX = np.asanyarray( Xplot )
+            outY = np.asanyarray( Yplot )
+            outZ = np.asanyarray( Zplot )
+            outT = np.asanyarray( Tplot )
         
         if bool_workspace is None:
             bool_workspace = np.ones( len(outX), dtype=np.bool )
@@ -317,6 +370,11 @@ class typical_transform( coordinate_transform ):
         np.compress( bool_workspace, outT, out=outT[:N] )
         
         return outX[:N], outY[:N], outZ[:N], outZ[:N], outT[:N]
+            
+        
+            
+        
+        
     
 #class camera_transform( coordinate_transform ):
 #    
@@ -799,6 +857,9 @@ class DataSet_Type:
         if ignore is not None:
             print("not implemented")
         return False
+    
+    def key_press_event(self, event):
+        pass
     
 class DataSet_interferometricPointSources(DataSet_Type):
     """This represents a set of simple dual-polarized point sources"""
@@ -1438,40 +1499,55 @@ def IPSE_to_DataSet(IPSE, name, cmap, marker='s', marker_size=5, color_mode='tim
                                        )
     return new_dataset
 
-def LMA_to_DataSet(LMA_data, name, cmap, zero_datetime, marker='s', marker_size=5, color_mode='time'):
-    """ note that zero_datetime should be a python datetime.datetime object"""
+def LMA_to_DataSet(LMA_data, name, cmap, zero_datetime=None, marker='s', marker_size=5, color_mode='time', center='LOFAR', header=None):
+    """ note that zero_datetime should be a python datetime.datetime object, if used. center can be 'LOFAR' or 'LMA'"""
     X = np.empty(len(LMA_data), dtype=np.double)
     Y = np.empty(len(LMA_data), dtype=np.double)
     Z = np.empty(len(LMA_data), dtype=np.double)
     T = np.empty(len(LMA_data), dtype=np.double)
     power = np.empty(len(LMA_data), dtype=np.double)
     red_chi_squared = np.empty(len(LMA_data), dtype=np.double)
+    RMS = np.empty(len(LMA_data), dtype=np.double)
+    stations = np.empty(len(LMA_data), dtype=np.int)
     ID = np.empty(len(LMA_data), dtype=np.int)
     
-    midnight_datetime = datetime.datetime.combine(zero_datetime.date(),  datetime.time(0), tzinfo= datetime.timezone.utc )
+    if header is not None:
+        antenna_RMS = np.average( [ant.RMS_error for ant in header.antenna_info_list] )
+        
+    else:
+        antenna_RMS = 70
+    
+    if zero_datetime is not None:
+        midnight_datetime = datetime.datetime.combine(zero_datetime.date(),  datetime.time(0), tzinfo= datetime.timezone.utc )
     
     for i,source in enumerate(LMA_data):
-        XYZ = source.get_XYZ()
+        XYZ = source.get_XYZ(center=center)
         X[i] = XYZ[0]
         Y[i] = XYZ[1]
         Z[i] = XYZ[2]
         
-        TD = datetime.timedelta(seconds = source.time_of_day)
-        excess = source.time_of_day - TD.total_seconds() 
-        
-        source_datetime = midnight_datetime + TD
-        source_time = (source_datetime - zero_datetime).total_seconds() + excess
-        T[i] = source_time
+        if zero_datetime is not None:
+            TD = datetime.timedelta(seconds = source.time_of_day)
+            excess = source.time_of_day - TD.total_seconds() 
+            
+            source_datetime = midnight_datetime + TD
+            source_time = (source_datetime - zero_datetime).total_seconds() + excess
+            T[i] = source_time
+            
+        else:
+            T[i] = source.time_of_day
         
         power[i] = source.power
         red_chi_squared[i] = source.red_chi_squared
         ID[i] = i
+        stations[i] = source.get_number_stations()
+        RMS[i] = antenna_RMS*np.sqrt( source.red_chi_squared )
     
     new_dataset = DataSet_generic_PSE( X, Y, Z, T,
                                        marker=marker, marker_size=marker_size, color_mode=color_mode, 
                                        name=name, cmap=cmap,
-                                       min_filters = {'power':power},
-                                       max_filters = {'red. chi sq.':red_chi_squared},
+                                       min_filters = {'power':power, 'stations':stations},
+                                       max_filters = {'red. chi sq.':red_chi_squared, 'RMS':RMS},
                                        source_IDs = ID
                                        )
     return new_dataset
@@ -1484,6 +1560,8 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
     RMS = np.empty(len(iterPSE), dtype=np.double)
     RefAmp = np.empty(len(iterPSE), dtype=np.double)
     maxSqrtEig = np.ones(len(iterPSE), dtype=np.double)
+    # FractionRadialError = np.zeros(len(iterPSE), dtype=np.double)
+    # FractionZError = np.zeros(len(iterPSE), dtype=np.double)
     numRS = np.empty(len(iterPSE), dtype=np.int)
     block = np.empty(len(iterPSE), dtype=np.int)
     ID = np.empty(len(iterPSE), dtype=np.int)
@@ -1511,11 +1589,20 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
                 maxSqrtEig[i] = np.inf
             else:
                 eigVals, eigVecs = A
-                A = np.max(eigVals)
+                
+                Ai = np.argmax(eigVals)
+                A = eigVals[Ai]
+                # e = eigVecs[:,Ai]
+                
                 if A < 0 or np.iscomplex(A):
                     maxSqrtEig[i] = np.inf
                 else:
                     maxSqrtEig[i] = np.sqrt( A )
+                    # R_hat = itPSE.XYZT[:3]/np.linalg.norm( itPSE.XYZT[:3] )
+                    # FractionRadialError[i] = np.dot( R_hat, e )
+                    # FractionZError[ i ] = 
+                    
+                    
                 if not np.isfinite(maxSqrtEig[i]):
                     maxSqrtEig[i] = np.inf ## make nans into infs
     
@@ -1552,6 +1639,8 @@ class DataSet_generic_PSE(DataSet_Type):
         self.color_options = color_options
         self.print_data = print_info
         
+        self.max_num_points = 10000
+        
         self.source_IDs = source_IDs
         if self.source_IDs is None:
             self.source_IDs = np.arange( len(X_array) )
@@ -1575,6 +1664,11 @@ class DataSet_generic_PSE(DataSet_Type):
         self.Y_TMP = np.empty(len(self.Y_array), dtype=np.double)
         self.Z_TMP = np.empty(len(self.Z_array), dtype=np.double)
         self.T_TMP = np.empty(len(self.T_array), dtype=np.double)
+        
+        
+            
+        self.decimation_TMP = np.empty( len(self.X_array), dtype=float )
+        self.decimation_mask = np.zeros( len(self.X_array),dtype=bool )
         
 #        self.masked_color_info = { name:np.ma.masked_array(data, mask=self.total_mask, copy=False)  for name,data in self.color_options.items() }
 #        self.color_time_mask = np.ma.masked_array(self.T_array, mask=self.total_mask, copy=False)
@@ -1731,7 +1825,7 @@ class DataSet_generic_PSE(DataSet_Type):
     def get_all_properties(self):
         ret =  {"marker size":str(self.marker_size),  "color mode":str(self.color_mode), 'name':self.name,
                 "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
-                "T offset":self.T_offset, 'marker':self.marker}
+                "T offset":self.T_offset, 'marker':self.marker, 'max points':self.max_num_points}
         
         for name, value in self.min_parameters.items():
             ret['min ' + name] = value
@@ -1768,6 +1862,9 @@ class DataSet_generic_PSE(DataSet_Type):
                 
             elif name == "marker":
                 self.marker = str_value
+                
+            elif name == "max points":
+                self.max_num_points = int(str_value)
                 
             elif name[4:] in self.min_parameters:
                 self.set_min_param( name[4:], float(str_value) )
@@ -1844,9 +1941,9 @@ class DataSet_generic_PSE(DataSet_Type):
             make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
 
 
-        print(self.name, "plotting", len(plotX), 'sources. showing:', self.display)
-        
         if (not self.display) or len(plotX)==0:
+            
+            print(self.name, "not display. have:", len(plotX))
             return
         
         ### get color!
@@ -1871,7 +1968,34 @@ class DataSet_generic_PSE(DataSet_Type):
             color = self.color_mode
             color_min = None
             color_max = None
-        
+            
+        N_before = len(plotX)
+        if self.max_num_points>0 and self.max_num_points<N_before:
+            decimation_factor = self.max_num_points/float(N_before)
+            
+            data = self.decimation_TMP[:N_before]
+            mask = self.decimation_mask[:N_before]
+            
+            data[:] = decimation_factor
+            np.cumsum( data, out=data )
+            np.floor(data, out=data)
+            np.greater( data[1:] , data[:-1], out = mask[1:] )
+            mask[0] = 0
+            
+            plotX = plotX[mask]
+            plotY = plotY[mask]
+            plotZ = plotZ[mask]
+            plotZt = plotZt[mask]
+            plotT = plotT[mask]
+            
+            
+            try:
+                B4 = color[mask]
+                color = B4 ## hope this works?
+            except:
+                pass
+            
+        print(self.name, "plotting", len(plotX), "have:", N_before)
         
         try:
             if not self._ignore_time:
@@ -2030,6 +2154,7 @@ class DataSet_generic_PSE(DataSet_Type):
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
             Xtmp, Ytmp, Ztmp, Ttmp, 
             make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+            
         
         return [self.source_IDs[i] for i in range( len(self.X_array) ) if self.total_mask[i] and bool_workspace[i] ]
         
@@ -2192,35 +2317,489 @@ class DataSet_generic_PSE(DataSet_Type):
     
         
     
-#    def text_output(self):
-#        
-#        header = self.IPSE_list[0].header
-#        for ant_data in header.antenna_data:
-#            if ant_data.station == header.prefered_station_name: ## found the "prefered antenna"
-#                pref_ant_loc = ant_data.location
-#                break
-#        
-#        with open("output.txt", 'w') as fout:
-#            for IPSE in self.IPSE_list:
-#                if self.loc_filter( np.append(IPSE.loc, [IPSE.T]) ) and IPSE.intensity>self.min_intensity and IPSE.S1_S2_distance<self.max_S1S2distance  \
-#                and IPSE.converged and IPSE.amplitude>self.min_amplitude and IPSE.RMS<self.max_RMS:
-#                    ID = IPSE.unique_index
-#                    X = IPSE.loc[0]
-#                    Y = IPSE.loc[1]
-#                    Z = IPSE.loc[2]
-#                    T = IPSE.T
-#                    I = IPSE.intensity
-#                    
-#                    R2 = (IPSE.loc[0]-pref_ant_loc[0])**2 + (IPSE.loc[1]-pref_ant_loc[1])**2 + (IPSE.loc[2]-pref_ant_loc[2])**2
-#                    power = np.log10(4*np.pi*R2) + 2*np.log10(IPSE.amplitude)
-#                    
-#                    fout.write( str(ID)+' E '+str(X)+" "+str(Y)+" "+str(Z)+" "+str(T)+" " + str(I)+" "+str(power)+'\n' )
-#        print("done writing")
+    def text_output(self):
+        
+        self.set_total_mask()
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = self.Z_array  
+        self.T_TMP[:] = self.T_array 
+        
+        Xtmp = self.X_TMP[:]
+        Ytmp = self.Y_TMP[:]
+        Ztmp = self.Z_TMP[:]
+        Ttmp = self.T_TMP[:]
+        
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+
+        
+        with open("output.txt", 'w') as fout:
+            for i in range( len(self.X_array) ):
+                if not self.total_mask[i]:
+                    continue
+
+                fout.write( str(self.X_array[i]) )
+                fout.write(', ')     
+
+                fout.write(str(self.Y_array[i]) )
+                fout.write(', ')     
+
+                fout.write( str(self.Z_array[i]) )
+                fout.write(', ')     
+
+                fout.write( str(self.T_array[i]) )
+                fout.write('\n')
+                
+        print('done writing')
                     
     def ignore_time(self, ignore=None):
         if ignore is not None:
             self._ignore_time = ignore
         return self._ignore_time
+
+
+def LMAHeader_to_StationLocs(LMAheader, groupLOFARStations=False, center='LOFAR', name='stations', color=None, marker='s', textsize=None):
+    station_names = []
+    stationX = []
+    stationY = []
+    
+    for station in LMAheader.antenna_info_list:
+        name = station.name
+        use = True
+        
+        if groupLOFARStations:
+            LOFAR_SID = int(name[:3])
+            name = SId_to_Sname[ LOFAR_SID ]
+            if name in station_names:
+                use = False
+                
+        if use:
+            station_names.append( name )
+            stationXYZ = station.get_XYZ(center=center)
+            
+            stationX.append( stationXYZ[0] )
+            stationY.append( stationXYZ[1] )
+            
+    return station_locations_DataSet( stationX, stationY, station_names, name='stations', color=None, marker='s', textsize=None )
+    
+
+class station_locations_DataSet( DataSet_Type ):
+    def __init__(self, station_X_array, station_Y_array, station_names, name, color, marker, textsize ):
+         self.marker = marker
+         self.marker_size = 10
+         self.color = color
+         self.name = name
+         self.textsize = textsize
+         self.display= True
+         
+         self.X_array = station_X_array
+         self.Y_array = station_Y_array
+         self.station_names = station_names
+         
+         self.X_TMP = np.empty(len(self.X_array), dtype=np.double)
+         self.Y_TMP = np.empty(len(self.X_array), dtype=np.double)
+         self.Z_TMP = np.empty(len(self.X_array), dtype=np.double)
+         self.T_TMP = np.empty(len(self.X_array), dtype=np.double)
+         
+         self.transform_memory = None
+         
+         self.show_text = True
+         
+    def set_show_all(self, coordinate_system, do_set_limits=True):
+        
+        if do_set_limits:
+            self.X_TMP[:] = self.X_array  
+            self.Y_TMP[:] = self.Y_array  
+            self.Z_TMP[:] = 0.0  
+            self.T_TMP[:] = 0.0
+            
+            if self.transform_memory is None:
+                self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+            coordinate_system.set_workingMemory( self.transform_memory )
+            
+            plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+                self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+                make_copy=False)
+            
+            if len(plotX) > 0:
+                coordinate_system.set_plotX( np.min(plotX), np.max(plotX) )
+                coordinate_system.set_plotY( np.min(plotY), np.max(plotY) )
+                
+    def bounding_box(self, coordinate_system):
+        
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = 0.0  
+        self.T_TMP[:] = 0.0
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+            self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+            make_copy=False)
+        
+        ## return actual bounds
+        if len(plotX) > 0:
+            Xbounds = [np.min(plotX), np.max(plotX)]
+            Ybounds = [np.min(plotY), np.max(plotY)]
+        else:
+            Xbounds = [0,1]
+            Ybounds = [0,1]
+            
+        Zbounds = [np.nan,np.nan]
+        Ztbounds = [np.nan,np.nan]
+        Tbounds = [np.nan,np.nan]
+        
+        return Xbounds, Ybounds, Zbounds, Ztbounds, Tbounds
+    
+    def T_bounds(self, coordinate_system):
+        return [np.nan, np.nan]
+    
+    def get_all_properties(self):
+        ret =  {"marker size":str(self.marker_size),  'name':self.name, 'marker':self.marker,
+                "color":self.color, "textsize":str(self.textsize), "show text": str(int(self.show_text))}
+            
+        return ret    
+    
+    def set_property(self, name, str_value):
+        
+        try:
+            if name == "marker size":
+                self.marker_size = int(str_value)
+                
+            elif name == "color":
+                self.color = str_value
+                    
+            elif name == 'name':
+                self.name = str_value
+                
+            elif name == 'marker':
+                self.marker = str_value
+                
+            elif name == 'textsize':
+                self.textsize = int(str_value)
+                
+            elif name == 'show text':
+                self.show_text = bool(int(str_value))
+                
+            else:
+                print("do not have property:", name)
+        except:
+            print("error in setting property", name, str_value)
+            pass
+                
+    def clear(self):
+        pass
+        
+    def use_ancillary_axes(self):
+        return False
+
+    def toggle_on(self):
+        self.display = True
+    
+    def toggle_off(self):
+        self.display = False
+        self.clear()
+        
+    
+    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+        self.X_TMP[:] = self.X_array  
+        self.Y_TMP[:] = self.Y_array  
+        self.Z_TMP[:] = 0.0  
+        self.T_TMP[:] = 0.0
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_array) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform( 
+            self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP, 
+            make_copy=False)
+
+
+        if (not self.display) or len(plotX)==0:
+            
+            print(self.name, "not display.")
+            return
+        
+            
+        print(self.name, "plotting")
+        
+        try:
+            
+            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=self.color, marker=self.marker, s=self.marker_size)
+            
+            if self.show_text:
+                for sname, X, Y in zip(self.station_names, plotX, plotY):
+                    NsVsEw_axes.annotate(sname, (X,Y), size=self.textsize)
+            
+        except Exception as e: print(e)
+        
+    
+                
+                
+        
+
+class linearSpline_DataSet(DataSet_Type):
+    ### NOTE: this whole thing only works in plot-coordinates. Thus, only functional if consistantly used with cartesian system
+    
+    def __init__(self, name, color, linewidth=None, initial_points=None):
+        self.name = name
+        self.display = True
+        self.color = color
+        
+        self.LW = linewidth
+        if self.LW is not None:
+            self.LW = float(self.LW)
+        
+        self.X_points = []
+        self.Y_points = []
+        self.Z_points = []
+        if initial_points is not None:
+            for p in initial_points:
+                self.X_points.append( p[0] )
+                self.Y_points.append( p[1] )
+                self.Z_points.append( p[2] )
+            
+        self.mode = -1 ## -1 is off. -2 is edit new point. >0 means edit that point
+        self.X_edit = 0
+        self.Y_edit = 0
+        self.Z_edit = 0
+        self.transform_memory = None
+        
+    def set_show_all(self, coordinate_system, do_set_limits=True):
+        """set bounds needed to show all data.
+        Set all properties so that all points are shown"""
+        pass
+    
+    def bounding_box(self, coordinate_system):
+        """return bounding box in plot-coordinates"""
+        X_bounds = [np.min(self.X_points), np.max(self.X_points)]
+        Y_bounds = [np.min(self.Y_points), np.max(self.Y_points)]
+        Z_bounds = [np.min(self.Z_points), np.max(self.Z_points)]
+        return [X_bounds, Y_bounds, Z_bounds, [np.nan,np.nan], [np.nan,np.nan]]
+
+    def T_bounds(self, coordinate_system):
+        """return T-bounds given all other bounds, in plot-coordinats"""
+        return [np.nan,np.nan]
+    
+    def get_all_properties(self):
+        length = 0
+        
+        prevX = None
+        prevY = None
+        prevZ = None
+        for X, Y, Z in zip(self.X_points, self.Y_points, self.Z_points):
+            if prevX is not None:
+                dx = X-prevX
+                dy = Y-prevY
+                dz = Z-prevZ
+                
+                length += np.sqrt( dx*dx + dy*dy + dz*dz )
+                
+            prevX = X
+            prevY = Y
+            prevZ = Z
+        
+        
+        if self.mode == -1:
+            mode = 'off'
+        elif self.mode == -2:
+            mode = 'edit'
+        else:
+            mode = str(self.mode)
+        
+        
+        return {'color':self.color, 'name':self.name, 'lineWidth':self.LW, 'mode':mode, 'length':length}
+    
+    def set_property(self, name, str_value):
+        
+        try:
+            if name == 'color':
+                self.color = str_value
+            elif name == 'name':
+                self.name = str_value
+            elif name == 'lineWidth':
+                self.LW = float(str_value)
+            elif name == 'mode':
+                if str_value == 'off':
+                    self.mode = -1
+                elif str_value == 'edit':
+                    self.mode = -2
+                else: 
+                    self.mode = int(str_value)
+            elif name == 'length':
+                print("The Erlemyer cannot be wonkydoodled. Please try again later.")
+            else:
+                print('no attribute:', name)
+        except:
+            print("error in setting property", name, str_value)
+            pass
+            
+            
+    
+    def plot(self, AltvsT_axes, AltvsEW_axes, NSvsEW_axes, NsvsAlt_axes, ancillary_axes, coordinate_system):
+        
+        self.AltvsEW_axes = AltvsEW_axes
+        self.NSvsEW_axes = NSvsEW_axes
+        self.NsvsAlt_axes = NsvsAlt_axes
+        
+        if (not self.display):
+            return
+        
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory( len(self.X_points) )
+        coordinate_system.set_workingMemory( self.transform_memory )
+        
+        Xtmp = np.array( self.X_points )
+        Ytmp = np.array( self.Y_points )
+        Ztmp = np.array( self.Z_points )
+        Ttmp = np.zeros( len(self.X_points) )
+        
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.filter( 
+            Xtmp, Ytmp, Ztmp, Ztmp, Ttmp, 
+            make_copy=False, ignore_T=True )
+        
+        if len(plotX)==0:
+            return
+
+        try:
+            self.AltVsEw_paths = AltvsEW_axes.plot(plotX, plotZ, c=self.color, linewidth = self.LW)
+            
+            self.NsVsEw_paths = NSvsEW_axes.plot(plotX, plotY, c=self.color, linewidth = self.LW)
+            
+            self.NsVsAlt_paths = NsvsAlt_axes.plot(plotZ, plotY, c=self.color, linewidth = self.LW)
+        except Exception as e: print(e)
+        
+        
+    
+    
+    def key_press_event(self, event):
+        if event.key == 'a':
+            print("append location to list: ")
+            print("  ", self.X_edit, self.Y_edit, self.Z_edit)
+            self.X_points.append( self.X_edit )
+            self.Y_points.append( self.Y_edit )
+            self.Z_points.append( self.Z_edit )
+            
+            self.X_edit=0
+            self.Y_edit=0
+            self.Z_edit=0
+            
+        elif event.key=='e' and self.mode!=-1:
+            print('edit location')
+            
+            if event.inaxes == self.AltvsEW_axes:
+                X = event.xdata
+                Z = event.ydata
+                print(' X:',X, 'Z:', Z)
+                if self.mode == -2:
+                    self.X_edit = X
+                    self.Z_edit = Z
+                else:
+                    self.X_points[self.mode] = X
+                    self.Z_points[self.mode] = Z
+            
+            elif event.inaxes == self.NSvsEW_axes:
+                X = event.xdata
+                Y = event.ydata
+                print(' X:',X, 'Y:', Y)
+                if self.mode == -2:
+                    self.X_edit = X
+                    self.Y_edit = Y
+                else:
+                    self.X_points[self.mode] = X
+                    self.Y_points[self.mode] = Y
+            
+            elif event.inaxes == self.NsvsAlt_axes:
+                Z = event.xdata
+                Y = event.ydata
+                print(' Y:',Y , 'Z:', Z)
+                if self.mode == -2:
+                    self.Y_edit = Y
+                    self.Z_edit = Z
+                else:
+                    self.Y_points[self.mode] = Y
+                    self.Z_points[self.mode] = Z
+    
+        
+    def print_info(self, coordinate_system):
+        for X,Y,Z in zip(self.X_points,self.Y_points,self.Z_points):
+            print('[', X, ',', Y , ',', Z, '],')
+            
+        print()
+        print('current test point:')
+        print("  X:", self.X_edit, 'Y:', self.Y_edit, 'Z:', self.Z_edit)
+        
+        print()
+        print(len(self.X_points), 'sources')
+    
+        length = 0
+        
+        prevX = None
+        prevY = None
+        prevZ = None
+        for X, Y, Z in zip(self.X_points, self.Y_points, self.Z_points):
+            if prevX is not None:
+                dx = X-prevX
+                dy = Y-prevY
+                dz = Z-prevZ
+                
+                length += np.sqrt( dx*dx + dy*dy + dz*dz )
+                
+            prevX = X
+            prevY = Y
+            prevZ = Z
+            
+        print()
+        print('length:', length)
+        
+    
+    def clear(self):
+        pass
+    
+    def use_ancillary_axes(self):
+        return False
+        
+    
+    def copy_view(self, coordinate_system):
+        print( "not implemented" )
+        return None
+        
+    def search(self, ID_list):
+        print("not implemented")
+        return None   
+    
+    def toggle_on(self):
+        self.display = True
+    
+    def toggle_off(self):
+        self.display = False
+    
+    def get_view_ID_list(self, coordinate_system):
+        print("not implemented")
+        return None
+    
+    def text_output(self):
+        print("not implemented")
+        
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            print("not implemented")
+        return False
+    
+
+
 
 class DataSet_span(DataSet_Type):
     
@@ -3123,13 +3702,13 @@ class FigureArea(FigureCanvas):
     
     
     ## ALL spatial units are km, time is in seconds
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        
+    def __init__(self, key_press_callback, parent=None, width=5, height=4, dpi=100):
+        self.key_press_callback = key_press_callback
 
         #### some default settings, some can be changed
         
-        self.axis_label_size = 15
-        self.axis_tick_size = 12
+        self.axis_label_size = 12 #15
+        self.axis_tick_size = 12#12
         self.rebalance_XY = True
                 
         
@@ -3142,7 +3721,7 @@ class FigureArea(FigureCanvas):
         self.data_sets = []
         
         #### setup figure and canvas
-        self.fig = Figure(figsize=(width, height), dpi = dpi)
+        self.fig = Figure(figsize=(width, height), dpi = dpi, constrained_layout=True)
 
         FigureCanvas.__init__(self, self.fig)
         self.setParent(parent)
@@ -3325,6 +3904,10 @@ class FigureArea(FigureCanvas):
         
         self.coordinate_system.set_plotX(lower, upper)
         if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            bbox = self.NsVsEw_axes.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+            self.window_width = bbox.width
+            self.window_height = bbox.width
+        
             self.coordinate_system.rebalance_Y(self.window_width, self.window_height)
             Ylims = self.coordinate_system.get_plotY()
             self.NsVsAlt_axes.set_ylim( Ylims )
@@ -3344,6 +3927,10 @@ class FigureArea(FigureCanvas):
         
         self.coordinate_system.set_plotY(lower, upper)
         if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            bbox = self.NsVsEw_axes.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+            self.window_width = bbox.width
+            self.window_height = bbox.width
+            
             self.coordinate_system.rebalance_X(self.window_width, self.window_height)
             Xlims = self.coordinate_system.get_plotX()
             self.NsVsEw_axes.set_xlim( Xlims )
@@ -3373,6 +3960,11 @@ class FigureArea(FigureCanvas):
         self.coordinate_system.set_plotY(lowerY, upperY)
         
         if self.rebalance_XY: ### if this is true, then we want to scale X and Y axis so that teh aspect ratio 1...I think
+            
+            bbox = self.NsVsEw_axes.get_window_extent().transformed(self.fig.dpi_scale_trans.inverted())
+            self.window_width = bbox.width
+            self.window_height = bbox.width
+            
             self.coordinate_system.rebalance_XY(self.window_width, self.window_height)
             lowerX, upperX = self.coordinate_system.get_plotX()
             lowerY, upperY = self.coordinate_system.get_plotY()
@@ -3592,6 +4184,8 @@ class FigureArea(FigureCanvas):
             
         
     def key_press_event(self, event):
+        self.key_press_callback( event )
+        
 #        print "key press:", event.key
         if event.key == 'z':
             self.z_button_pressed = True
@@ -3715,7 +4309,9 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         QtWidgets.QMainWindow.__init__(self)
         self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         self.setWindowTitle("LOFAR-LIM PSE plotter")
-        self.setGeometry(300, 300, 1100, 1100)
+        H = QtWidgets.QDesktopWidget().screenGeometry(-1).height()
+        self.setGeometry(0, 0, H*0.9, H*0.9)
+        # self.setGeometry(300, 300, 1100, 1100)
         
 #        self.statusBar().showMessage("All hail matplotlib!", 2000) ##this shows messages on bottom left of window
 
@@ -3739,6 +4335,9 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
         self.file_menu.addAction('&Save Plot SVG', self.savePlotSvg)
         self.menuBar().addMenu(self.file_menu)
+
+        self.file_menu.addAction('&Save Plot PDF', self.savePlotPdf)
+        self.menuBar().addMenu(self.file_menu)
         
         ##plot settings
         self.plot_settings_menu = QtWidgets.QMenu('&Plot Settings', self)
@@ -3754,6 +4353,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.analysis_menu.addAction('&Output Text', self.textOutput)
         self.analysis_menu.addAction('&pickle IDs to clipboard', self.set_pickledIDs_to_clipboard)
         self.analysis_menu.addAction('&pickle IDs from clipboard', self.get_pickledIDs_from_clipboard)
+        self.analysis_menu.addAction('&new linear spline', self.new_LinearSpline)
+        self.next_linear_index = 0
         
         ## new actions added through add_analysis
         
@@ -3789,7 +4390,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         horizontal_divider.addSpacing(300)
         
         ##place figures on the right
-        self.figure_space = FigureArea(self.main_widget)
+        self.figure_space = FigureArea(self.key_press_event, self.main_widget)
 #        self.figure_space.set_coordinate_system( coordinate_system )
         horizontal_divider.addWidget( self.figure_space )
         
@@ -4012,6 +4613,17 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
         self.setWindowTitle("LOFAR-LIM data viewer")
         
+        
+        
+        
+        #### keyboard and mouse call backs ####
+    def key_press_event(self, event):
+        if self.current_data_set != -1:
+            DS = self.figure_space.data_sets[ self.current_data_set ]
+            DS.key_press_event(event)
+        
+        
+        
             #### menu bar call backs ####
     ## file
     def fileQuit(self):
@@ -4024,6 +4636,10 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     def savePlotSvg(self):
         output_fname = "./plot_save.svg"
         self.figure_space.fig.savefig(output_fname, format='svg')
+        
+    def savePlotPdf(self):
+        output_fname = "./plot_save.pdf"
+        self.figure_space.fig.savefig(output_fname, format='pdf')
         
     def set_coordinate_system(self, index):
         CS = self.coordinate_systems[index]
@@ -4048,6 +4664,64 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
     def closeEvent(self, ce):
         self.fileQuit()
+        
+        
+    ## analysis
+    
+    def new_LinearSpline(self):
+        
+        name = "LineSpline_"+str(self.next_linear_index)
+        color = 'C'+str(self.next_linear_index)
+        
+        self.add_dataset( linearSpline_DataSet(name, color) )
+        self.next_linear_index += 1
+        
+    def printInfo(self):
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        DS.print_info( self.figure_space.coordinate_system )
+        
+    def copy_view(self):
+        
+        if self.current_data_set is not None and self.current_data_set != -1: ## is this needed?
+            ret = self.figure_space.data_sets[ self.current_data_set ].copy_view( self.figure_space.coordinate_system )
+            
+            if ret is not None:
+                print("adding dataset")
+                self.add_dataset( ret )
+                self.figure_space.replot_data()
+                self.figure_space.draw()
+        else:
+            print("no dataset selected")
+            
+    def textOutput(self):
+        DS = self.figure_space.data_sets[ self.current_data_set ]
+        DS.text_output()
+        
+    def set_pickledIDs_to_clipboard(self):
+        IDs = self.figure_space.data_sets[ self.current_data_set ].get_view_ID_list( self.figure_space.coordinate_system )
+        
+        if IDs is not None:
+            pickled_IDs = dumps(IDs)
+            QApplication.clipboard().setText( pickled_IDs.hex() )
+            
+    
+    def get_pickledIDs_from_clipboard(self):
+        newDS = None
+        try:
+            IDs = loads( bytes.fromhex( QApplication.clipboard().text() ) )
+            newDS = self.figure_space.data_sets[ self.current_data_set ].search( IDs )
+        
+        except:
+            print('cannot load ids')
+            return
+        
+        if newDS is not None:
+            print("adding dataset")
+            self.add_dataset( newDS )
+            self.figure_space.replot_data()
+            self.figure_space.draw()
+        
+        
         
         
     #### add data sets ####
@@ -4324,16 +4998,25 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 #        X_bounds, Y_bounds, Z_bounds, T_bounds = self.figure_space.coordinate_system.transform( X_bounds, Y_bounds, Z_bounds, T_bounds )
 #        
 
-        self.figure_space.coordinate_system.set_plotX( X_bounds[0], X_bounds[1] )
-        self.figure_space.coordinate_system.set_plotY( Y_bounds[0], Y_bounds[1] )
-        self.figure_space.coordinate_system.set_plotT( T_bounds[0], T_bounds[1] )
-        self.figure_space.coordinate_system.set_plotZ( Z_bounds[0], Z_bounds[1] )
-        self.figure_space.coordinate_system.set_plotZt( Zt_bounds[0], Zt_bounds[1] )
+        if np.isfinite( X_bounds[0] ) and np.isfinite(X_bounds[1]):
+            self.figure_space.coordinate_system.set_plotX( X_bounds[0], X_bounds[1] )
+        if np.isfinite( Y_bounds[0] ) and np.isfinite(Y_bounds[1]):
+            self.figure_space.coordinate_system.set_plotY( Y_bounds[0], Y_bounds[1] )
+        if np.isfinite( T_bounds[0] ) and np.isfinite(T_bounds[1]):
+            self.figure_space.coordinate_system.set_plotT( T_bounds[0], T_bounds[1] )
+        if np.isfinite( Z_bounds[0] ) and np.isfinite(Z_bounds[1]):
+            self.figure_space.coordinate_system.set_plotZ( Z_bounds[0], Z_bounds[1] )
+        if np.isfinite( Zt_bounds[0] ) and np.isfinite(Zt_bounds[1]):
+            self.figure_space.coordinate_system.set_plotZt( Zt_bounds[0], Zt_bounds[1] )
         
-        self.figure_space.set_XY_lims( X_bounds[0], X_bounds[1], Y_bounds[0], Y_bounds[1],0.05 )
-        self.figure_space.set_Z_lims( Z_bounds[0], Z_bounds[1], 0.05 )
-        self.figure_space.set_Zt_lims( Zt_bounds[0], Zt_bounds[1], 0.05 )
-        self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
+        if np.isfinite( X_bounds[0] ) and np.isfinite(X_bounds[1]) and np.isfinite( Y_bounds[0] ) and np.isfinite(Y_bounds[1]):
+            self.figure_space.set_XY_lims( X_bounds[0], X_bounds[1], Y_bounds[0], Y_bounds[1],0.05 )
+        if np.isfinite( Z_bounds[0] ) and np.isfinite(Z_bounds[1]):
+            self.figure_space.set_Z_lims( Z_bounds[0], Z_bounds[1], 0.05 )
+        if np.isfinite( Zt_bounds[0] ) and np.isfinite(Zt_bounds[1]):
+            self.figure_space.set_Zt_lims( Zt_bounds[0], Zt_bounds[1], 0.05 )
+        if np.isfinite( T_bounds[0] ) and np.isfinite(T_bounds[1]):
+            self.figure_space.set_T_lims( T_bounds[0], T_bounds[1], 0.05 )
         
         self.DSvariable_get()
         self.position_get()
@@ -4430,52 +5113,6 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.figure_space.rebalance_XY = self.aspectRatioCheckBox.isChecked()
         
         
-    #### analysis
-    def printInfo(self):
-        DS = self.figure_space.data_sets[ self.current_data_set ]
-        DS.print_info( self.figure_space.coordinate_system )
-        
-    def copy_view(self):
-        
-        if self.current_data_set is not None and self.current_data_set != -1: ## is this needed?
-            ret = self.figure_space.data_sets[ self.current_data_set ].copy_view( self.figure_space.coordinate_system )
-            
-            if ret is not None:
-                print("adding dataset")
-                self.add_dataset( ret )
-                self.figure_space.replot_data()
-                self.figure_space.draw()
-        else:
-            print("no dataset selected")
-            
-    def textOutput(self):
-        DS = self.figure_space.data_sets[ self.current_data_set ]
-        DS.text_output()
-        
-    def set_pickledIDs_to_clipboard(self):
-        IDs = self.figure_space.data_sets[ self.current_data_set ].get_view_ID_list( self.figure_space.coordinate_system )
-        
-        if IDs is not None:
-            pickled_IDs = dumps(IDs)
-            QApplication.clipboard().setText( pickled_IDs.hex() )
-            
-    
-    def get_pickledIDs_from_clipboard(self):
-        newDS = None
-        try:
-            IDs = loads( bytes.fromhex( QApplication.clipboard().text() ) )
-            newDS = self.figure_space.data_sets[ self.current_data_set ].search( IDs )
-        
-        except:
-            print('cannot load ids')
-            return
-        
-        if newDS is not None:
-            print("adding dataset")
-            self.add_dataset( newDS )
-            self.figure_space.replot_data()
-            self.figure_space.draw()
-            
             
 #    def svgOutput(self):
 #        DS = self.figure_space.data_sets[ self.current_data_set ]

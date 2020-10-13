@@ -1,0 +1,2 @@
+
+install needs to be able to delete old redirection

@@ -62,7 +62,7 @@ if __name__=="__main__":
 #    plotter.setWindowTitle("LOFAR-LIM data viewer")
     plotter.show()
     
-    if False:
+    if True:
         interferometry_header, IPSE = R_IPSE.load_interferometric_PSE( data_dir )#, blocks_to_open=[338,339,340,341] )
 #        IPSE = R_IPSE.filter_IPSE(IPSE, [[-15340,-15240], [10330,10350], [4800,4925], [1.229,1.245] ])
         
@@ -85,9 +85,9 @@ if __name__=="__main__":
     header = read_header( 'iterMapper_50_CS002',  'D20170929T202255.000Z')
     data = header.load_data_as_sources()
     new_dataset = iterPSE_to_DataSet(data, '50_CS002', cmap)
-    new_dataset.X_offset = -27.0
-    new_dataset.Y_offset = 11.0
-    new_dataset.Z_offset = 10.0
+    #new_dataset.X_offset = -27.0
+    #new_dataset.Y_offset = 11.0
+    #new_dataset.Z_offset = 10.0
     plotter.add_dataset( new_dataset )
     
     

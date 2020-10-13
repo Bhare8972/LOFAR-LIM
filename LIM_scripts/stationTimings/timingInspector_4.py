@@ -44,7 +44,6 @@ def plot_all_stations(event_ID,
     file_manager = input_manager( processed_data_folder, pulse_input_folders )
     throw, input_Fname = file_manager.known_source( event_ID )
     
-    
     data_file = h5py.File(input_Fname, "r")
     
     fpaths = filePaths_by_stationName( timeID )
@@ -96,7 +95,6 @@ def plot_all_stations(event_ID,
             even_amp = np.max(even_HE)
             odd_amp = np.max(odd_HE)
             
-
             
             travel_delay = np.sqrt( (ant_loc[0]-source_XYZT[0])**2 + (ant_loc[1]-source_XYZT[1])**2 + (ant_loc[2]-source_XYZT[2])**2 )/v_air
             total_correction = travel_delay + stat_delay
@@ -105,6 +103,7 @@ def plot_all_stations(event_ID,
             odd_time =  - total_correction
             
             if even_ant_name in antennas_to_recalibrate:
+                    
                 even_time -= antennas_to_recalibrate[even_ant_name]
                 
             if odd_ant_name in antennas_to_recalibrate:

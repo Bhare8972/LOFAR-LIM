@@ -265,6 +265,22 @@ class TBBData_Dal1:
         self.nominal_sample_number = np.max( self.SampleNumbers )
         self.sample_offsets = self.nominal_sample_number - self.SampleNumbers
         self.nominal_DataLengths = self.DataLengths - self.sample_offsets
+        
+    #### PICKLING ####
+        ## this is for multiprocessing. Note that doing this KILLS this file. Otherwise bugs result (I think?)
+        # it doesn't work
+    # def __getstate__(self):
+    #     if self.file is not None:
+    #         self.file.close()
+    #         self.file = None
+    #     d = dict( self.__dict__ )
+    #     # d['file'] = None
+    #     return d
+                        
+    # def __setstate__(self, d):
+    #     self.__dict__ = d
+    #     self.file = h5py.File(self.filename, "r")
+        
             
     #### GETTERS ####
     def needs_metadata(self):

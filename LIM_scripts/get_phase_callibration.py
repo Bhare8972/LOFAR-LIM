@@ -14,6 +14,8 @@ from os import mkdir
 
 from os.path import isdir
 
+import LoLIM.IO.metadata as md
+
 def get_station_history(station_name, history_folder):
     """given a station name (as string) and a folder to store it in, save the history of the SVN repository"""
     cmd = "svn log https://svn.astron.nl/Station/trunk/CalTables/"+station_name+" > "+history_folder+"/"+station_name+"_hist.txt"
@@ -60,7 +62,7 @@ def get_ordered_revisions(station_name, history_folder, timestamp, max_timediff)
     info.sort(key=lambda X: X[1])
     return [X[0] for X in info]
                     
-def get_phase_callibration(station, revision, folder, mode=None, force=False):
+def get_phase_callibration(station, revision, folder, mode=None, filter=None, force=False):
     """download the phase callibration for a particular revision and station to folder. Folder should be default raw data folder"""
     
     if force:
@@ -72,9 +74,13 @@ def get_phase_callibration(station, revision, folder, mode=None, force=False):
         mkdir(folder+'/'+station)
 
     if mode is not None:
-        mode_name = {"LBA_OUTER": "LBA_OUTER-10_90",
-                     "LBA_INNER": "LBA_INNER-10_90",
-                           "HBA": "HBA-110_190"}[ mode ] ## this seems like a wierd way to do this.....
+        if (filter is None) or (filter=='LBA_10_90'):
+            mode_name = {"LBA_OUTER": "LBA_OUTER-10_90",
+                         "LBA_INNER": "LBA_INNER-10_90",
+                                "HBA": "HBA-110_190"}[mode] ## this seems like a wierd way to do this.....
+        else:
+            mode_name = md.get_modeName( mode, filter )
+            
         stationNr = station[2:] ## oddly not the stationID
         
         cmd = "svn export"+force_CMD+"-r "+revision+" https://svn.astron.nl/Station/trunk/CalTables/"+station+ '/CalTable-' + stationNr + '-' + mode_name + '.dat'+" "+folder+'/'+station + '/CalTable-' + stationNr + '-' + mode_name + '.dat'
@@ -100,24 +106,24 @@ def write_timing_noise(folder, sname, antenna_names, antenna_noise):
             fout.write(str(noise))
             fout.write('\n')
             
-def read_timing_noise(folder, sname=None):
-    output_dictionary = {}
-    nan_antennas_list = []
+# def read_timing_noise(folder, sname=None):
+#     output_dictionary = {}
+#     nan_antennas_list = []
     
-    def read_data(fname):
-        with open(folder + '/' + sname + ".txt", 'r') as fin:
-            for line in fin:
-                data = fin.split()
-                ant_name = data[0]
-                noise = float(data[1])
-                output_dictionary[ant_name] = noise
-                if noise != noise: ## is nan
-                    pass
+#     def read_data(fname):
+#         with open(folder + '/' + sname + ".txt", 'r') as fin:
+#             for line in fin:
+#                 data = fin.split()
+#                 ant_name = data[0]
+#                 noise = float(data[1])
+#                 output_dictionary[ant_name] = noise
+#                 if noise != noise: ## is nan
+#                     pass
     
-    if (sname is None) and (fname is not None):
-        fnames = os.listdir
-    elif (sname is not None) and (fname is None):
-        fname = folder + '/' + sname + ".txt"
+#     if (sname is None) and (fname is not None):
+#         fnames = os.listdir
+#     elif (sname is not None) and (fname is None):
+#         fname = folder + '/' + sname + ".txt"
     
     
     

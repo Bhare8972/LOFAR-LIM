@@ -1612,7 +1612,8 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
                                        min_filters = {'amp':RefAmp, 'numRS':numRS},
                                        max_filters = {'RMS':RMS, 'sqrtEig':maxSqrtEig, 'numThrows':numThrows},
                                        print_info = {'block':block, 'blockID':blockID},
-                                       source_IDs = ID
+                                       source_IDs = ID,
+                                        txtOut_info = {'RMS[ns]':RMS/1.0e-9, 'loc_error[m]':maxSqrtEig, 'numstations_excluded':numThrows, 'amplitude':RefAmp}
                                        )
     return new_dataset
 
@@ -1620,7 +1621,7 @@ class DataSet_generic_PSE(DataSet_Type):
     
     def __init__(self, X_array, Y_array, Z_array, T_array, 
                  marker, marker_size, color_mode, name, cmap,
-                 min_filters={}, max_filters={}, color_options={}, print_info={}, source_IDs = None):
+                 min_filters={}, max_filters={}, color_options={}, print_info={}, source_IDs = None, txtOut_info={}):
         
         self.marker = marker
         self.marker_size = marker_size
@@ -1638,6 +1639,7 @@ class DataSet_generic_PSE(DataSet_Type):
         self.max_filters = max_filters
         self.color_options = color_options
         self.print_data = print_info
+        self.txtOut_info = txtOut_info
         
         self.max_num_points = 10000
         
@@ -2321,23 +2323,30 @@ class DataSet_generic_PSE(DataSet_Type):
         
         self.set_total_mask()
         
-        self.X_TMP[:] = self.X_array  
-        self.Y_TMP[:] = self.Y_array  
-        self.Z_TMP[:] = self.Z_array  
-        self.T_TMP[:] = self.T_array 
+        # self.X_TMP[:] = self.X_array  
+        # self.Y_TMP[:] = self.Y_array  
+        # self.Z_TMP[:] = self.Z_array  
+        # self.T_TMP[:] = self.T_array 
         
-        Xtmp = self.X_TMP[:]
-        Ytmp = self.Y_TMP[:]
-        Ztmp = self.Z_TMP[:]
-        Ttmp = self.T_TMP[:]
+        # Xtmp = self.X_TMP[:]
+        # Ytmp = self.Y_TMP[:]
+        # Ztmp = self.Z_TMP[:]
+        # Ttmp = self.T_TMP[:]
         
-        Xtmp += self.X_offset
-        Ytmp += self.Y_offset
-        Ztmp += self.Z_offset
-        Ttmp += self.T_offset
+        # Xtmp += self.X_offset
+        # Ytmp += self.Y_offset
+        # Ztmp += self.Z_offset
+        # Ttmp += self.T_offset
 
         
         with open("output.txt", 'w') as fout:
+            fout.write("northing[m] easting[m] altitude[m] time[s]")
+            
+            for key in self.txtOut_info.keys():
+                fout.write(" ")
+                fout.write(key)
+            fout.write('\n')
+            
             for i in range( len(self.X_array) ):
                 if not self.total_mask[i]:
                     continue
@@ -2352,6 +2361,11 @@ class DataSet_generic_PSE(DataSet_Type):
                 fout.write(', ')     
 
                 fout.write( str(self.T_array[i]) )
+                
+                for value in self.txtOut_info.values():
+                    fout.write(', ')     
+                    fout.write( str(value[i]) )
+                
                 fout.write('\n')
                 
         print('done writing')
@@ -2360,6 +2374,660 @@ class DataSet_generic_PSE(DataSet_Type):
         if ignore is not None:
             self._ignore_time = ignore
         return self._ignore_time
+
+
+
+
+class DataSet_polarized_PSE(DataSet_Type):
+
+    def __init__(self, X_array, Y_array, Z_array, T_array,
+                 dirX_array, dirY_array, dirZ_array,
+                line_width, color_mode, name, cmap,
+                 extra_info={}, source_IDs=None, scale_key='intensity'):
+
+
+        self.color_mode = color_mode
+        self.cmap = cmap
+        self.name = name
+        self._ignore_time = False
+        self.display = True
+
+        self.X_array = X_array
+        self.Y_array = Y_array
+        self.Z_array = Z_array
+        self.T_array = T_array
+
+        self.dirX_array = dirX_array
+        self.dirY_array = dirY_array
+        self.dirZ_array = dirZ_array
+        # self.intensity_array = intensity_array
+
+        self.extra_info = extra_info
+        # self.max_filters = max_filters
+        # self.color_options = color_options
+        # self.print_data = print_info
+        # self.txtOut_info = txtOut_info
+
+        # self.max_num_points = 10000
+
+        self.source_IDs = source_IDs
+        if self.source_IDs is None:
+            self.source_IDs = np.arange(len(X_array))
+
+        self.X_offset = 0.0
+        self.Y_offset = 0.0
+        self.Z_offset = 0.0
+        self.T_offset = 0.0
+
+        self.min_parameters = {name: np.min(values) for name, values in self.extra_info.items()}
+        self.max_parameters = {name: np.max(values) for name, values in self.extra_info.items()}
+
+        ## probably should call previous constructor here
+
+        self.min_masks = {name: np.ones(len(self.X_array), dtype=bool) for name in self.extra_info.keys()}
+        self.max_masks = {name: np.ones(len(self.X_array), dtype=bool) for name in self.extra_info.keys()}
+
+        self.total_mask = np.ones(len(self.X_array), dtype=bool)
+
+        self.X_TMP = np.empty(len(self.X_array), dtype=np.double)
+        self.Y_TMP = np.empty(len(self.Y_array), dtype=np.double)
+        self.Z_TMP = np.empty(len(self.Z_array), dtype=np.double)
+        self.T_TMP = np.empty(len(self.T_array), dtype=np.double)
+
+        self.scale_space = np.empty(len(self.X_array), dtype=np.double)
+        self.time_scale_space = np.empty(len(self.X_array), dtype=np.double)
+        self.dirX_memory = np.empty(len(self.X_array), dtype=np.double)
+        self.dirY_memory = np.empty(len(self.X_array), dtype=np.double)
+        self.dirZ_memory = np.empty(len(self.X_array), dtype=np.double)
+
+        # self.decimation_TMP = np.empty(len(self.X_array), dtype=float)
+        # self.decimation_mask = np.zeros(len(self.X_array), dtype=bool)
+
+        #        self.masked_color_info = { name:np.ma.masked_array(data, mask=self.total_mask, copy=False)  for name,data in self.color_options.items() }
+        #        self.color_time_mask = np.ma.masked_array(self.T_array, mask=self.total_mask, copy=False)
+
+        #        self.set_show_all()
+
+        #### some axis data ###
+        self.AltVsT_paths = None
+        self.AltVsEw_paths = None
+        self.NsVsEw_paths = None
+        self.NsVsAlt_paths = None
+
+        self.transform_memory = None
+
+
+        ### scale and shape info ###
+        self.line_width = line_width # width of lines if plot polarozation
+
+        self.time_dot_scale = line_width # scale of time dots
+        self.space_line_scale = 0.1 # scale of the lines or dots in space
+        self.space_dot_scale = line_width # scale of the lines or dots in space
+
+        self.scale_mode = 'linear' # defines how the sizes of dots vary
+        ## scale modes: linear, log, constant
+        self.scale_key = scale_key ## defines which value to scale by
+        if self.scale_key not in self.extra_info:
+            self.scale_mode = 'constant'
+        self.pol_mode = 'line' # line or none. Defines how to display polarization. none just plots dots
+
+
+        self.help = 0 ## a trick to get this to print help docs
+
+    def set_show_all(self, coordinate_system, do_set_limits=True):
+        """return bounds needed to show all data. Nan if not applicable returns: [[xmin, xmax], [ymin,ymax], [zmin,zmax],[tmin,tmax]]"""
+
+        for name, data in self.extra_info.items():
+            self.set_min_param(name, np.min(data))
+            self.set_max_param(name, np.max(data))
+
+        if do_set_limits:
+            self.X_TMP[:] = self.X_array
+            self.Y_TMP[:] = self.Y_array
+            self.Z_TMP[:] = self.Z_array
+            self.T_TMP[:] = self.T_array
+
+            self.X_TMP += self.X_offset
+            self.Y_TMP += self.Y_offset
+            self.Z_TMP += self.Z_offset
+            self.T_TMP += self.T_offset
+
+            if self.transform_memory is None:
+                self.transform_memory = coordinate_system.make_workingMemory(len(self.X_array))
+            coordinate_system.set_workingMemory(self.transform_memory)
+
+            plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform(
+                self.X_TMP, self.Y_TMP, self.Z_TMP, self.T_TMP,
+                make_copy=False)
+
+            if len(plotX) > 0:
+                coordinate_system.set_plotX(np.min(plotX), np.max(plotX))
+                coordinate_system.set_plotY(np.min(plotY), np.max(plotY))
+                coordinate_system.set_plotZ(np.min(plotZ), np.max(plotZ))
+                coordinate_system.set_plotZt(np.min(plotZt), np.max(plotZt))
+                coordinate_system.set_plotT(np.min(plotT), np.max(plotT))
+
+    def bounding_box(self, coordinate_system):
+
+        #### get cuts ###
+
+        self.set_total_mask()
+
+        ## filter and shift
+        Ntmp = np.sum(self.total_mask)
+
+        self.X_TMP[:] = self.X_array
+        self.Y_TMP[:] = self.Y_array
+        self.Z_TMP[:] = self.Z_array
+        self.T_TMP[:] = self.T_array
+
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
+
+        np.compress(self.total_mask, self.X_TMP, out=Xtmp)
+        np.compress(self.total_mask, self.Y_TMP, out=Ytmp)
+        np.compress(self.total_mask, self.Z_TMP, out=Ztmp)
+        np.compress(self.total_mask, self.T_TMP, out=Ttmp)
+
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory(len(self.X_array))
+        coordinate_system.set_workingMemory(self.transform_memory)
+
+        ## transform
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform(
+            Xtmp, Ytmp, Ztmp, Ttmp,
+            make_copy=False)
+
+        ## return actual bounds
+        if len(plotX) > 0:
+            Xbounds = [np.min(plotX), np.max(plotX)]
+            Ybounds = [np.min(plotY), np.max(plotY)]
+            Zbounds = [np.min(plotZ), np.max(plotZ)]
+            Ztbounds = [np.min(plotZt), np.max(plotZt)]
+            Tbounds = [np.min(plotT), np.max(plotT)]
+        else:
+            Xbounds = [0, 1]
+            Ybounds = [0, 1]
+            Zbounds = [0, 1]
+            Ztbounds = [0, 1]
+            Tbounds = [0, 1]
+
+        return Xbounds, Ybounds, Zbounds, Ztbounds, Tbounds
+
+    def T_bounds(self, coordinate_system):
+        #### get cuts ###
+        self.set_total_mask()
+
+        ## filter and shift
+        Ntmp = np.sum(self.total_mask)
+
+        self.X_TMP[:] = self.X_array
+        self.Y_TMP[:] = self.Y_array
+        self.Z_TMP[:] = self.Z_array
+        self.T_TMP[:] = self.T_array
+
+        Xtmp = self.X_TMP[:Ntmp]
+        Ytmp = self.Y_TMP[:Ntmp]
+        Ztmp = self.Z_TMP[:Ntmp]
+        Ttmp = self.T_TMP[:Ntmp]
+
+        np.compress(self.total_mask, self.X_TMP, out=Xtmp)
+        np.compress(self.total_mask, self.Y_TMP, out=Ytmp)
+        np.compress(self.total_mask, self.Z_TMP, out=Ztmp)
+        np.compress(self.total_mask, self.T_TMP, out=Ttmp)
+
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory(len(self.X_array))
+        coordinate_system.set_workingMemory(self.transform_memory)
+
+        ## transform and cut on bounds
+        TMP = coordinate_system.get_plotT()
+        A = TMP[0]  ## need to copy
+        B = TMP[1]
+        coordinate_system.set_plotT(-np.inf, np.inf)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
+            Xtmp, Ytmp, Ztmp, Ttmp,
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask)
+        coordinate_system.set_plotT(A, B)
+
+        ## return actual bounds
+        if len(plotT) > 0:
+            return [np.min(plotT), np.max(plotT)]
+        else:
+            return [0, 1]
+
+    def get_all_properties(self):
+        ret = {"line width": str(self.line_width), "color mode": str(self.color_mode), 'name': self.name,
+               "X offset": self.X_offset, "Y offset": self.Y_offset, "Z offset": self.Z_offset,
+               "T offset": self.T_offset,  'time dot scale':self.time_dot_scale, 'space line scale':self.space_line_scale,
+               'space dot scale':self.space_dot_scale, 'scale mode':self.scale_mode, 'scale key':self.scale_key,
+               'pol_mode':self.pol_mode, "help":self.help}
+
+        for name in self.extra_info.keys():
+            ret['min ' + name] = self.min_parameters[name]
+            ret['max ' + name] = self.max_parameters[name]
+
+        return ret
+        ## need: marker type, color map
+
+    def set_property(self, name, str_value):
+
+        try:
+            if name == "line width":
+                self.line_width = int(str_value)
+
+            elif name == "color mode":
+                self.color_mode = str_value
+
+            elif name == 'name':
+                self.name = str_value
+
+            elif name == "X offset":
+                self.X_offset = float(str_value)
+
+            elif name == "Y offset":
+                self.Y_offset = float(str_value)
+
+            elif name == "Z offset":
+                self.Z_offset = float(str_value)
+
+            elif name == "T offset":
+                self.T_offset = float(str_value)
+            #
+            # elif name == "max points":
+            #     self.max_num_points = int(str_value)
+
+            elif name == "time dot scale":
+                self.time_dot_scale = float(str_value)
+
+            elif name == "space line scale":
+                self.space_line_scale = float(str_value)
+
+            elif name == "space dot scale":
+                self.space_dot_scale = float(str_value)
+
+            elif name == "scale mode":
+                if str_value in ['linear', 'log', 'constant']:
+                    self.scale_mode = str_value
+                else:
+                    print('scale mode should be: linear, log, or constant')
+
+            elif name == "scale key":
+                if str_value in self.extra_info.keys():
+                    self.scale_key = str_value
+                else:
+                    print('scale key should be a value in extra info')
+
+            elif name == "pol_mode":
+                if str_value in ['line', 'none']:
+                    self.pol_mode = str_value
+                elif str_value == "yo mama":
+                    print( "Why did you belive this? What did you expect to happen???" )
+                else:
+                    print('pol_mode should be line, none, or "yo mama"')
+
+            elif name == "help":
+                if str_value == '1':
+                    print('HELPING:')
+                    print("  help not yet implemented")
+                self.help = 0
+
+            elif name[:3]=='min' and name[4:] in self.min_parameters:
+                self.set_min_param(name[4:], float(str_value))
+
+            elif name[:3]=='max' and name[4:] in self.max_parameters:
+                self.set_max_param(name[4:], float(str_value))
+
+            else:
+                print("do not have property:", name)
+        except:
+            print("error in setting property", name, str_value)
+            pass
+
+    def set_min_param(self, name, value):
+        self.min_parameters[name] = value
+        #        self.min_masks[name][:] = self.min_filters[name] > value
+        np.greater_equal(self.extra_info[name], value, out=self.min_masks[name])
+
+    def set_max_param(self, name, value):
+        self.max_parameters[name] = value
+        #        self.max_masks[name][:] = self.max_filters[name] < value
+        np.greater_equal(value, self.extra_info[name], out=self.max_masks[name])
+
+    def set_total_mask(self):
+        self.total_mask[:] = True
+
+        for name, mask in self.min_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+
+        for name, mask in self.max_masks.items():
+            np.logical_and(self.total_mask, mask, out=self.total_mask)
+
+    def plot(self, AltVsT_axes, AltVsEw_axes, NsVsEw_axes, NsVsAlt_axes, ancillary_axes, coordinate_system):
+        self.set_total_mask()
+        N = np.sum(self.total_mask)
+
+        #### random book keeping ####
+        self.clear()
+
+        # if self.color_mode in self.color_options:
+        #     color = self.color_options[self.color_mode][self.total_mask]  ## should fix this to not make memory
+
+        #### set cuts and transforms
+        self.X_TMP[:] = self.X_array
+        self.Y_TMP[:] = self.Y_array
+        self.Z_TMP[:] = self.Z_array
+        self.T_TMP[:] = self.T_array
+
+        Xtmp = self.X_TMP[:N]
+        Ytmp = self.Y_TMP[:N]
+        Ztmp = self.Z_TMP[:N]
+        Ttmp = self.T_TMP[:N]
+
+        np.compress(self.total_mask, self.X_TMP, out=Xtmp)
+        np.compress(self.total_mask, self.Y_TMP, out=Ytmp)
+        np.compress(self.total_mask, self.Z_TMP, out=Ztmp)
+        np.compress(self.total_mask, self.T_TMP, out=Ttmp)
+
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory(len(self.X_array))
+        coordinate_system.set_workingMemory(self.transform_memory)
+
+
+        loc_mask = np.empty(N, dtype=np.bool)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
+            Xtmp, Ytmp, Ztmp, Ttmp,
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
+
+
+        if (not self.display) or len(plotX) == 0:
+            print(self.name, "not display. have:", len(plotX))
+            return
+
+        ### get color!
+        if self.color_mode == "time":
+            color = plotT
+            ARG = coordinate_system.get_plotT()
+            color_min = ARG[0]
+            color_max = ARG[1]
+
+        elif self.color_mode[0] == '*':
+            color = self.color_mode[1:]
+            color_min = None
+            color_max = None
+
+        elif self.color_mode in self.extra_info:
+            color = self.extra_info[self.color_mode][self.total_mask][loc_mask]
+            color_min = np.min(color)
+            color_max = np.max(color)
+
+        else:
+            print("bad color mode. This should be interesting!")
+            color = self.color_mode
+            color_min = None
+            color_max = None
+
+
+        ## get scale!
+        if self.scale_mode == 'constant':
+            time_scale = 1
+            space_scale = 1
+        else:
+            scale_data_1 = self.extra_info[self.scale_key][self.total_mask]
+            max_scale = np.max( scale_data_1 )
+            min_scale = np.min( scale_data_1 )
+
+            scale_space = self.scale_space[:len(plotX)]
+            scale_space[:] = scale_data_1[loc_mask]
+
+            if self.scale_mode == 'linear':
+                scale_space -= min_scale ## smallest value is 0
+                scale_space *= 1.0/( max_scale - min_scale ) ## largest value is 1
+            else: # log
+                scale_space *= 1.0/min_scale ## smallist is 0
+                np.log(scale_space, out=scale_space)
+                scale_space *= 1.0/np.log( max_scale/min_scale ) ## largest is 1
+
+            time_scale = self.time_scale_space[:len(plotX)]
+            time_scale[:] = scale_space
+            space_scale = scale_space
+
+        time_scale *= self.time_dot_scale
+
+        if self.pol_mode == 'line':
+            space_scale *= self.space_line_scale
+        else: ## none
+            space_scale *= self.space_dot_scale
+
+
+
+
+
+        N_before = len(plotX)
+        # if self.max_num_points > 0 and self.max_num_points < N_before:
+        #     decimation_factor = self.max_num_points / float(N_before)
+        #
+        #     data = self.decimation_TMP[:N_before]
+        #     mask = self.decimation_mask[:N_before]
+        #
+        #     data[:] = decimation_factor
+        #     np.cumsum(data, out=data)
+        #     np.floor(data, out=data)
+        #     np.greater(data[1:], data[:-1], out=mask[1:])
+        #     mask[0] = 0
+        #
+        #     plotX = plotX[mask]
+        #     plotY = plotY[mask]
+        #     plotZ = plotZ[mask]
+        #     plotZt = plotZt[mask]
+        #     plotT = plotT[mask]
+        #
+        #     try:
+        #         B4 = color[mask]
+        #         color = B4  ## hope this works?
+        #     except:
+        #         pass
+
+        print(self.name, "plotting", len(plotX), '/', len(self.X_array) )#, "have:", N_before)
+
+        try:
+            if not self._ignore_time:
+                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, c=color, marker='o',
+                                                        s=time_scale,
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+            if self.pol_mode == 'none':
+                self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, c=color, marker='o', s=space_scale,
+                                                          cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+                self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=color, marker='o', s=space_scale,
+                                                        cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+                self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, c=color, marker='o', s=space_scale,
+                                                          cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+            else:
+                print('a')
+                dirX_tmp = self.dirX_memory[:len(plotX)]
+                dirY_tmp = self.dirY_memory[:len(plotX)]
+                dirZ_tmp = self.dirZ_memory[:len(plotX)]
+
+                dirX_tmp[:] = self.dirX_array[self.total_mask][loc_mask]
+                dirY_tmp[:] = self.dirY_array[self.total_mask][loc_mask]
+                dirZ_tmp[:] = self.dirZ_array[self.total_mask][loc_mask]
+
+                dirX_tmp *= 0.5
+                dirY_tmp *= 0.5
+                dirZ_tmp *= 0.5
+
+                dirX_tmp *= space_scale
+                dirY_tmp *= space_scale
+                dirZ_tmp *= space_scale
+
+                # dirX_tmp *= self.pol_scale*0.5
+                # dirY_tmp *= self.pol_scale*0.5
+                # dirZ_tmp *= self.pol_scale*0.5
+                #
+                # if self.pol_mode=='intensity' or self.pol_mode=='log_intensity':
+                #     intensity_tmp = np.array( self.intensity_array[self.total_mask][loc_mask] )
+                #
+                #     if self.pol_mode=='log_intensity':
+                #         np.log(intensity_tmp, out=intensity_tmp)
+                #
+                #     intensity_tmp /= np.max( intensity_tmp )
+                #
+                #     dirX_tmp *= intensity_tmp
+                #     dirY_tmp *= intensity_tmp
+                #     dirZ_tmp *= intensity_tmp
+
+                X_low = np.array(plotX)
+                X_high = np.array(plotX)
+                X_low -= dirX_tmp
+                X_high += dirX_tmp
+
+                Y_low = np.array(plotY)
+                Y_high = np.array(plotY)
+                Y_low -= dirY_tmp
+                Y_high += dirY_tmp
+
+                Z_low = np.array(plotZ)
+                Z_high = np.array(plotZ)
+                Z_low -= dirZ_tmp
+                Z_high += dirZ_tmp
+
+                for i in range(len(X_low)):
+                    X = [ X_low[i], X_high[i] ]
+                    Y = [ Y_low[i], Y_high[i] ]
+                    Z = [ Z_low[i], Z_high[i] ]
+
+                    c = None
+                    if (color_min is not None) and (color_max is not None):
+                        c = color[i]
+                        c -= color_min
+                        c /= color_max-color_min
+
+                        c = self.cmap( c )
+                    else:
+                        c = color
+
+                    AltVsEw_axes.plot(X,Z,'-', lw=self.line_width, c=c)
+                                 # cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+                    NsVsEw_axes.plot(X,Y,'-', lw=self.line_width, c=c)
+                                       # cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+                    NsVsAlt_axes.plot(Z,Y,'-', lw=self.line_width, c=c)
+                                         #   cmap=self.cmap, vmin=color_min, vmax=color_max)
+
+
+        except Exception as e:
+            print(e)
+
+    #    def get_viewed_events(self):
+    #        print("get viewed events not implemented")
+    #        return []
+    #        return [PSE for PSE in self.PSE_list if
+    #                (self.loc_filter(PSE.PolE_loc) and PSE.PolE_RMS<self.max_RMS and PSE.num_even_antennas>self.min_numAntennas)
+    #                or (self.loc_filter(PSE.PolO_loc) and PSE.PolO_RMS<self.max_RMS and PSE.num_odd_antennas>self.min_numAntennas) ]
+
+    def clear(self):
+        pass
+
+    def use_ancillary_axes(self):
+        return False
+
+    def toggle_on(self):
+        self.display = True
+
+    def toggle_off(self):
+        self.display = False
+        self.clear()
+
+    ## the res of this is wrong
+    def ignore_time(self, ignore=None):
+        if ignore is not None:
+            self._ignore_time = ignore
+        return self._ignore_time
+
+    def print_info(self, coordinate_system):
+        self.set_total_mask()
+        N = np.sum(self.total_mask)
+
+        #### random book keeping ####
+        self.clear()
+
+        # if self.color_mode in self.color_options:
+        #     color = self.color_options[self.color_mode][self.total_mask]  ## should fix this to not make memory
+
+        #### set cuts and transforms
+        self.X_TMP[:] = self.X_array
+        self.Y_TMP[:] = self.Y_array
+        self.Z_TMP[:] = self.Z_array
+        self.T_TMP[:] = self.T_array
+
+        Xtmp = self.X_TMP[:N]
+        Ytmp = self.Y_TMP[:N]
+        Ztmp = self.Z_TMP[:N]
+        Ttmp = self.T_TMP[:N]
+
+        np.compress(self.total_mask, self.X_TMP, out=Xtmp)
+        np.compress(self.total_mask, self.Y_TMP, out=Ytmp)
+        np.compress(self.total_mask, self.Z_TMP, out=Ztmp)
+        np.compress(self.total_mask, self.T_TMP, out=Ttmp)
+
+        Xtmp += self.X_offset
+        Ytmp += self.Y_offset
+        Ztmp += self.Z_offset
+        Ttmp += self.T_offset
+
+        if self.transform_memory is None:
+            self.transform_memory = coordinate_system.make_workingMemory(len(self.X_array))
+        coordinate_system.set_workingMemory(self.transform_memory)
+
+
+        loc_mask = np.empty(N, dtype=np.bool)
+        plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
+            Xtmp, Ytmp, Ztmp, Ttmp,
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
+
+        print( "dataset:", self.name )
+
+        IDS = self.source_IDs[self.total_mask][loc_mask]
+
+        inX = self.X_array[self.total_mask][loc_mask]
+        inY = self.Y_array[self.total_mask][loc_mask]
+        inZ = self.Z_array[self.total_mask][loc_mask]
+        inT = self.T_array[self.total_mask][loc_mask]
+
+        infoplot = { key:data[self.total_mask][loc_mask] for key,data in self.extra_info.items() }
+
+        for i in range(len(IDS)):
+            print(inT[i], ', #', inX[i], inY[i], inZ[i])
+            # print('source', IDS[i])
+            # print('  plot at', plotX[i], plotY[i], plotZ[i], plotZt[i] )
+            # print('    plot t:', plotT[i]  )
+            # print('  at', inX[i], inY[i], inZ[i])
+            # print('    T', inT[i])
+            # for key, d in infoplot.items():
+            #     print(' ', key, d[i])
+            # print()
 
 
 def LMAHeader_to_StationLocs(LMAheader, groupLOFARStations=False, center='LOFAR', name='stations', color=None, marker='s', textsize=None):
@@ -2384,7 +3052,22 @@ def LMAHeader_to_StationLocs(LMAheader, groupLOFARStations=False, center='LOFAR'
             stationX.append( stationXYZ[0] )
             stationY.append( stationXYZ[1] )
             
-    return station_locations_DataSet( stationX, stationY, station_names, name='stations', color=None, marker='s', textsize=None )
+    return station_locations_DataSet( stationX, stationY, station_names, name='stations', color=color, marker=marker, textsize=textsize )
+
+def IterMapper_StationLocs(header, name='stations', color=None, marker='s', textsize=None):
+    station_names = []
+    stationX = []
+    stationY = []
+    
+    for name, antList in zip(header.station_names, header.antenna_info):
+        station_names.append( name )
+        
+        ant = antList[0]
+        stationX.append( ant.location[0] )
+        stationY.append( ant.location[1] )
+    
+    return station_locations_DataSet( stationX, stationY, station_names, name='stations', color=color, marker=marker, textsize=textsize )
+    
     
 
 class station_locations_DataSet( DataSet_Type ):

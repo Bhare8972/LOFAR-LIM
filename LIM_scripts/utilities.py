@@ -281,8 +281,20 @@ def antName_is_even(ant_name):
 
 def odd_antName_to_even(odd_ant_name):
     odd_num = int(odd_ant_name)
-    even_num = odd_num + 1
+    even_num = odd_num - 1
     return str( even_num ).zfill( 9 )
+
+def antName_to_even(ant_name):
+    if antName_is_even(ant_name):
+        return ant_name
+    else:
+        odd_antName_to_even( ant_name )
+
+def antName_to_odd(ant_name):
+    if antName_is_even(ant_name):
+        even_antName_to_odd( ant_name )
+    else:
+        return ant_name
     
 
 #### plotting utilities ####

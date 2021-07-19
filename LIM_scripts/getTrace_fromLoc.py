@@ -5,16 +5,17 @@
 import numpy as np
 
 from LoLIM.utilities import processed_data_dir, v_air, SId_to_Sname
-from LoLIM.signal_processing import remove_saturation
+from LoLIM.signal_processing import remove_saturation, num_double_zeros
 
-class getTrace_fromLoc():
-    def __init__(self, data_file_dict, data_filter_dict, station_timing_calibration=None):
+class getTrace_fromLoc:
+    def __init__(self, data_file_dict, data_filter_dict, station_timing_calibration=None, return_dbl_zeros=False):
         """data_file_dict is dictionary where keys are station names and values are TBB files. data_filter_dict is same, but
         values are window_and_filter objects. station_timing_calibration is same, but values are the timing callibration of the stations"""
         
         self.data_file_dict = data_file_dict
         self.data_filter_dict = data_filter_dict
 #        self.station_timing_calibration = station_timing_calibration
+        self.return_dbl_zeros = return_dbl_zeros
         
         if station_timing_calibration is not None:
             for sname, TBB_file in data_file_dict.items():
@@ -36,7 +37,7 @@ class getTrace_fromLoc():
         
     def get_trace_fromLoc(self, XYZT, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, half_hann_length=50):
         """given the location of the source in XYZT, name of the antenna, and width (in num data samples) of the desired pulse, 
-        return starting_index of the returned trace, total time offest of that antenna, predicted arrival time of pulse at that antenna, 
+        return starting_index of the returned trace, total time calibration delay of that antenna (from TBB.get_total_delays), predicted arrival time of pulse at that antenna,
         and the time trace centered on the arrival time."""
         
         station_name = SId_to_Sname[ int(ant_name[:3]) ]
@@ -62,15 +63,22 @@ class getTrace_fromLoc():
         input_data = np.array( input_data, dtype=np.double )
         if do_remove_saturation:
             remove_saturation( input_data, positive_saturation, negative_saturation, removal_length, half_hann_length )
-        
+
         width_before = int(width*0.5)
         width_after = width-width_before
+
+        if self.return_dbl_zeros :
+            dbl_zeros = num_double_zeros( input_data[ local_data_index-width_before : local_data_index+width_after ] )
+
         if do_remove_RFI:
             data = data_filter.filter( input_data )[ local_data_index-width_before : local_data_index+width_after ]
         else:
             data = input_data[ local_data_index-width_before : local_data_index+width_after ]
-        
-        return data_start_sample+local_data_index-width_before, total_time_offset, predicted_arrival_time, data
+
+        if self.return_dbl_zeros:
+            return data_start_sample+local_data_index-width_before, total_time_offset, predicted_arrival_time, data, dbl_zeros
+        else:
+            return data_start_sample+local_data_index-width_before, total_time_offset, predicted_arrival_time, data
     
     def get_trace_fromIndex(self, starting_index, ant_name, width, do_remove_RFI=True, do_remove_saturation=True, positive_saturation=2046, negative_saturation=-2047, removal_length=50, saturation_half_hann_length=50):
         """similar to previous, but now retrieve trace based on location in file. For repeatability.
@@ -89,6 +97,9 @@ class getTrace_fromLoc():
         input_data = np.array( input_data, dtype=np.double )
         if do_remove_saturation:
             remove_saturation( input_data, positive_saturation, negative_saturation, removal_length, saturation_half_hann_length )
+
+        if self.return_dbl_zeros :
+            dbl_zeros = num_double_zeros( input_data[ local_data_index : local_data_index+width ] )
         
         
         if do_remove_RFI:
@@ -97,8 +108,11 @@ class getTrace_fromLoc():
             data = input_data[ local_data_index : local_data_index+width ]
         
         predicted_arrival_time = starting_index*5.0E-9 - total_time_offset + 0.5*width*5.0E-9
-        
-        return starting_index, total_time_offset, predicted_arrival_time, data
+
+        if self.return_dbl_zeros:
+            return starting_index, total_time_offset, predicted_arrival_time, data, dbl_zeros
+        else:
+            return starting_index, total_time_offset, predicted_arrival_time, data
     
     
     

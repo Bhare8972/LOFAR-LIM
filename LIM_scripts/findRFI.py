@@ -159,14 +159,15 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     temp_mag_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.double)
     temp_phase_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.complex)
     for block_i in good_blocks:
-        if verbose:
-            print( 'Doing block %d' % block_i )
         block = block_i + initial_block
+        if verbose:
+            print( 'Doing block %d' % block )
 
         for ant_i in range(num_antennas):
-            if num_processed_blocks[ant_i] == num_blocks or not blocks_good[ant_i, block_i]:
+            if (num_processed_blocks[ant_i] == num_blocks and not ant_i==ref_antenna) or not blocks_good[ant_i, block_i]:
                 continue
             oneAnt_data[:] = TBB_in_file.get_data( block_size*block, block_size, antenna_index=ant_i )
+
 
             ##window the data
             # Note: No hanning window if we want to measure power accurately from spectrum
@@ -174,22 +175,27 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
             # difference!
             # But no window makes the cleaning less effective... :(
             oneAnt_data *= window_function
+
             data[ant_i] = np.fft.fft( oneAnt_data )
 
+        data /= block_size
 
         np.abs( data, out=temp_mag_spectrum )
+
         temp_phase_spectrum[:] = data
         temp_phase_spectrum /= (temp_mag_spectrum + 1.0E-15)
+
         temp_phase_spectrum[:,:] /= temp_phase_spectrum[ref_antenna,:]
 
-        temp_mag_spectrum *= temp_mag_spectrum
+
+        temp_mag_spectrum *= temp_mag_spectrum ## square
 
 
         for ant_i in range(num_antennas):
-            if num_processed_blocks[ant_i] == num_blocks or not blocks_good[ant_i, block_i]:
+            if (num_processed_blocks[ant_i] == num_blocks and not ant_i==ref_antenna) or not blocks_good[ant_i, block_i]:
                 continue
 
-            phase_mean[ant_i,:]    +=        temp_phase_spectrum[ant_i][lower_frequency_index:upper_frequency_index]
+            phase_mean[ant_i,:]    += temp_phase_spectrum[ant_i][lower_frequency_index:upper_frequency_index]
             spectrum_mean[ant_i,:] += temp_mag_spectrum[ant_i][lower_frequency_index:upper_frequency_index]
 
             num_processed_blocks[ant_i] += 1
@@ -236,7 +242,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
             flag_max = N-1
         extend_dirty_channels[flag_min:flag_max] = True
 
-    dirty_channels = np.where( extend_dirty_channels )
+    dirty_channels = np.where( extend_dirty_channels )[0]
 
     antenna_is_good[ref_antenna] = True ## cause'.... ya know.... it is
     #### plot and return data ####
@@ -250,8 +256,12 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.title("Phase spread vs frequency. Red horizontal line shows cuttoff.")
         plt.ylabel("Spread value")
         plt.xlabel("Frequency [MHz]")
-        plt.savefig(figure_location+'/phase_spreads.png')
-        plt.close()
+        # plt.legend()
+        if figure_location == "show":
+            plt.show()
+        else:
+            plt.savefig(figure_location+'/phase_spreads.png')
+            plt.close()
 
         plt.figure()
         plt.plot(frequencies_MHZ, spectrum_mean[ ref_antenna ])
@@ -259,8 +269,12 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.xlabel("Frequency [MHz]")
         plt.ylabel("magnitude")
         plt.yscale('log', nonposy='clip')
-        plt.savefig(figure_location+'/magnitude.png')
-        plt.close()
+        # plt.legend()
+        if figure_location == "show":
+            plt.show()
+        else:
+            plt.savefig(figure_location+'/magnitude.png')
+            plt.close()
 
         plt.figure()
         for maxes, ant_name in zip(max_over_blocks, TBB_in_file.get_antenna_names()):
@@ -268,8 +282,11 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.ylabel("maximum")
         plt.xlabel("block index")
         plt.legend()
-        plt.savefig(figure_location+'/max_over_blocks.png')
-        plt.close()
+        if figure_location == "show":
+            plt.show()
+        else:
+            plt.savefig(figure_location+'/max_over_blocks.png')
+            plt.close()
 
 
     output_dict = {}
@@ -283,6 +300,9 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     cleaned_spectrum[:, dirty_channels] = 0.0
     output_dict["cleaned_spectrum_magnitude"] = cleaned_spectrum
     output_dict["cleaned_power"] = 2*np.sum( cleaned_spectrum, axis=1 )
+    print( 'cleaned power:', output_dict["cleaned_power"]  )
+    print('old power', 2*np.sum( spectrum_mean, axis=1 ) )
+    print('num dirty channels:', len(dirty_channels))
 
     output_dict["antenna_names"] = TBB_in_file.get_antenna_names()
     output_dict["timestamp"] = TBB_in_file.get_timestamp()

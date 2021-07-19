@@ -11,7 +11,8 @@ from matplotlib import pyplot as plt
 #from LoLIM.utilities import upsample_N_envelope
 
 def simple_bandpass(frequencies, lower_freq=30.0E6, upper_freq=80.0E6, roll_width = 2.5E6):
-    """create a simple bandpass filter between two frequencies. Sets all negative frequencies to zero, returns frequency response at 'frequencies'"""
+    """create a simple bandpass filter between two frequencies. Sets all negative frequencies to zero, returns frequency response at 'frequencies'
+    Essentually block filter with smothed edges"""
    
     bandpass_filter = np.zeros( len(frequencies), dtype=complex)
     bandpass_filter[ np.logical_and( frequencies>=lower_freq, frequencies<=upper_freq  ) ] = 1.0
@@ -625,4 +626,54 @@ def FFT_time_shift(frequencies, FFT_data, dt):
     on the data in-place """
     FFT_data *= np.exp( frequencies*(-1j*2*np.pi*dt) )
     
+def make_stokes(X, Y):
+    """given complex electric fields in X and Y direction (can be numpy arrays), return I, Q, U, and V"""
+    
+    TMP = np.empty(len(X), dtype=np.double)
+    
+    I = np.empty(len(X), dtype=np.double)
+    Q = np.empty(len(X), dtype=np.double)
+    U = np.empty(len(X), dtype=np.double)
+    V = np.empty(len(X), dtype=np.double)
+    
+    ### calc I and Q ####
+    I[:] = X.real
+    I *= I
+    Q[:] = I
+    
+    TMP[:] = X.imag
+    TMP *= TMP
+    I += TMP
+    Q += TMP
+    
+    TMP[:] = Y.real
+    TMP *= TMP
+    I += TMP
+    Q -= TMP
+    
+    TMP[:] = Y.imag
+    TMP *= TMP
+    I += TMP
+    Q -= TMP
+    
+    ### calc U
+    U[:] = X.real
+    U[:] *= Y.real
 
+    TMP[:] = X.imag
+    TMP[:] *= Y.imag
+    U += TMP
+    U *= 2.0
+    
+    ### calc V
+    V[:] = X.imag
+    V[:] *= Y.real
+    
+    TMP[:] = X.real
+    TMP[:] *=Y.imag
+    V -= TMP
+    V *= -2
+    
+    return I,Q,U,V
+    
+    

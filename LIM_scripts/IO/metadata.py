@@ -45,6 +45,36 @@ def mapAntennasetKeyword(antennaset):
     assert antennaset in allowed
 
     return antennaset
+
+def get_modeName(antenna_set, frequency_band):
+    antenna_set = mapAntennasetKeyword( antenna_set )
+    
+    if antenna_set=="LBA_OUTER":
+        if frequency_band=="LBA_10_90":
+            return "LBA_OUTER-10_90"
+        elif frequency_band=="LBA_30_90":
+            return "LBA_OUTER-10_90"
+        else:
+            print("unknown frequency band in metadata get_modeName", antenna_set, frequency_band)
+            return None
+    elif antenna_set=="LBA_INNER":
+        if frequency_band=="LBA_10_90":
+            return "LBA_INNER-10_90"
+        elif frequency_band=="LBA_30_90":
+            return "LBA_INNER-10_90"
+        else:
+            print("unknown frequency band in metadata get_modeName", antenna_set, frequency_band)
+            return None
+    elif antenna_set in ["HBA", "HBA_0", "HBA_1"]:
+        if frequency_band=="HBA_110_190":
+            return "HBA-110_190"
+        else:
+            print("unknown frequency band in metadata get_modeName", antenna_set, frequency_band)
+            return None
+    else:
+        print("unknown antenna_set in metadata get_modeName", antenna_set, frequency_band)
+        return None
+    
     
 def make_antennaID_filter(antennaIDs):
     """For a list of antennaIDs, return a filter to filter data by antenna.
@@ -156,7 +186,7 @@ def make_antennaID_filter(antennaIDs):
 #
 #    return complexdata.transpose()
 
-def getStationPhaseCalibration(station, antennaset, file_location=None):
+def getStationPhaseCalibration(station, antennaset, filter=None, file_location=None):
     """Read phase calibration data for a station.
 
     Required arguments:
@@ -206,19 +236,24 @@ def getStationPhaseCalibration(station, antennaset, file_location=None):
     """
 
     # Return mode nr depending on observation mode
-    antennasetToMode = {"LBA_OUTER": "LBA_OUTER-10_90",
-                         "LBA_INNER": "LBA_INNER-10_90",
-                         "HBA": "HBA-110_190",
-                         "HBA_0": "HBA-110_190",
-                         "HBA_1": "HBA-110_190",
-                         }
-
-    antennaset = mapAntennasetKeyword( antennaset )
-
-    if antennaset not in antennasetToMode.keys():
-        raise KeyError("Not a valid antennaset " + antennaset)
-
-    mode_name = antennasetToMode[antennaset]
+    if filter==None:
+        antennasetToMode = {"LBA_OUTER": "LBA_OUTER-10_90",
+                             "LBA_INNER": "LBA_INNER-10_90",
+                             "HBA": "HBA-110_190",
+                             "HBA_0": "HBA-110_190",
+                             "HBA_1": "HBA-110_190",
+                             }
+    
+        antennaset = mapAntennasetKeyword( antennaset )
+    
+        if antennaset not in antennasetToMode.keys():
+            raise KeyError("Not a valid antennaset " + antennaset)
+    
+        mode_name = antennasetToMode[antennaset]
+        
+    else:
+        mode_name = get_modeName(antennaset, filter)
+        
     if not isinstance(station, str):
         # Convert a station id to a station name
         station = SId_to_Sname[station]

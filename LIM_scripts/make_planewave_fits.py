@@ -128,13 +128,16 @@ class planewave_fitter:
         residuals *= residuals
         return np.sum( residuals )
     
-    def go_fit(self, max_RMS = None):
+    def go_fit(self, max_RMS = None, antenna_time_calibrations=None):
         """ fit all planewaves. Re-opens the antenna calibrations every time, so is useful for testing different calibration files. Returns four arrays:
             RMS fit values,  zenithal fits, azimuthal fits, and the RMS per antenna (in order of antennas in the station, according to the polarization)
             max_RMS controls which fits are used to calculate RMS per antenna, does not affect the RMS, zenith or azimuth return arrays."""
         
         self.antenna_locations = self.TBB_data.get_LOFAR_centered_positions()[self.polarization::2]
-        antenna_delays = self.TBB_data.get_timing_callibration_delays()[self.polarization::2]
+        if antenna_time_calibrations is None:
+            antenna_delays = self.TBB_data.get_timing_callibration_delays()[self.polarization::2]
+        else:
+            antenna_delays = antenna_time_calibrations[self.polarization::2]
         
         self.num_measurments = len(self.antenna_locations )
         

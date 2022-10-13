@@ -52,7 +52,7 @@ class getTrace_fromLoc:
         
         total_time_offset = station_data.get_total_delays()[ file_antenna_index ]
         antenna_locations = station_data.get_LOFAR_centered_positions()
-        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1]) + XYZT[3]
+        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1])[0] + XYZT[3]
         
         data_arrival_index = int( predicted_arrival_time/5.0E-9 + total_time_offset/5.0E-9 )
         

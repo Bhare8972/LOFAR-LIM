@@ -94,10 +94,10 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
                 magnitude = FFT_data
                 magnitude *= magnitude
                 average_power[ ant_i ] += np.real( np.sum( magnitude ) )
-#            else:
-#                print(block_i, ant_i, num_double_zeros( oneAnt_data ))
-#                plt.plot(oneAnt_data)
-#                plt.show()
+            # else:
+            #    print(block_i, ant_i, num_double_zeros( oneAnt_data ))
+            #    plt.plot(oneAnt_data, 'o')
+            #    plt.show()
 
             if figure_location is not None:
                 max_over_blocks[ant_i, block_i] = np.max( oneAnt_data[ant_i] )
@@ -268,7 +268,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         plt.plot(frequencies_MHZ[dirty_channels], spectrum_mean[ ref_antenna ][dirty_channels], 'ro')
         plt.xlabel("Frequency [MHz]")
         plt.ylabel("magnitude")
-        plt.yscale('log', nonposy='clip')
+        plt.yscale('log')#, nonposy='clip')
         # plt.legend()
         if figure_location == "show":
             plt.show()
@@ -312,9 +312,10 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     return output_dict
 
 class window_and_filter:
-    def __init__(self, blocksize=None, find_RFI=None, timeID=None, sname=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6):
+    def __init__(self, blocksize=None, find_RFI=None, timeID=None, sname=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6, station_error_mode=None):
         self.lower_filter = lower_filter
         self.upper_filter = upper_filter
+        # self.is_good = True
 
         if timeID is not None:
             if find_RFI is None:
@@ -323,7 +324,11 @@ class window_and_filter:
 
         if isinstance(find_RFI, str): ## load findRFI data from file
             with open( find_RFI, 'rb' ) as fin:
-                find_RFI = load(fin)[ sname ]
+                in_dict = load(fin)
+                # if (station_error_mode == 'implicit') and (sname not in in_dict):
+                #     self.is_good = False
+
+                find_RFI = in_dict[ sname ]
 
         self.RFI_data = find_RFI
 
@@ -390,25 +395,6 @@ class window_and_filter:
             FFT_data[...,:] *= additional_filter
 
         return FFT_data
-
-
-#    def filter(self, data):
-#
-#        data[...,:] *= self.half_hann_window
-#        FFT_data = np.fft.fft( data, axis=-1 )
-#
-#        FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
-#        # Reject DC component
-#        FFT_data[..., 0] = 0.0
-#        # Also reject 1st harmonic (gives a lot of spurious power with Hanning window)
-#        FFT_data[..., 1] = 0.0
-#
-##       remove RFI
-#        if self.RFI_data is not None:
-#            FFT_data[..., self.RFI_data["dirty_channels"]] = 0
-#
-#
-#        return np.fft.ifft(FFT_data, axis=-1)
 
 if __name__ == "__main__":
 

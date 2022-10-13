@@ -6,6 +6,7 @@ from scipy.signal import resample
 from scipy.optimize import least_squares, brute
 
 from LoLIM.utilities import processed_data_dir, v_air
+import LoLIM.utilities as utils
 from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 from LoLIM.signal_processing import remove_saturation, num_double_zeros, parabolic_fitter
 from LoLIM.findRFI import window_and_filter
@@ -114,7 +115,7 @@ class planewave_fitter:
             dz = location[2] - ref_loc[2]
             dr = dz*cos_Z + dx*sin_Z*cos_A + dy*sin_Z*sin_A
             
-            ret[ant_i] = -dr/v_air
+            ret[ant_i] = -dr/utils.v_air
         return ret
     
     def residuals(self, ZA):

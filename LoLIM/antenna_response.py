@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 
-""" A set of tools for modelling the antenna reponse and for callibrating the amplitude vs frequency of the antennas
-based on pyCRtools. see Schellart et al. Detecting cosmic rays with the LOFAR radio telescope,  and Nelles et al. Calibrating the absolute amplitude scale for air showers measured at LOFAR
+"""
+A set of tools for modelling the antenna reponse and for callibrating the amplitude vs frequency of the antennas
+originally inspired by pyCRtools
 
-Note: LBA_ant_calibrator still needs some work.
+If you don't know what to do, call the function load_default_antmodel. Which returns a SphHarm_antModel object. Then call the Jones_Matrices method
 
-author: Brian hare
+Note, this module should use degrees on all input/outputs.
+
+author: Brian Hare
 """
 
 ##internal
@@ -17,7 +20,6 @@ from os.path import  dirname, abspath
 ##external 
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.interpolate import interp1d
 from scipy.interpolate import RegularGridInterpolator, pchip_interpolate, PchipInterpolator
 from scipy.io import loadmat
 
@@ -27,6 +29,7 @@ from scipy.io import loadmat
 from LoLIM.utilities import processed_data_dir, MetaData_directory, RTD, SId_to_Sname, v_air
 import LoLIM.transmogrify as tmf
 import LoLIM.IO.metadata as md
+from LoLIM import sph_harm_fit
 
 
 
@@ -124,14 +127,14 @@ class aartfaac_LBA_model:
         num_phis = len(self.AART_Phis)
         num_freqs = len(self.all_frequencies)
         
-        self.antenna_Z = np.empty([num_ants, num_ants, num_freqs ], dtype=np.complex)
+        self.antenna_Z = np.empty([num_ants, num_ants, num_freqs ], dtype=complex)
         
         self.antenna_Z[:,:, :self.course_frequencyRange_low[1]] = course_Zant[:,:,  :self.course_frequencyRange_low[1]]
         self.antenna_Z[:,:, self.fine_frequencyRange[0]:self.fine_frequencyRange[1]] = fine_Zant[:,:,  :]
         self.antenna_Z[:,:, self.fine_frequencyRange[1]:] = course_Zant[:,:, self.fine_frequencyRange[1]-len(self.all_frequencies):]
         
         
-        self.total_impedence = np.empty((num_ants, num_ants, num_freqs), dtype=np.complex)
+        self.total_impedence = np.empty((num_ants, num_ants, num_freqs), dtype=complex)
         self.set_RC( R, C ) ## this sets self.total_impedence
         
         
@@ -139,7 +142,7 @@ class aartfaac_LBA_model:
         
         
         ### now we combine total G_z, which is voltage on antenna
-        self.total_Gz = np.empty( (num_ants,2,num_thetas,num_phis,num_freqs), dtype=np.complex )
+        self.total_Gz = np.empty( (num_ants,2,num_thetas,num_phis,num_freqs), dtype=complex )
         
         # for ant_i in range(num_ants):
             # for pol_i in range(2):
@@ -200,8 +203,8 @@ class aartfaac_LBA_model:
         
         
         
-        tmp_mat = np.empty((num_ants, num_ants), dtype=np.complex)
-        ZLMA_matrix =  np.zeros((num_ants, num_ants), dtype=np.complex)
+        tmp_mat = np.empty((num_ants, num_ants), dtype=complex)
+        ZLMA_matrix =  np.zeros((num_ants, num_ants), dtype=complex)
         
         for Fi in range(num_freqs):
             # set LNA matrix
@@ -256,162 +259,114 @@ class aartfaac_LBA_model:
         this_antenna_location = known_positions[ int(antenna_name[-3:]) ]
         
         return self.loc_to_anti( this_antenna_location[0:2] )
-    
-    
-    
-    class single_LBA_model:
-        def __init__(self, jones_functions, freq_bounds):
-            self.jones_functions = jones_functions
-            self.freq_bounds = freq_bounds
-            
-        def Jones_Matrices(self, frequencies, zenith, azimuth, freq_fill=1.0):
-            """ if frequencies is numpy array in Hz, zenith and azimuth in degrees, than return numpy array of jones matrices,
-            that when doted with [zenithal,azimuthal] component of incidident E-field, then will give [X,Y] voltages on dipoles"""
-            
-            return_matrices = np.empty( (len(frequencies), 2,2), dtype=np.complex )
-            
-            if zenith<0:
-                zenith = 0
-            elif zenith > 90:
-                zenith = 90
-                
-            while azimuth<0:
-                azimuth += 360
-            while azimuth>360:
-                azimuth -= 360
-                
-            # good_frequency_filter = np.logical_and(frequencies>=self.freq_bounds[0], frequencies<self.freq_bounds[-1])
-            
-            # points = np.empty( (np.sum(good_frequency_filter), 3), dtype=np.double )
-            
-            
-            J00,J01 = self.jones_functions[0]
-            J10,J11 = self.jones_functions[1]
-            
-            for fi,f in enumerate(frequencies):
-                if f<=self.freq_bounds[0] or f>=self.freq_bounds[-1]:
-                    return_matrices[fi, 0,0] = freq_fill
-                    return_matrices[fi, 1,1] = freq_fill
-                    return_matrices[fi, 0,1] = 0.0
-                    return_matrices[fi, 1,0] = 0.0
-                else:
-                    return_matrices[fi, 0,0] = J00( (zenith,azimuth,f) )
-                    return_matrices[fi, 0,1] = J01( (zenith,azimuth,f) )
-                    return_matrices[fi, 1,0] = J10( (zenith,azimuth,f) )
-                    return_matrices[fi, 1,1] = J11( (zenith,azimuth,f) )
-                    
-                    # print(fi)
-                    # M = return_matrices[fi]
-                    # print("J:", M)
-                    # print( M[ 0,0]*M[ 1,1] - M[  0,1]*M[  1,0] )
-                    # print()
-                    
-            return return_matrices
-        
+
     def get_antenna_model(self, ant_i):
-        """note: ant_i should be internal index!"""
-        
-        
-        X_ant_i = int(ant_i/2)*2
-        
-        KX, KY = self.AART_ant_positions[:, X_ant_i]
-        
-        num_thetas = len(self.AART_thetas)
-        num_phis = len(self.AART_Phis)
-        num_frequencies = len( self.all_frequencies)
-        num_antennas = len( self.total_Gz )
-        
-    #### some setup
-        ## phase shifter to remove geometric delay
-        shifter = np.empty([num_thetas, num_phis, num_frequencies ], dtype=np.complex)
-        for zi in range( num_thetas ):
-            for ai in range( num_phis ):
-                Zenith = self.AART_thetas[zi]/RTD
-                Azimuth = self.AART_Phis[ai]/RTD
-                dt = ( KX*np.sin(Zenith)*np.cos(Azimuth) + KY*np.sin(Zenith)*np.sin(Azimuth))/v_air
-                np.exp( self.all_frequencies*(1j*2*np.pi*(-dt)), out=shifter[zi,ai] )
-                
+        """
+        a helper function that calls get_antenna_model_grid, then make_AntModel_SphHarm_fit, and returns a  SphHarm_antModel.
+        Uses default settins. Call get_antenna_model_grid and make_AntModel_SphHarm_fit yourself for finer control.
+        This function is only kept for historical purposes
+            """
 
-    
-        ## frequency interpolation
-        frequency_bin = 0.5e6
-        minF = self.all_frequencies[0]
-        maxF = self.all_frequencies[-1]
-        num_interpolant_freqs = int((maxF+minF)/frequency_bin )
-        interpolant_frequencies = np.linspace(minF, maxF, num_interpolant_freqs)
-        
-        ## memory
-        tmp1 = np.empty( (num_antennas,num_frequencies), dtype=np.complex )
-        tmp2 = np.empty(num_frequencies, dtype=np.complex )
-        tmp3 = np.empty(num_frequencies, dtype=np.double )
+        grid = self.get_antenna_model_grid(ant_i)
+        return make_AntModel_SphHarm_fit(grid, self.all_frequencies, self.AART_thetas, self.AART_Phis)
 
-        def make_interpolant(antenna, polarization):
-            """ antenna is 0 or 1 for X or Y, pol is 0 or 1 for zenith or azimithal component"""
-            nonlocal tmp1, tmp2, tmp3
-            
-            antenna = antenna + X_ant_i
-            
-            grid = np.empty([num_thetas, num_phis, len(interpolant_frequencies) ], dtype=np.complex)
-        
-            for theta_i in range(num_thetas):
-                for phi_i in range(num_phis):
-                    
-                    ## dot product between voltages and impedences
-                    tmp1[:,:]  = self.total_Gz[:, polarization,theta_i,phi_i, :] 
-                    tmp1 *= self.total_impedence[antenna, :, :] # this shouldn't matter??
-                    # tmp1 *= self.total_impedence[:, antenna, :]
-                    
-                    
-                    
-                    np.sum( tmp1, axis=0, out = tmp2 )
-                    
-                    ## shift phase due to arival direction
-                    tmp2 *= shifter[theta_i,phi_i]
-                    
-                    ## interpolate amplitude and phase
-                    np.abs(tmp2, out=tmp3)
-                    interp_ampltude = pchip_interpolate(self.all_frequencies,tmp3, interpolant_frequencies)
-                    
-                    # if theta_i==0 and phi_i==0:
-                        # print('amp')
-                        # plt.plot( interpolant_frequencies, interp_ampltude, 'o' )
-                        # plt.plot( self.all_frequencies, tmp3, 'o' )
-                        # plt.show()
-                    
-                    angles = np.angle(tmp2)
-                    angles = np.unwrap(angles)
-                    
-                    interp_angle = pchip_interpolate(self.all_frequencies,angles, interpolant_frequencies)
-                    
-                    # if theta_i==0 and phi_i==0:
-                    #     print('angle')
-                    #     plt.plot( interpolant_frequencies, interp_angle, 'o' )
-                    #     plt.plot( self.all_frequencies, angles, 'o' )
-                    #     plt.show()
-                    
-
-                        
-                    ## now convert back to real and imag
-                    interp_angle = interp_angle*1j
-                    np.exp( interp_angle, out=grid[theta_i,phi_i] )
-                    grid[theta_i,phi_i] *= interp_ampltude
-                    
-            ## correct for different in definition
-            if polarization==0: ## zenith points in oppisite directions in two models??
-                grid *= -1
-            ## and final angle-frequency interpolant
-            interpolant = RegularGridInterpolator((self.AART_thetas, self.AART_Phis, interpolant_frequencies),  grid,  bounds_error=False,fill_value=0.0)
-            return interpolant
-        
-        J00_interpolant = make_interpolant(0, 0)
-        J01_interpolant = make_interpolant(0, 1)
-        J10_interpolant = make_interpolant(1, 0)
-        J11_interpolant = make_interpolant(1, 1)
-        
-        return self.single_LBA_model([[J00_interpolant,J01_interpolant],[J10_interpolant,J11_interpolant]],  [interpolant_frequencies[0],interpolant_frequencies[-1]])
-    
     def get_average_antenna_model(self):
-        """return model averaged over antenna set"""
+        """same as get_antenna_model, but average over all active antennas"""
+        grid = self.get_average_antenna_model_grid()
+        return make_AntModel_SphHarm_fit(grid, self.all_frequencies, self.AART_thetas, self.AART_Phis)
+
+    def get_antenna_model_grid(self, ant_i, grid_out=None, memoryOne=None, memoryTwo=None, memoryThree=None):
+        """return model for ant_i (is internal index!!).
+        grid_out, if given, should have shape [2,2,num_thetas, num_phis, num_freqs], dtype=complex
+            note, this is the output model indecies are [ antenna(0=X,1=Y), e-field(0=zenithal,1=azimuthal), zenith_angle, azimuth_angle, frequency ]
+            NOTE: if grid_out is not None, it should be filled with zeros. as this output is actually ADDED to grid_out (for use elsewhere)
+        memoryOne, if given, should have lenth num_frequencies, dtype=complex
+        memoryTwo, if given, should have shape (num_antennas, num_frequencies), dtype=complex
+        memoryThree, if given, should have shape num_frequencies, dtype=complex
+        """
+
+        X_ant_i = int(ant_i / 2) * 2
+
+        KX, KY = self.AART_ant_positions[:, X_ant_i]
+
+        num_thetas =      len(self.AART_thetas)
+        num_phis =        len(self.AART_Phis)
+        num_frequencies = len(self.all_frequencies)
+        num_antennas =    len(self.total_Gz)
+
+
+
+
+        ## phase shifter to remove geometric delay
+        # if memoryOne is None:
+        #     shifter = np.empty([num_thetas, num_phis, num_frequencies], dtype=complex)
+        # else:
+        #     shifter = memoryOne
+        # for zi in range(num_thetas):
+        #     for ai in range(num_phis):
+        #         Zenith = self.AART_thetas[zi] / RTD
+        #         Azimuth = self.AART_Phis[ai] / RTD
+        #         dt = (KX * np.sin(Zenith) * np.cos(Azimuth) + KY * np.sin(Zenith) * np.sin(Azimuth)) / v_air
+        #         np.exp(self.all_frequencies * (1j * 2 * np.pi * (-dt)), out=shifter[zi, ai])
+
+
+
+
+        if memoryOne is None:
+            shifter = np.empty(num_frequencies, dtype=complex)
+        else:
+            shifter = memoryOne
+
+        ## memory and convinience function
+        if memoryTwo is None:
+            tmp1 = np.empty((num_antennas, num_frequencies), dtype=complex)
+        else:
+            tmp1 = memoryTwo
+
+        if memoryThree is None:
+            tmp2 = np.empty(num_frequencies, dtype=complex)
+        else:
+            tmp2 = memoryThree
+
+        if grid_out is None:
+            grid_out = np.zeros([2, 2, num_thetas, num_phis, num_frequencies], dtype=complex)
+
+
+        ## GO!
+        for theta_i in range(num_thetas):
+            for phi_i in range(num_phis):
+
+                Zenith = self.AART_thetas[theta_i] / RTD
+                Azimuth = self.AART_Phis[phi_i] / RTD
+                dt = (KX * np.sin(Zenith) * np.cos(Azimuth) + KY * np.sin(Zenith) * np.sin(Azimuth)) / v_air
+                np.exp(self.all_frequencies * (1j * 2 * np.pi * (-dt)), out=shifter)
+
+                for ai in [0,1]:
+                    antenna = ai + X_ant_i
+
+                    for ei in [0,1]:
+
+                        ## dot product between voltages and impedences
+                        tmp1[:, :] = self.total_Gz[:, ei, theta_i, phi_i, :]
+                        tmp1 *= self.total_impedence[antenna, :, :]
+
+                        np.sum(tmp1, axis=0, out=tmp2)
+
+                        ## shift phase due to arival direction
+                        tmp2 *= shifter
+
+                        ## correct for different in definition
+                        if ei == 0:  ## zenith points in oppisite directions in two models??
+                            tmp2 *= -1
+
+                        grid_out[ai,ei,theta_i,phi_i,:] += tmp2
+
+        return grid_out
+
+
+
+    def get_average_antenna_model_grid(self, grid_out=None, memoryOne=None, memoryTwo=None, memoryThree=None):
+        """same as get_antenna_model_grid, but averages over all antennas"""
         
         if self.antenna_mode == "LBA_OUTER":
             start_i = 576
@@ -426,101 +381,29 @@ class aartfaac_LBA_model:
         num_frequencies = len(self.all_frequencies)
         num_zeniths = len(self.AART_thetas)
         num_azimuths = len(self.AART_Phis)
+
+
+        if grid_out is None:
+            grid_out = np.zeros([2,2,num_zeniths, num_azimuths, num_frequencies], dtype=complex)
+
+        if memoryOne is None:
+            memoryOne = np.empty(num_frequencies, dtype=complex)
+
+        if memoryTwo is None:
+            memoryTwo = np.empty((total_num_antennas, num_frequencies), dtype=complex)
+
+        if memoryThree is None:
+            memoryThree = np.empty(num_frequencies, dtype=complex)
+
+        Npairs = int((end_i - start_i) / 2)
+        for pair_i in range(Npairs):
+            ant_i = 2 * pair_i + start_i
+
+            self.get_antenna_model_grid(ant_i, grid_out=grid_out, memoryOne=memoryOne, memoryTwo=memoryTwo, memoryThree=memoryThree)
+
+        grid_out *= 1.0/Npairs
     
-        ### define a utility function for extracting grid data
-        temp_matrix = np.empty( (num_zeniths, num_azimuths, num_frequencies), dtype=np.complex )
-        shifterTMP = np.empty( [ num_frequencies ], dtype=np.complex)
-        tmp1 = np.empty( (total_num_antennas,num_frequencies), dtype=np.complex )
-        def get_ant_i(ant_i, pol_i):
-            """given internal antenna index, and polarization, fill temp_matrix with correct response"""
-            nonlocal  shifterTMP, tmp1, temp_matrix
-            
-            KX, KY = self.AART_ant_positions[:, ant_i]
-            for zi, ze in enumerate(self.AART_thetas):
-                for ai, az in enumerate(self.AART_Phis):
-                    
-                    ## dot product between voltages and impedences
-                    tmp1[:,:]  = self.total_Gz[:, pol_i,zi,ai, :] 
-                    tmp1 *= self.total_impedence[ant_i, :, :] # this shouldn't matter??
-                    # tmp1 *= self.total_impedence[:, antenna, :]
-                    
-                    np.sum( tmp1, axis=0, out = temp_matrix[zi,ai, : ] )
-                    
-                    ## caculate phase shifts
-                    Zenith = ze/RTD
-                    Azimuth = az/RTD
-                    dt = ( KX*np.sin(Zenith)*np.cos(Azimuth) + KY*np.sin(Zenith)*np.sin(Azimuth))/v_air
-                    shifterTMP[:] = self.all_frequencies
-                    shifterTMP *= -1j*2*np.pi*dt
-                    np.exp( shifterTMP, out=shifterTMP )
-                    
-                    ## apply the shits
-                    temp_matrix[zi,ai, : ] *= shifterTMP
-                    
-            if pol_i==0: ## zenith points in oppisite directions in two models??
-                temp_matrix *= -1
-                    
-        ### now define a utility function for calculating the average, and interpolating
-        
-        ## frequency interpolation
-        frequency_bin = 0.5e6
-        minF = self.all_frequencies[0]
-        maxF = self.all_frequencies[-1]
-        num_interpolant_freqs = int((maxF+minF)/frequency_bin )
-        interpolant_frequencies = np.linspace(minF, maxF, num_interpolant_freqs)
-        
-        temp_AVE_matrix = np.empty( (num_zeniths, num_azimuths, num_frequencies), dtype=np.complex )
-        tmp3 = np.empty(num_frequencies, dtype=np.double )
-        def calc_func(antenna_pol, field_pol):
-            """antenna_pol should be 0 or 1 for X or Y antenna, and field_pol is 0 or 1 for zenithal or azimuthal field"""
-            nonlocal temp_AVE_matrix, tmp3
-            
-            ## first average
-            Npairs = int( (end_i-start_i)/2 )
-            for pair_i in range(Npairs):
-                ant_i = 2*pair_i + antenna_pol + start_i
-                get_ant_i(ant_i, field_pol) ## this fills temp_matrix
-                temp_AVE_matrix += temp_matrix ## error prone, but should be okay
-                
-                if not np.all( np.isfinite(temp_AVE_matrix) ):
-                    print('YO problem!', pair_i, np.all( np.isfinite(temp_matrix) ) )
-                    quit()
-                
-            temp_AVE_matrix /= Npairs
-        
-            
-            upsample_grid = np.empty([num_zeniths, num_azimuths, len(interpolant_frequencies) ], dtype=np.complex)
-        
-            ## now interpolate frequencies 
-            for zi, ze in enumerate(self.AART_thetas):
-                for ai, az in enumerate(self.AART_Phis):
-                    
-                    np.abs(temp_AVE_matrix[zi,ai, : ], out=tmp3)
-                    interp_ampltude = pchip_interpolate(self.all_frequencies, tmp3, interpolant_frequencies)
-                    
-                    
-                    
-                    angles = np.angle(temp_AVE_matrix[zi,ai, : ])
-                    angles = np.unwrap(angles)
-                    
-                    interp_angle = pchip_interpolate(self.all_frequencies, angles, interpolant_frequencies)
-                    
-                    ## now convert back to real and imag
-                    interp_angle = interp_angle*1j
-                    np.exp( interp_angle, out = upsample_grid[zi,ai, :] )
-                    upsample_grid[zi,ai, :] *= interp_ampltude
-                    
-            
-            ## and final angle-frequency interpolant
-            return RegularGridInterpolator((self.AART_thetas, self.AART_Phis, interpolant_frequencies),  upsample_grid,  bounds_error=False, fill_value=0.0)
-        
-        
-        ### now we actually make the responses
-        J00 = calc_func(0, 0)
-        J01 = calc_func(0, 1)
-        J10 = calc_func(1, 0)
-        J11 = calc_func(1, 1)
-        return self.single_LBA_model([[J00,J01],[J10,J11]],  [interpolant_frequencies[0],interpolant_frequencies[-1]])
+        return grid_out
                     
                     
     
@@ -533,7 +416,10 @@ class aartfaac_LBA_model:
         return self.all_frequencies, self.AART_thetas, self.AART_Phis
     
     def get_response_grid(self, antenna_i, frequency_i, ant_pol_i, field_pol_i):
-        """given an antenna_i, and frequency_i, return response of ant_pol_i (0 for X 1 for Y dipole) to field_pol_i (0 is zenithal, 1 is azimuthal). Response is a 2D matrix, first index is zenith angle, second is azimuthal"""
+        """
+        given an antenna_i, and frequency_i, return response of ant_pol_i (0 for X 1 for Y dipole) to field_pol_i (0 is zenithal, 1 is azimuthal).
+        Response is a 2D matrix, first index is zenith angle, second is azimuthal
+        """
         
         total_antenna_i = int(antenna_i/2)*2 + ant_pol_i
         
@@ -546,7 +432,7 @@ class aartfaac_LBA_model:
         
         frequency = self.all_frequencies[ frequency_i ]
         
-        ret = np.empty([num_thetas, num_phis], dtype=np.complex)
+        ret = np.empty([num_thetas, num_phis], dtype=complex)
         
         ## the calculation
         for zenith_i in range( num_thetas ):
@@ -573,191 +459,296 @@ class aartfaac_LBA_model:
             
         return ret
 
-class aartfaac_average_LBA_model:
 
-    def __init__(self, mode="LBA_OUTER"):
-        if mode == "LBA_OUTER":
-            fname = MetaData_directory+"/lofar/antenna_response_model/AARTFAAC_AVE_LBAOUTER_R700_C17.npz"
-        else:
-            print('mode unknown:', mode)
-            quit()
+def make_AntModel_SphHarm_fit(antenna_model_grid, frequencies, zeniths, azimuths, min_freq_interp=0.5e6, numSphHarm_orders=10):
+    """takes a antenna_model grid of shape [2,2,num_thetas, num_phis, num_freqs], dtype=complex (as output by aartfaac_LBA_model)
+    Fits spherical harmonics, and returns a SphHarm_antModel object.
+    frequences should be Hz. zeniths and azimuths should be degrees. See get_grid_info from SphHarm_antModel.
+    Since SphHarm_antModel interps frequencies with a linear interpolation, this function has an in-between step where it
+    interpolates frequences with a pchip interpolator to a fine grid, whose fine-ness is controlled by min_freq_interp"""
 
-        data = np.load(fname)
-        initial_frequencies = data['freqs']
-        zeniths = data['zeniths']
-        azimuths = data['azimuths']
-        
-        original_J00 = data['J00']
-        original_J01 = data['J01']
-        original_J10 = data['J10']
-        original_J11 = data['J11']
-        
-        
-        num_zeniths  = len(zeniths)
-        num_azimuths = len(azimuths)
-        
-        ## frequency interpolation
-        frequency_bin = 0.5e6
-        minF = initial_frequencies[0]
-        maxF = initial_frequencies[-1]
-        num_interpolant_freqs = int((maxF+minF)/frequency_bin )
-        interpolant_frequencies = np.linspace(minF, maxF, num_interpolant_freqs)
-        
-        
-        # print('arg', initial_frequencies.shape, original_J00.shape)
-        
-        tmp = np.empty(len(initial_frequencies), dtype=np.double )
-        def upsample_and_interpolate(GRID):
-            nonlocal tmp
-            
-            upsample_grid = np.empty([num_zeniths, num_azimuths, num_interpolant_freqs ], dtype=np.complex)
-        
-            ## now interpolate frequencies 
-            for zi, ze in enumerate(zeniths):
-                for ai, az in enumerate(azimuths):
-                    
-                    np.abs(GRID[zi,ai, : ], out=tmp)
-                    interp_ampltude = pchip_interpolate(initial_frequencies, tmp, interpolant_frequencies)
-                    
-                    
-                    
-                    angles = np.angle(GRID[zi,ai, : ])
-                    angles = np.unwrap(angles)
-                    
-                    interp_angle = pchip_interpolate(initial_frequencies, angles, interpolant_frequencies)
-                    
+
+    num_zeniths =  len(zeniths)
+    num_azimuths = len(azimuths)
+
+    ## Preprocessing
+    num_new_freqs = int(( (frequencies[-1]-frequencies[0])/min_freq_interp )) + 1
+    new_freqs, new_freq_step = np.linspace(frequencies[0], frequencies[-1], num=num_new_freqs, endpoint=True, retstep=True)
+    new_model_grid = np.empty([2,2, num_zeniths, num_azimuths, num_new_freqs], dtype=complex)
+
+    memory_tmp = np.empty( len(frequencies), dtype=np.double )
+    memory_tmp_Abasis = np.empty( (2, num_zeniths, num_new_freqs), dtype=complex )
+    memory_tmp_Bbasis = np.empty( (2, num_zeniths, num_new_freqs), dtype=complex )
+    memory_tmp_four = np.empty( (2, num_zeniths, num_new_freqs), dtype=complex )
+
+    for azi in range(num_azimuths):
+        ## first we interpolate to finer frequency bin
+        for ai in [0,1]:
+            for ei in [0,1]:
+                for zi in range(num_zeniths):
+                    F_data = antenna_model_grid[ai,ei,zi,azi,:]
+
+                    ## interpolate amplitude and phase
+                    np.abs(F_data, out=memory_tmp)
+                    interp_ampltude = pchip_interpolate(frequencies, memory_tmp, new_freqs)
+
+                    # angles = np.angle(F_data)
+                    np.arctan2(F_data.imag, F_data.real, out=memory_tmp)
+                    angles = np.unwrap(memory_tmp)
+
+                    interp_angle = pchip_interpolate(frequencies, angles, new_freqs)
+
+
                     ## now convert back to real and imag
-                    interp_angle = interp_angle*1j
-                    np.exp( interp_angle, out = upsample_grid[zi,ai, :] )
-                    upsample_grid[zi,ai, :] *= interp_ampltude
-                    
-            
-            ## and final angle-frequency interpolant
-            
-            return RegularGridInterpolator((zeniths, azimuths, interpolant_frequencies),  upsample_grid,  bounds_error=False, fill_value=0.0)
-        
-        self.freq_bounds = [ interpolant_frequencies[0], interpolant_frequencies[-1] ]
-        
-        self.J00 = upsample_and_interpolate( original_J00 )
-        self.J01 = upsample_and_interpolate( original_J01 )
-        self.J10 = upsample_and_interpolate( original_J10 )
-        self.J11 = upsample_and_interpolate( original_J11 )
-            
-    def Jones_Matrices(self, frequencies, zenith, azimuth, freq_fill=1.0):
-        """ if frequencies is numpy array in Hz, zenith and azimuth in degrees, than return numpy array of jones matrices,
-        that when doted with [zenithal,azimuthal] component of incidident E-field, then will give [X,Y] voltages on dipoles"""
-        
-        return_matrices = np.empty( (len(frequencies), 2,2), dtype=np.complex )
-        
-        if zenith<0:
+                    interp_angle = interp_angle * 1j
+                    np.exp(interp_angle,   out=new_model_grid[ai,ei,zi,azi,:])
+                    new_model_grid[ai,ei,zi,azi,:] *= interp_ampltude
+
+
+        ## used for converting e-field basis
+        azimuth_angle_radians = azimuths[azi]/RTD
+        sin_az = np.sin( azimuth_angle_radians )
+        cos_az = np.cos( azimuth_angle_radians )
+
+        ze_to_A = sin_az
+        az_to_A = cos_az
+        ze_to_B = cos_az
+        az_to_B = -sin_az
+
+        ## next we shift electric field angles to a different basis
+        memory_tmp_Abasis[:,:,:] = new_model_grid[:,0,:,azi,:] ## zenithal component
+        memory_tmp_Abasis *= ze_to_A
+        memory_tmp_four[:,:,:] = new_model_grid[:,1,:,azi,:] ## azimuthal component
+        memory_tmp_four *= az_to_A
+        memory_tmp_Abasis += memory_tmp_four
+
+        memory_tmp_Bbasis[:,:,:] = new_model_grid[:,0,:,azi,:] ## zenithal component
+        memory_tmp_Bbasis *= ze_to_B
+        memory_tmp_four[:,:,:] = new_model_grid[:,1,:,azi,:] ## azimuthal component
+        memory_tmp_four *= az_to_B
+        memory_tmp_Bbasis += memory_tmp_four
+
+        new_model_grid[:, 0, :, azi, :] = memory_tmp_Abasis
+        new_model_grid[:, 1, :, azi, :] = memory_tmp_Bbasis
+
+
+
+    ## now fit with sph harms
+    SphH_fitter = sph_harm_fit.spherical_harmonics_fitter( numSphHarm_orders, zeniths, azimuths, angle_units=1.0/RTD )
+    num_SphH_params = SphH_fitter.get_num_params()
+    num_functions = 2*2*num_new_freqs  ## need a function per antenna, per e-field, and per frequency
+    out_array = np.empty( (num_SphH_params, 2, 2, num_new_freqs), dtype=complex )
+    for ai in [0,1]:
+        for ei in [0,1]:
+            for fi in range(num_new_freqs):
+                out_array[:, ai,ei,fi] = SphH_fitter.solve_numeric(  new_model_grid[ai, ei, :, :, fi]  )
+
+
+    return SphHarm_antModel(out_array, new_freqs[0], new_freq_step)
+
+def load_default_antmodel():
+    return SphHarm_antModel.load_from_numpyArray( MetaData_directory+"/lofar/antenna_response_model/AARTFAAC_AVE_LBAOUTER_R700C17pF_SphHarm.npz" )
+aartfaac_average_LBA_model = load_default_antmodel ## for backwards compatibility
+
+
+class SphHarm_antModel:
+    def __init__(self, weight_array, freq_grid_start, freq_grid_spacing):
+        """
+        Note this constructor is typically called by internals and not by users.
+        end users should use make_AntModel_SphHarm_fit or load_default_antModel
+        weight array should be a complex array of weights for spherical harmonics. See make_AntModel_SphHarm_fit internals
+            weight_array should be complex with shape (N, 2,2, M) where N is number of Sph. Harm weights. M is number of frequencies
+        freq_grid_start and freq_grid_spacing should describe the frequency sampleing in Hz
+         """
+
+        self.weight_array = weight_array
+        self.num_freqs = weight_array.shape[3]
+
+        self.freq_grid_start = freq_grid_start
+        self.freq_grid_spacing = freq_grid_spacing
+
+        self.temp_memory_a = np.empty((2,2,self.num_freqs), dtype=complex)
+        self.temp_memory_b = np.empty((2,2,self.num_freqs), dtype=complex)
+        self.temp_matrix = np.empty((2,2), dtype=float)
+
+
+        self.weights_reshaped = self.weight_array.reshape( (weight_array.shape[0], -1) )
+        self.temp_memory_a_reshaped = self.temp_memory_a.reshape( (-1) )
+        self.temp_memory_b_reshaped = self.temp_memory_b.reshape( (-1) )
+
+
+    def Jones_Matrices(self, frequencies, zenith, azimuth, invert=False, freq_fill=0.0, out=None):
+        """
+        if frequencies is numpy array in Hz, zenith and azimuth in degrees, than return numpy array of jones matrices
+        if frequencies is numpy array in Hz, zenith and azimuth in degrees, than return numpy array of jones matrices
+            return has shape (len(frequencies),2,2), dtype=complex. Is places in out if out is not None
+        that when doted with [zenithal,azimuthal] component of incidident E-field, then will give [X,Y] voltages on dipoles.
+        freq_fill is placed in J diagonals when frequencies is outside bounds.
+        if invert is true, the jones_matrices are inverted before returning.
+        """
+
+
+        if zenith < 0:
             zenith = 0
         elif zenith > 90:
             zenith = 90
-            
-        while azimuth<0:
+
+        while azimuth < 0:
             azimuth += 360
-        while azimuth>360:
+        while azimuth > 360:
             azimuth -= 360
-            
-        # good_frequency_filter = np.logical_and(frequencies>=self.freq_bounds[0], frequencies<self.freq_bounds[-1])
-        
-        # points = np.empty( (np.sum(good_frequency_filter), 3), dtype=np.double )
-        
-    
-        
-        for fi,f in enumerate(frequencies):
-            if f<self.freq_bounds[0] or f>self.freq_bounds[-1]:
-                return_matrices[fi, 0,0] = freq_fill
-                return_matrices[fi, 1,1] = freq_fill
-                return_matrices[fi, 0,1] = 0.0
-                return_matrices[fi, 1,0] = 0.0
-            else:
-                return_matrices[fi, 0,0] = self.J00( (zenith,azimuth,f) )
-                return_matrices[fi, 0,1] = self.J01( (zenith,azimuth,f) )
-                return_matrices[fi, 1,0] = self.J10( (zenith,azimuth,f) )
-                return_matrices[fi, 1,1] = self.J11( (zenith,azimuth,f) )
-                
-                # print(fi)
-                # M = return_matrices[fi]
-                # print("J:", M)
-                # print( M[ 0,0]*M[ 1,1] - M[  0,1]*M[  1,0] )
-                # print()
-                
+
+        ## evaluate spherical harmonics
+        sph_harm_fit.evaluate_SphHarms_oneAngle(self.weights_reshaped, zenith/RTD, azimuth/RTD, out=self.temp_memory_a_reshaped, memory=self.temp_memory_b_reshaped)
+
+
+        ## now convert back to ze/az basis
+        sin_az = np.sin( azimuth/RTD )
+        cos_az = np.cos( azimuth/RTD )
+        #
+        self.temp_matrix[0,0] = sin_az
+        self.temp_matrix[0,1] = cos_az
+        self.temp_matrix[1,0] = cos_az
+        self.temp_matrix[1,1] = -sin_az
+
+        np.dot(self.temp_matrix, self.temp_memory_a[0,:,:], out=self.temp_memory_a[0,:,:])
+        np.dot(self.temp_matrix, self.temp_memory_a[1,:,:], out=self.temp_memory_a[1,:,:])
+
+
+
+
+        ## interpolate frequencies
+        if out is not None:
+            return_matrices = out
+        else:
+            return_matrices = np.empty((len(frequencies), 2, 2), dtype=complex)
+
+
+        minF = self.freq_grid_start
+        maxF = self.freq_grid_start + (self.num_freqs-1)*self.freq_grid_spacing
+        for newF_i, newF in enumerate(frequencies):
+            if (newF<minF) or (newF>maxF):
+                return_matrices[newF_i,0,0] = freq_fill
+                return_matrices[newF_i,0,1] = 0.0
+                return_matrices[newF_i,1,0] = 0.0
+                return_matrices[newF_i,1,1] = freq_fill
+                continue
+
+            T = (newF-self.freq_grid_start)/self.freq_grid_spacing
+            I = int( T )
+            T -= I
+
+            J00_l = self.temp_memory_a[0,0,I]
+            J00_h = self.temp_memory_a[0,0,I+1]
+            J01_l = self.temp_memory_a[0,1,I]
+            J01_h = self.temp_memory_a[0,1,I+1]
+            J10_l = self.temp_memory_a[1,0,I]
+            J10_h = self.temp_memory_a[1,0,I+1]
+            J11_l = self.temp_memory_a[1,1,I]
+            J11_h = self.temp_memory_a[1,1,I+1]
+
+            J00 = J00_l + (J00_h-J00_l)*T
+            J01 = J01_l + (J01_h-J01_l)*T
+            J10 = J10_l + (J10_h-J10_l)*T
+            J11 = J11_l + (J11_h-J11_l)*T
+
+            if invert:
+                det = J00*J11 - J01*J10
+
+                t = J11
+                J11 = J00/det
+                J00 = J11/det
+
+                J01 *= -1/det
+                J10 *= -1/det
+
+            return_matrices[newF_i,0,0] = J00
+            return_matrices[newF_i,0,1] = J01
+            return_matrices[newF_i,1,0] = J10
+            return_matrices[newF_i,1,1] = J11
+
         return return_matrices
-    
-    def save_to_text(self):
-        
-        freq_grid = np.linspace(10,90, num=int((90-10)/1)+1 ) 
-        zenith_grid = np.linspace(0,90, num=int(90/5)+1 )
-        azimuth_grid = np.linspace(0,360, num=int(360/10)+1 )
-        
+
+    def save_as_numpyArray(self, fname):
+        np.savez_compressed(fname, weight_array=self.weight_array, freq_grid_start=self.freq_grid_start, freq_grid_spacing=self.freq_grid_spacing)
+
+    @classmethod
+    def load_from_numpyArray(cls, fname):
+        input = np.load(fname)
+        return SphHarm_antModel( input['weight_array'], input['freq_grid_start'], input['freq_grid_spacing'] )
+
+    def save_to_OlafText(self):
+
+        freq_grid = np.linspace(10, 90, num=int((90 - 10) / 1) + 1)
+        zenith_grid = np.linspace(0, 90, num=int(90 / 5) + 1)
+        azimuth_grid = np.linspace(0, 360, num=int(360 / 10) + 1)
+
         J00_out = open('./J00_text.txt', 'w')
         J01_out = open('./J01_text.txt', 'w')
         J10_out = open('./J10_text.txt', 'w')
         J11_out = open('./J11_text.txt', 'w')
-        
+
         J00_out.write('voltage on X-dipole to zenithal field. Azimuthal=0 points 45 degrees south from East.\n')
         J00_out.write('f (MHz) Zenith(deg.) Azimuth(deg.) real(Vout) imag(Vout)\n')
-        
+
         J01_out.write('voltage on X-dipole to azimuthal field. Azimuthal=0 points 45 degrees south from East.\n')
         J01_out.write('f (MHz) Zenith(deg.) Azimuth(deg.) real(Vout) imag(Vout)\n')
-        
+
         J10_out.write('voltage on Y-dipole to zenithal field\. Azimuthal=0 points 45 degrees south from East.n')
         J10_out.write('f (MHz) Zenith(deg.) Azimuth(deg.) real(Vout) imag(Vout)\n')
-        
+
         J11_out.write('voltage on Y-dipole to azimuthal field. Azimuthal=0 points 45 degrees south from East.\n')
         J11_out.write('f (MHz) Zenith(deg.) Azimuth(deg.) real(Vout) imag(Vout)\n')
-        
+
         for f in freq_grid:
             for z in zenith_grid:
                 for a in azimuth_grid:
-                    jonesy = self.Jones_Matrices( [f*1e6],z,a+45 )
-                    start = str(f)+ ' ' + str(z)+' '+str(a)+' '
-                    J00_out.write(start+str(np.real(jonesy[0,0,0])) + ' ' + str(np.imag(jonesy[0,0,0])) +'\n')
-                    J01_out.write(start+str(np.real(jonesy[0,0,1])) + ' ' + str(np.imag(jonesy[0,0,1])) +'\n')
-                    J10_out.write(start+str(np.real(jonesy[0,1,0])) + ' ' + str(np.imag(jonesy[0,1,0])) +'\n')
-                    J11_out.write(start+str(np.real(jonesy[0,1,1])) + ' ' + str(np.imag(jonesy[0,1,1])) +'\n')
-        
-        
-    
-class calibrated_AARTFAAC_model:
-    """returns the AARTFAAC model multiplied by katies cal."""
-    
-    def __init__(self):
-        self.AARTFAAC = aartfaac_average_LBA_model()
-        
-        calibration = [42484.88872879, 41519.47733373, 39694.16854372, 38435.36963118,
-                       36974.13596039, 35819.34454985, 35072.53901876, 33960.74197721,
-                       32944.65142405, 32112.44688046, 31590.52174516, 30433.52586868,
-                       29756.92041985, 28880.95581826, 28204.37711364, 27646.83132496,
-                       27058.11219529, 26693.43614747, 25952.89684011, 25517.72346825,
-                       25220.5602153 , 24782.62398452, 24349.88724441, 23755.78027908,
-                       23289.45439997, 22800.30039329, 22176.17569116, 21619.22598549,
-                       21341.84386379, 21368.96227069, 22032.38713345, 22127.96304476,
-                       22678.25184787, 24670.14420208, 25703.00236409, 24792.9736945,
-                       23817.8752368 , 22912.1048524 , 22393.11267467, 21844.38535201,
-                       20831.10515113, 20220.27315072, 19223.64518551, 18099.23669312,
-                       17569.76228552, 16298.99230863, 14845.6897604 , 13488.79405579,
-                       11966.53709451, 10895.66530218,  9703.34502309]
-    
-        cal_frequencies = np.arange(30e6, 80.5e6, 1e6)
-        self.calibration_interpolator = PchipInterpolator(cal_frequencies, calibration, extrapolate=True  )
+                    jonesy = self.Jones_Matrices([f * 1e6], z, a + 45)
+                    start = str(f) + ' ' + str(z) + ' ' + str(a) + ' '
+                    J00_out.write(start + str(np.real(jonesy[0, 0, 0])) + ' ' + str(np.imag(jonesy[0, 0, 0])) + '\n')
+                    J01_out.write(start + str(np.real(jonesy[0, 0, 1])) + ' ' + str(np.imag(jonesy[0, 0, 1])) + '\n')
+                    J10_out.write(start + str(np.real(jonesy[0, 1, 0])) + ' ' + str(np.imag(jonesy[0, 1, 0])) + '\n')
+                    J11_out.write(start + str(np.real(jonesy[0, 1, 1])) + ' ' + str(np.imag(jonesy[0, 1, 1])) + '\n')
 
-    def get_calibrator(self, frequencies):
-        return self.calibration_interpolator( frequencies )
 
-    def Jones_ONLY(self, frequencies, zenith, azimuth, freq_fill=1.0):
-        return self.AARTFAAC.Jones_Matrices( frequencies, zenith, azimuth, freq_fill )
-
-    def Jones_Matrices(self, frequencies, zenith, azimuth, freq_fill=1.0):
-        """return calibrated jones matrices"""
-        JM = self.AARTFAAC.Jones_Matrices( frequencies, zenith, azimuth, freq_fill )
-        C = self.get_calibrator( frequencies )
-        JM[:, 0,0] *= C
-        JM[:, 0,1] *= C
-        JM[:, 1,0] *= C
-        JM[:, 1,1] *= C
-        return JM
+# class calibrated_AARTFAAC_model:
+#     """returns the AARTFAAC model multiplied by katies cal."""
+#
+#     def __init__(self):
+#         self.AARTFAAC = aartfaac_average_LBA_model()
+#
+#         calibration = [42484.88872879, 41519.47733373, 39694.16854372, 38435.36963118,
+#                        36974.13596039, 35819.34454985, 35072.53901876, 33960.74197721,
+#                        32944.65142405, 32112.44688046, 31590.52174516, 30433.52586868,
+#                        29756.92041985, 28880.95581826, 28204.37711364, 27646.83132496,
+#                        27058.11219529, 26693.43614747, 25952.89684011, 25517.72346825,
+#                        25220.5602153 , 24782.62398452, 24349.88724441, 23755.78027908,
+#                        23289.45439997, 22800.30039329, 22176.17569116, 21619.22598549,
+#                        21341.84386379, 21368.96227069, 22032.38713345, 22127.96304476,
+#                        22678.25184787, 24670.14420208, 25703.00236409, 24792.9736945,
+#                        23817.8752368 , 22912.1048524 , 22393.11267467, 21844.38535201,
+#                        20831.10515113, 20220.27315072, 19223.64518551, 18099.23669312,
+#                        17569.76228552, 16298.99230863, 14845.6897604 , 13488.79405579,
+#                        11966.53709451, 10895.66530218,  9703.34502309]
+#
+#         cal_frequencies = np.arange(30e6, 80.5e6, 1e6)
+#         self.calibration_interpolator = PchipInterpolator(cal_frequencies, calibration, extrapolate=True  )
+#
+#     def get_calibrator(self, frequencies):
+#         return self.calibration_interpolator( frequencies )
+#
+#     def Jones_ONLY(self, frequencies, zenith, azimuth, freq_fill=1.0):
+#         return self.AARTFAAC.Jones_Matrices( frequencies, zenith, azimuth, freq_fill )
+#
+#     def Jones_Matrices(self, frequencies, zenith, azimuth, freq_fill=1.0):
+#         """return calibrated jones matrices"""
+#         JM = self.AARTFAAC.Jones_Matrices( frequencies, zenith, azimuth, freq_fill )
+#         C = self.get_calibrator( frequencies )
+#         JM[:, 0,0] *= C
+#         JM[:, 0,1] *= C
+#         JM[:, 1,0] *= C
+#         JM[:, 1,1] *= C
+#         return JM
         
     
     
@@ -855,4 +846,15 @@ def getGalaxyCalibrationData(antenna_noise_power, timestamp, antenna_type="outer
     else:
         return X_factors, Y_factors
 
+
+
+if __name__ == '__main__':
+    ## this generates the default antenna function tables
+    print('loading AARTFAAC model')
+    aartfaac_model = aartfaac_LBA_model(model_loc=None, R=700, C=17e-12, mode="LBA_OUTER")
+    print('generating model, averaging, and fitting sph. harm')
+    sph_fit = aartfaac_model.get_average_antenna_model()
+    print('saving')
+    sph_fit.save_as_numpyArray(  MetaData_directory + "/lofar/antenna_response_model/AARTFAAC_AVE_LBAOUTER_R700C17pF_SphHarm.npz" )
+    print('donesies!')
 

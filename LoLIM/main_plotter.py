@@ -2376,7 +2376,103 @@ class DataSet_generic_PSE(DataSet_Type):
         return self._ignore_time
 
 
+from LoLIM.pol_beamforming.read_SPSF import pointSource_data
+def read_pol_data( fnames, name, cmap ):
+    if isinstance(fnames, str) or isinstance(fnames, pointSource_data):
+        fnames = [fnames] ## for backwards compatibility
 
+
+    #
+    all_Xlocs = None
+    all_Ylocs = None
+    all_Zlocs = None
+    all_Tlocs = None
+    all_intensity = None
+    all_deg_pol = None
+    all_lin_pol = None
+    all_circ_pol = None
+    all_dir_east = None
+    all_dir_north = None
+    all_dir_up = None
+    allIDS = None
+
+    for fname in fnames:
+
+        if isinstance(fname, str):
+            print('opening', fname, 'in', name )
+            pol_data = pointSource_data( fname )
+        else:
+            pol_data = fname
+            
+        ID = pol_data.data['unique_id']
+        X_locs = pol_data.data['distance_east']
+        Y_locs = pol_data.data['distance_north']
+        Z_locs = pol_data.data['distance_up']
+        T = pol_data.data['time_from_second']
+        intensity = pol_data.data['intensity']
+
+        #CS002_amp = pol_data.data['CS002_amp']
+        # para_fit = pol_data.data['para_fit']
+
+        if 'deg_pol' in pol_data.collums_headings:
+            deg_pol = pol_data.data['deg_pol']
+        else:
+            deg_pol = np.ones(len(ID))
+        lin_pol = pol_data.data['lin_pol']
+        circ_pol = pol_data.data['circ_pol']
+
+        dir_east = pol_data.data['dir_east']
+        dir_north = pol_data.data['dir_north']
+        dir_up = pol_data.data['dir_up']
+
+        for i in range(len(dir_east)):
+            E = dir_east[i]
+            N = dir_north[i]
+            U = dir_up[i]
+
+            norm = np.sqrt(E*E + N*N + U*U)
+
+            dir_east[i] = E/norm
+            dir_north[i] = N/norm
+            dir_up[i] = U/norm
+
+        if all_Xlocs is None:
+            all_Xlocs = X_locs
+            all_Ylocs = Y_locs
+            all_Zlocs = Z_locs
+            all_Tlocs = T
+            all_intensity = intensity
+            all_deg_pol = deg_pol
+            all_lin_pol = lin_pol
+            all_circ_pol = circ_pol
+            all_dir_east = dir_east
+            all_dir_north = dir_north
+            all_dir_up = dir_up
+            allIDS = ID
+        else:
+            all_Xlocs = np.append(all_Xlocs, X_locs )
+            all_Ylocs = np.append(all_Ylocs, Y_locs )
+            all_Zlocs = np.append(all_Zlocs, Z_locs )
+            all_Tlocs = np.append(all_Tlocs, T )
+            all_intensity = np.append(all_intensity, intensity )
+            all_deg_pol = np.append(all_deg_pol, deg_pol )
+            all_lin_pol = np.append(all_lin_pol, lin_pol )
+            all_circ_pol = np.append(all_circ_pol, circ_pol )
+            all_dir_east = np.append(all_dir_east, dir_east )
+            all_dir_north = np.append(all_dir_north, dir_north )
+            all_dir_up = np.append(all_dir_up, dir_up )
+            allIDS = np.append(allIDS, ID )
+
+    filters = { 'intensity':all_intensity,
+                'lin_pol':all_lin_pol, 'circ_pol':all_circ_pol,
+                'deg_pol':all_deg_pol}
+
+    pol_dataset = DataSet_polarized_PSE(all_Xlocs,all_Ylocs,all_Zlocs,all_Tlocs,
+        dirX_array=all_dir_east, dirY_array=all_dir_north, dirZ_array=all_dir_up,
+        line_width=5, color_mode='time', name=name, cmap=cmap,
+        extra_info=filters, source_IDs=allIDS)
+
+    return pol_dataset
 
 class DataSet_polarized_PSE(DataSet_Type):
 
@@ -3016,11 +3112,20 @@ class DataSet_polarized_PSE(DataSet_Type):
         inZ = self.Z_array[self.total_mask][loc_mask]
         inT = self.T_array[self.total_mask][loc_mask]
 
+        dirX = self.dirX_array[self.total_mask][loc_mask]
+        dirY = self.dirY_array[self.total_mask][loc_mask]
+        dirZ  = self.dirZ_array[self.total_mask][loc_mask]
+
         infoplot = { key:data[self.total_mask][loc_mask] for key,data in self.extra_info.items() }
 
         for i in range(len(IDS)):
-            print(inT[i], ', #', inX[i], inY[i], inZ[i])
-            # print('source', IDS[i])
+            print('source', IDS[i])
+            print(' XYZT:',  inX[i], ',', inY[i], ',', inZ[i], ',', inT[i])
+            print(' dir:', dirX[i], ',', dirY[i], ',', dirZ[i])
+            for key,d in infoplot.items():
+                print(' ', key, d[i])
+            print()
+
             # print('  plot at', plotX[i], plotY[i], plotZ[i], plotZt[i] )
             # print('    plot t:', plotT[i]  )
             # print('  at', inX[i], inY[i], inZ[i])
@@ -4500,7 +4605,49 @@ class FigureArea(FigureCanvas):
         if new_dataset.use_ancillary_axes():
             self.ancillary_axes.set_xlabel(new_dataset.ancillary_label(), fontsize=self.axis_label_size)
             self.ancillary_axes.set_axis_on()
-        
+
+    ## plot contollss
+    def set_easting_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.NsVsEw_axes.locator_params(axis='x')
+        else:
+            self.NsVsEw_axes.locator_params(axis='x', nbins=num_ticks)
+        self.draw()
+
+    def set_northing_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.NsVsEw_axes.locator_params(axis='y')
+        else:
+            self.NsVsEw_axes.locator_params(axis='y', nbins=num_ticks)
+        self.draw()
+
+    def set_time_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.AltVsT_axes.locator_params(axis='x')
+        else:
+            self.AltVsT_axes.locator_params(axis='x', nbins=num_ticks)
+        self.draw()
+
+    def set_altVnorth_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.NsVsAlt_axes.locator_params(axis='x')
+        else:
+            self.NsVsAlt_axes.locator_params(axis='x', nbins=num_ticks)
+        self.draw()
+
+    def set_altVeast_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.AltVsEw_axes.locator_params(axis='y')
+        else:
+            self.AltVsEw_axes.locator_params(axis='y', nbins=num_ticks)
+        self.draw()
+
+    def set_altVtime_numTicks(self, num_ticks):
+        if num_ticks is None:
+            self.AltVsT_axes.locator_params(axis='y')
+        else:
+            self.AltVsT_axes.locator_params(axis='y', nbins=num_ticks)
+        self.draw()
 
     #### set limits
         
@@ -5008,24 +5155,33 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
 
         #### menu bar ###
-        ##file
+     ##file
         self.file_menu = QtWidgets.QMenu('&File', self)
         self.file_menu.addAction('&Quit', self.fileQuit,
                                  QtCore.Qt.CTRL + QtCore.Qt.Key_Q)
+        self.menuBar().addMenu(self.file_menu)
 
         self.file_menu.addAction('&Save Plot PNG', self.savePlot)
-        self.menuBar().addMenu(self.file_menu)
+        #self.menuBar().addMenu(self.file_menu)
 
         self.file_menu.addAction('&Save Plot SVG', self.savePlotSvg)
-        self.menuBar().addMenu(self.file_menu)
+        #self.menuBar().addMenu(self.file_menu)
 
         self.file_menu.addAction('&Save Plot PDF', self.savePlotPdf)
-        self.menuBar().addMenu(self.file_menu)
+        # self.menuBar().addMenu(self.file_menu)
         
-        ##plot settings
+   ##plot settings
         self.plot_settings_menu = QtWidgets.QMenu('&Plot Settings', self)
         self.menuBar().addSeparator()
         self.menuBar().addMenu(self.plot_settings_menu)
+     # ticks
+        self.plot_settings_menu.addAction('&set easting num ticks', self.setEastingNumTicks)
+        self.plot_settings_menu.addAction('&set northing num ticks', self.setNorthingNumTicks)
+        self.plot_settings_menu.addAction('&set time num ticks', self.setTimeNumTicks)
+        self.plot_settings_menu.addAction('&set alt(vsNorth) num ticks', self.setAltvsNorthNumTicks)
+        self.plot_settings_menu.addAction('&set alt(vsEast) num ticks', self.setAltvsEastNumTicks)
+        self.plot_settings_menu.addAction('&set alt(vsTime) num ticks', self.setAltvsTimeNumTicks)
+
         
         ## analysis
         self.analysis_menu = QtWidgets.QMenu('&Analysis', self)
@@ -5285,8 +5441,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.aspectRatioCheckBox.setChecked( self.figure_space.rebalance_XY )
         self.aspectRatioCheckBox.resize(200,25)
         
-        
-        
+
         self.set_coordinate_system( 0 )
         
         ##TODO:
@@ -5339,7 +5494,41 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.position_get()
         self.figure_space.replot_data()
         self.figure_space.draw()
-        
+
+    ### plot settings
+    def __set_ticks_(self, func):
+        inputTXT = self.variable_txtBox.text().strip()
+        if inputTXT.strip() == "none":
+            func( None )
+        else:
+            try:
+                num = int(inputTXT)
+            except:
+                print('input not number!')
+            else:
+                func( num )
+
+    def setEastingNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_easting_numTicks )
+
+    def setNorthingNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_northing_numTicks )
+
+    def setTimeNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_time_numTicks )
+
+    def setAltvsNorthNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_altVnorth_numTicks )
+
+    def setAltvsEastNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_altVeast_numTicks )
+
+    def setAltvsTimeNumTicks(self):
+        self.__set_ticks_( self.figure_space.set_altVtime_numTicks )
+
+
+
+
     ##help
     def about(self):
         QtWidgets.QMessageBox.about(self, "About",

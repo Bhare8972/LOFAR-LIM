@@ -22,12 +22,15 @@ default_processed_data_loc = None#"/home/brian/processed_files"
 MetaData_directory =  dirname(abspath(__file__)) + '/data' ## change this if antenna_response_model is in a folder different from this module
 
 #### constants
-C = 299792458.0
 RTD = 180.0/3.1415926 ##radians to degrees
-n_air = 1.000293
-v_air = C/n_air
+C = 299792458.0
 
+### THESE SHOULD BE DEPRECIATED AND atmospehre module used instead!
+v_air = C/1.000293   # Olaf uses 1.0003
 latlonCS002 = np.array([52.91512249, 6.869837540]) ## lattitude and longitude of CS002 in degrees
+def set_vair(new_vair): ## unfortunate this is now a global we have to change
+    global v_air
+    v_air = new_vair
 
 #### log data to screen and to a file
 

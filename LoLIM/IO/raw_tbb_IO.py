@@ -774,11 +774,11 @@ class MultiFile_Dal1:
         Return True if we actually have the antenna, False otherwise. This accounts for polarization flips."""
         if antenna_name is not None:
             if antenna_name in self.dipoleNames:
-                antenna_ID = self.dipoleNames.index(antenna_name
+                antenna_ID = self.dipoleNames.index(antenna_name)
             else:
                 return False
 
-        index = self.index_adjusts(antenna_ID ) )
+        index = self.index_adjusts(antenna_ID ) 
         if self.antenna_to_file[index] is None:
             return False
         else:

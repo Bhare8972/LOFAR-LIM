@@ -22,6 +22,8 @@ class simple_atmosphere( base_atmosphere ):
         return self.v_air
 
 default_atmosphere = simple_atmosphere( C/1.000293 )
+olaf_atmosphere = simple_atmosphere( 299792458.0/1.0003 )
+
 
 
 

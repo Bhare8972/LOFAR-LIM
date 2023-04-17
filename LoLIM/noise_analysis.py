@@ -2,6 +2,7 @@
 
 import numpy as np
 
+
 from LoLIM.utilities import processed_data_dir
 from LoLIM.IO.raw_tbb_IO import MultiFile_Dal1, filePaths_by_stationName, read_antenna_pol_flips, read_bad_antennas
 from LoLIM.findRFI import window_and_filter
@@ -24,16 +25,25 @@ def get_noise_std(timeID, initial_block, max_num_blocks, max_double_zeros=100, s
     
     out_dict = {}
     for sname in stations:
-        print(sname)
         
         TBB_data = MultiFile_Dal1( raw_fpaths[sname], polarization_flips=polarization_flips, bad_antennas=bad_antennas)
-        RFI_filter = window_and_filter(timeID=timeID, sname=sname)
+
+        RFI_filter = window_and_filter(timeID=timeID, sname=sname, station_error_mode='flag')
+        # RFI_filter = window_and_filter(blocksize=5000)
+
+        if not RFI_filter.is_good:
+            continue
+        print(sname)
+
         block_size = RFI_filter.blocksize
         edge_size = int( half_window_percent*block_size )
         
         antenna_names = TBB_data.get_antenna_names()
         measured_std = np.zeros( len(antenna_names) )
         measured_std[:] = -1
+
+        measured_power = np.zeros(len(antenna_names))
+        measured_power[:] = -1
         
         for block_i in range(initial_block, initial_block+max_num_blocks):
             for ant_i in range(len(antenna_names)):
@@ -48,6 +58,13 @@ def get_noise_std(timeID, initial_block, max_num_blocks, max_double_zeros=100, s
                 filtered_data = np.real( RFI_filter.filter( data ) )
                 filtered_data = filtered_data[edge_size:-edge_size] ##avoid the edge
                 measured_std[ant_i] = np.std(filtered_data)
+
+
+                filtered_FFT = RFI_filter.filter_FFT( data )
+                ABS = np.abs(filtered_FFT)
+                ABS *= ABS
+                measured_power[ant_i] = np.sum( ABS ) / (block_size*block_size)
+
                 
             if np.all( measured_std > 0 ): ## we can break early
                 break
@@ -56,7 +73,10 @@ def get_noise_std(timeID, initial_block, max_num_blocks, max_double_zeros=100, s
             out_dict[ant_name] = std
             
         filter = measured_std > 0
+
+        ave_power = np.average(measured_power[filter])
         print("   ave std:", np.average(measured_std[filter]) )
+        print("   ave power: {:.2e}".format(ave_power) )
         print("   total ant:", len(filter), "good ant:", np.sum(filter))
         print()
             

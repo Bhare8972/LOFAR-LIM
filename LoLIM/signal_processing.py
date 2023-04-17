@@ -256,6 +256,7 @@ class parabolic_fitter:
         
         if index is None:
             index = np.argmax( data )
+        self.index = index
             
         self.ABC_tmp[:] = 0.0
         for i in range(self.n_points):
@@ -267,7 +268,24 @@ class parabolic_fitter:
         return -self.ABC_tmp[1]/(2.0*self.ABC_tmp[0]) + index - self.half_n_points
     
     ### TODO:: add a more spohesitated fucntion, that mimics all the fidly bits of paraborlic_fit?
-    
+
+    def get_amplitude(self):
+        """return Y-value of parabola peak"""
+        return  self.ABC_tmp[2] - (self.ABC_tmp[1]**2)/(4.0*self.ABC_tmp[0])
+
+    def X_at_peak(self, x_values):
+        """given the x-values of previous data points, return fitted x-value of the peak. Assumes points are regularly spaced."""
+        I = -self.ABC_tmp[1]/(2.0*self.ABC_tmp[0]) + self.index - self.half_n_points
+        int_index = int(I)
+        if int_index<0 or int_index>=len(x_values):
+            return np.nan
+
+        fractional_index = I - int_index
+        delta = x_values[int_index+1] - x_values[int_index]
+        return x_values[int_index] + delta*fractional_index
+
+
+
     def second_derivative(self):
         """givin a previous fit, return the second derivative"""
         return 2.0*self.ABC_tmp[0]
@@ -624,7 +642,7 @@ def plot_spans(spans, Y=0, T_array=None, color=None):
 def FFT_time_shift(frequencies, FFT_data, dt):
     """given some frequency dependent data, apply a positive time-shift dt. Operates
     on the data in-place """
-    FFT_data *= np.exp( frequencies*(-1j*2*np.pi*dt) )
+    FFT_data *= np.exp( frequencies*(-2j*np.pi*dt) )
     
 def make_stokes(X, Y):
     """given complex electric fields in X and Y direction (can be numpy arrays), return I, Q, U, and V"""

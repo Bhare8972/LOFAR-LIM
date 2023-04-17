@@ -2,6 +2,9 @@
 
 ## on APP machine
 
+### IDEA! running coordinate transformations all the time is expensive, and they rarely change.
+### may be good idea to track previous coordinate system, and only update if it changes?
+
 from __future__ import unicode_literals
 import sys
 import os
@@ -147,7 +150,7 @@ class coordinate_transform:
 class typical_transform( coordinate_transform ):
     """display in km and ms, with an arbitrary space zero and arbitrary time zero."""
     
-    def __init__(self, space_center, time_center):
+    def __init__(self, space_center, time_center, t_unit='milli'):
         """center should be in LOFAR (m,s) coordinates"""
         
         self.space_center = space_center
@@ -163,7 +166,13 @@ class typical_transform( coordinate_transform ):
         self.y_label = "Northing [km]"
         self.z_label = "Altitude [km]"
         self.zt_label = "Altitude [km]"
-        self.t_label = "Time [ms]"
+
+        if t_unit == 'milli':
+            self.t_factor = 1000.0
+            self.t_label = "Time [ms]"
+        elif t_unit == 'micro':
+            self.t_factor = 1.0e6
+            self.t_label = "Time [$\mu$s]"
         
         ## these are in km and ms
         self.X_bounds = [0,1]
@@ -254,8 +263,8 @@ class typical_transform( coordinate_transform ):
                 self.Y_bounds[1]*1000.0+self.space_center[1]]
         Zout = [self.Z_bounds[0]*1000.0+self.space_center[2], 
                 self.Z_bounds[1]*1000.0+self.space_center[2]]
-        Tout = [self.T_bounds[0]/1000.0+self.time_center, 
-                self.T_bounds[1]/1000.0+self.time_center]
+        Tout = [self.T_bounds[0]/self.t_factor+self.time_center,
+                self.T_bounds[1]/self.t_factor+self.time_center]
         return Xout, Yout, Zout, Tout
     
     def set_displayLimits(self, Xminmax=None, Yminmax=None, Zminmax=None, Tminmax=None):
@@ -265,8 +274,8 @@ class typical_transform( coordinate_transform ):
                          (Yminmax[1]-self.space_center[1])/1000]
         self.Z_bounds = [(Zminmax[0]-self.space_center[2])/1000, 
                          (Zminmax[1]-self.space_center[2])/1000]
-        self.T_bounds = [(Tminmax[0]-self.time_center)*1000, 
-                         (Tminmax[1]-self.time_center)*1000]
+        self.T_bounds = [(Tminmax[0]-self.time_center)*self.t_factor,
+                         (Tminmax[1]-self.time_center)*self.t_factor]
         
     def transform(self, Xglobal, Yglobal, Zglobal, Tglobal, make_copy=True):
         
@@ -291,7 +300,7 @@ class typical_transform( coordinate_transform ):
         outZ /= 1000.0
             
         outT -= self.time_center
-        outT *= 1000.0
+        outT *= self.t_factor
         
         return outX, outY, outZ, outZ, outT
     
@@ -4490,13 +4499,13 @@ class FigureArea(FigureCanvas):
     
     
     ## ALL spatial units are km, time is in seconds
-    def __init__(self, key_press_callback, parent=None, width=5, height=4, dpi=100):
+    def __init__(self, key_press_callback, parent=None, width=5, height=4, dpi=100, axis_label_size=12, axis_font_size=12):
         self.key_press_callback = key_press_callback
 
         #### some default settings, some can be changed
         
-        self.axis_label_size = 12 #15
-        self.axis_tick_size = 12#12
+        self.axis_label_size = axis_label_size #15
+        self.axis_tick_size = axis_font_size#12
         self.rebalance_XY = True
                 
         
@@ -4647,6 +4656,26 @@ class FigureArea(FigureCanvas):
             self.AltVsT_axes.locator_params(axis='y')
         else:
             self.AltVsT_axes.locator_params(axis='y', nbins=num_ticks)
+        self.draw()
+
+
+    def set_font_size(self, axis_label_size=None, axis_font_size=None):
+        if axis_label_size is not None:
+            self.axis_label_size = axis_label_size
+        if axis_font_size is not None:
+            self.axis_tick_size = axis_font_size
+
+            self.AltVsT_axes.tick_params(labelsize=self.axis_tick_size)
+
+            self.AltVsEw_axes.tick_params(labelsize=self.axis_tick_size, top=True, right=True, labelbottom=False,
+                                          direction='in')
+            self.NsVsEw_axes.tick_params(labelsize=self.axis_tick_size, top=True, right=True, direction='in')
+
+            self.NsVsAlt_axes.tick_params(labelsize=self.axis_tick_size, top=True, right=True, labelleft=False,
+                                          direction='in')
+            self.ancillary_axes.tick_params(labelsize=self.axis_tick_size)
+
+        self.replot_data()
         self.draw()
 
     #### set limits
@@ -5182,6 +5211,9 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.plot_settings_menu.addAction('&set alt(vsEast) num ticks', self.setAltvsEastNumTicks)
         self.plot_settings_menu.addAction('&set alt(vsTime) num ticks', self.setAltvsTimeNumTicks)
 
+        self.plot_settings_menu.addAction('&set label font size', self.set_labelSize_callback)
+        self.plot_settings_menu.addAction('&set tick font size', self.set_tickFontSize_callback)
+
         
         ## analysis
         self.analysis_menu = QtWidgets.QMenu('&Analysis', self)
@@ -5527,6 +5559,30 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.__set_ticks_( self.figure_space.set_altVtime_numTicks )
 
 
+
+    def set_font_size(self, axis_label_size=None, axis_font_size=None):
+        """set font size. Can be called externally"""
+        self.figure_space.set_font_size( axis_label_size, axis_font_size)
+
+
+    def set_labelSize_callback(self):
+        inputTXT = self.variable_txtBox.text().strip()
+        try:
+            num = float(inputTXT)
+        except:
+            print('input not number!')
+        else:
+            self.figure_space.set_font_size( axis_label_size=num, axis_font_size=None)
+
+
+    def set_tickFontSize_callback(self):
+        inputTXT = self.variable_txtBox.text().strip()
+        try:
+            num = float(inputTXT)
+        except:
+            print('input not number!')
+        else:
+            self.figure_space.set_font_size( axis_label_size=None, axis_font_size=num)
 
 
     ##help

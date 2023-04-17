@@ -42,7 +42,6 @@ def median_sorted_by_power(psort):
 
     return out_psort
 
-
 def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None, verbose=False, figure_location=None, lower_frequency=10E6, upper_frequency=90E6, num_dbl_z=100):
     """ use phase-variance to find RFI in data. TBB_in_file should be a MultiFile_Dal1, encompassing the data for one station. block_size should be around 65536 (2^16).
     num_blocks should be at least 20. Sometimes a block needs to be skipped, so max_blocks shows the maximum number of blocks used (after initial block) used to find num_blocks
@@ -311,11 +310,12 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
 
     return output_dict
 
+
 class window_and_filter:
     def __init__(self, blocksize=None, find_RFI=None, timeID=None, sname=None, lower_filter=30.0E6, upper_filter=80.0E6, half_window_percent=0.1, time_per_sample=5.0E-9, filter_roll_width = 2.5E6, station_error_mode=None):
         self.lower_filter = lower_filter
         self.upper_filter = upper_filter
-        # self.is_good = True
+        self.is_good = True
 
         if timeID is not None:
             if find_RFI is None:
@@ -325,10 +325,12 @@ class window_and_filter:
         if isinstance(find_RFI, str): ## load findRFI data from file
             with open( find_RFI, 'rb' ) as fin:
                 in_dict = load(fin)
-                # if (station_error_mode == 'implicit') and (sname not in in_dict):
-                #     self.is_good = False
 
-                find_RFI = in_dict[ sname ]
+                if (station_error_mode == 'flag') and (sname not in in_dict):
+                    self.is_good = False
+                    return
+                else:
+                    find_RFI = in_dict[ sname ]
 
         self.RFI_data = find_RFI
 
@@ -346,6 +348,8 @@ class window_and_filter:
         self.blocksize = blocksize
         self.half_window_percent = half_window_percent
         self.half_hann_window = half_hann_window(blocksize, half_window_percent)
+
+
 
         FFT_frequencies = np.fft.fftfreq(blocksize, d=time_per_sample)
         self.bandpass_filter = np.zeros( len(FFT_frequencies), dtype=complex)
@@ -381,7 +385,7 @@ class window_and_filter:
             FFT_data /= np.abs(FFT_data)
 
         FFT_data[...,:] *= self.bandpass_filter ## note that this implicitly makes a hilbert transform! (negative frequencies set to zero)
-        if additional_filter:
+        if additional_filter is not None:
             FFT_data[...,:] *= additional_filter
 
         return np.fft.ifft(FFT_data, axis=-1)

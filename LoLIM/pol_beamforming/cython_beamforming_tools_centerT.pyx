@@ -1268,11 +1268,9 @@ cdef class beamform_engine3D:
         return pol_image
                         
     def ChunkedIntensity_Image(self, long first_sample, long chunk_size, long number_chunks, np.ndarray[double, ndim=4] image=None, int print_progress=0,
-                            np.ndarray[double, ndim=1] frequency_weights=None, int freq_mode=1):
+                            np.ndarray[double, ndim=1] frequency_weights=None, int freq_mode=1, int do_ifft=1, np.ndarray[double complex, ndim=2] matrix=None):
         """return intensity for every pixel and chunk. i.e.: [xi,yi,zi, chunk]"""
-        
-        
-        print('dooglebosh')
+    
         
         cdef long length ## total length of the time trace
         cdef long num_freqs
@@ -1370,12 +1368,41 @@ cdef class beamform_engine3D:
             weight_accses = &frequency_weights[0]
             do_weighting = 1
 
-           
-        
+
+
+        cdef int do_matrix = 0
+        cdef double complex M00
+        cdef double complex M01
+        cdef double complex M02
+        cdef double complex M10
+        cdef double complex M11
+        cdef double complex M12
+        cdef double complex M20
+        cdef double complex M21
+        cdef double complex M22
+        cdef double complex X_tmp_MAT
+        cdef double complex Y_tmp_MAT
+        cdef double complex Z_tmp_MAT
+        if matrix is not None:
+            if (matrix.shape[0]) != 3 or (matrix.shape[1] != 3)  :
+                print('matrix is wrong shape!')
+                quit()
+            do_matrix = 1
+            M00 = matrix[0,0]
+            M01 = matrix[0,1]
+            M02 = matrix[0,2]
+            M10 = matrix[1,0]
+            M11 = matrix[1,1]
+            M12 = matrix[1,2]
+            M20 = matrix[2,0]
+            M21 = matrix[2,1]
+            M22 = matrix[2,2]
+
+
+
+
         cdef double* image_accses = &image[0,0,0,0]
 
-        
-        
         cdef double complex* Xtmp_inversion
         cdef double complex* Ytmp_inversion
         cdef double complex* Ztmp_inversion
@@ -1527,30 +1554,40 @@ cdef class beamform_engine3D:
                             FFT_Z_accses[F_step] *= W
                                 
                     
-                    FFTinfo = gsl_fft_complex_inverse( <double*>FFT_X_accses, 1, length, wavetable, workspace )
-                    if FFTinfo != 0:
-                        print('IFFT BADNESS A!')
-                        quit()
-                    
-                    FFTinfo = gsl_fft_complex_inverse( <double*>FFT_Y_accses, 1, length, wavetable, workspace )
-                    if FFTinfo != 0:
-                        print('IFFT BADNESS B!')
-                        quit()
+                    if do_ifft:
+                        FFTinfo = gsl_fft_complex_inverse( <double*>FFT_X_accses, 1, length, wavetable, workspace )
+                        if FFTinfo != 0:
+                            print('IFFT BADNESS A!')
+                            quit()
                         
-                    FFTinfo = gsl_fft_complex_inverse( <double*>FFT_Z_accses, 1, length, wavetable, workspace )
-                    if FFTinfo != 0:
-                        print('IFFT BADNESS C!')
-                        quit()
-        
-        
-                    
+                        FFTinfo = gsl_fft_complex_inverse( <double*>FFT_Y_accses, 1, length, wavetable, workspace )
+                        if FFTinfo != 0:
+                            print('IFFT BADNESS B!')
+                            quit()
+                            
+                        FFTinfo = gsl_fft_complex_inverse( <double*>FFT_Z_accses, 1, length, wavetable, workspace )
+                        if FFTinfo != 0:
+                            print('IFFT BADNESS C!')
+                            quit()
+
+
                     for chunk_i in range(number_chunks):
                         for CS_i in range(chunk_size):
                             sample_i = first_sample + chunk_i*chunk_size + CS_i
-                            
+
                             X_tmp = FFT_X_accses[ sample_i ]
                             Y_tmp = FFT_Y_accses[ sample_i ]
                             Z_tmp = FFT_Z_accses[ sample_i ]
+
+                            if do_matrix:
+                                X_tmp_MAT = X_tmp
+                                Y_tmp_MAT = Y_tmp
+                                Z_tmp_MAT = Z_tmp
+
+                                X_tmp = M00*X_tmp_MAT + M01*Y_tmp_MAT + M02*Z_tmp_MAT
+                                Y_tmp = M10*X_tmp_MAT + M11*Y_tmp_MAT + M12*Z_tmp_MAT
+                                Z_tmp = M10*X_tmp_MAT + M21*Y_tmp_MAT + M22*Z_tmp_MAT
+
                             
                             image_accses[ pixel_i*number_chunks + chunk_i ] += X_tmp.real*X_tmp.real + X_tmp.imag*X_tmp.imag + Y_tmp.real*Y_tmp.real + \
                                 Y_tmp.imag*Y_tmp.imag + Z_tmp.real*Z_tmp.real + Z_tmp.imag*Z_tmp.imag
@@ -1792,8 +1829,7 @@ cdef class beamform_engine3D:
                 antenna_distance_inv = sqrt( pixel_dX_sq + pixel_dY_sq + pixel_dZ_sq )
                 total_delay = cal_shifts_accses[ant_i] + antenna_distance_inv*c_air_inverse - rel_geo_delay
                 antenna_distance_inv = 1/antenna_distance_inv
-                        
-                
+
                 ### sum data
                 #pixel_step = pixel_i*self.num_used_frequencies 
                 
@@ -1897,6 +1933,51 @@ def get_total_emistivity(np.ndarray[double complex, ndim=5] total_image, np.ndar
     cdef np.ndarray[int, ndim=1] peak = np.array([best_Xi,best_Yi,best_Zi], dtype=np.int32)
     return image_out, peak
 
+def get_polarized_emistivity(np.ndarray[double complex, ndim=4] total_image, np.ndarray[double, ndim=3] image_out=None):
+    """get power per pixel. Add squares of all frequencies. And the location of the maximum"""
+
+    
+    cdef long Nx = total_image.shape[0]
+    cdef long Ny = total_image.shape[1]
+    cdef long Nz = total_image.shape[2]
+    cdef long Nf = total_image.shape[3]
+    
+    if image_out is None:
+        image_out = np.empty( (Nx, Ny, Nz), dtype=np.double )
+        
+    cdef long best_Xi = 0
+    cdef long best_Yi = 0
+    cdef long best_Zi = 0
+    cdef double best_I = 0
+        
+    cdef long Xi
+    cdef long Yi
+    cdef long Zi
+    cdef long Fi
+    
+    cdef double current_sum
+    cdef double complex im
+    for Xi in range(Nx):
+        for Yi in range(Ny):
+            for Zi in range(Nz):
+                
+                current_sum = 0.0
+                
+                for Fi in range(Nf):
+                    
+                    im = total_image[Xi,Yi,Zi,Fi]
+                    current_sum += im.real*im.real + im.imag*im.imag
+                    
+                if current_sum > best_I:
+                    best_I = current_sum
+                    best_Xi = Xi
+                    best_Yi = Yi
+                    best_Zi = Zi
+                    
+                image_out[Xi,Yi,Zi] = current_sum
+                
+    cdef np.ndarray[int, ndim=1] peak = np.array([best_Xi,best_Yi,best_Zi], dtype=np.int32)
+    return image_out, peak
 
 def get_peak_loc(np.ndarray[double, ndim=3] image):
     """get power per pixel. Add squares of all frequencies and polarizations. And the location of the maximum"""
@@ -1982,6 +2063,37 @@ def apply_matrix_in_place(np.ndarray[double complex, ndim=2] image, np.ndarray[d
         image[Fi,1] = M10*A + M11*B + M12*C
         image[Fi,2] = M20*A + M21*B + M22*C
     
+    
+def coherency(np.ndarray[double complex, ndim=2] image):
+    
+    cdef np.ndarray[double complex, ndim=2] out = np.zeros( (3,3), dtype=np.cdouble )
+    
+    
+    cdef np.ndarray[double complex, ndim=1] A = np.zeros( 3, dtype=np.cdouble )
+    cdef np.ndarray[double complex, ndim=1] B = np.zeros( 3, dtype=np.cdouble )
+    
+    cdef int Fi
+    for Fi in range( image.shape[0] ):
+        A[0] = image[Fi,0]
+        A[1] = image[Fi,1]
+        A[2] = image[Fi,2]
+        B[0] = conj(A[0])
+        B[1] = conj(A[1])
+        B[2] = conj(A[2])
+        
+        out[0,0] += A[0]*B[0]
+        out[0,1] += A[0]*B[1]
+        out[0,2] += A[0]*B[2]
+        
+        out[1,0] += A[1]*B[0]
+        out[1,1] += A[1]*B[1]
+        out[1,2] += A[1]*B[2]
+        
+        out[2,0] += A[2]*B[0]
+        out[2,1] += A[2]*B[1]
+        out[2,2] += A[2]*B[2]
+        
+    return out
 
 def weighted_coherency(np.ndarray[double complex, ndim=2] image, np.ndarray[double, ndim=1] weights):
     

@@ -5,6 +5,7 @@ import time
 from os import mkdir, listdir
 from os.path import isdir, isfile
 from itertools import chain
+from datetime import date
 #from pickle import load
 
 #external
@@ -34,9 +35,11 @@ from LoLIM.stationTimings.autoCorrelator_tools import delay_fitter, delay_fitter
 # RMS by station
 # whitelist of stations
 # cross correlations
-# fix error estimate
-# simulataniously fitting even and odd for same source
+# fix error estimate (later comment: what is wrong with it??)
 # different weights for different antennas
+# atmosphere
+# Kalman filtter bit. Maybe if location is none, follow kalman prodedure untill a chi-square is too high
+# add a method to output source locations as SPSF format!
 
 class Part1_input_manager:
     def __init__(self, processed_data_folder, input_files):
@@ -65,19 +68,23 @@ class Part1_input_manager:
 
 class source_object():
 
-    def __init__(self, ID, input_fname, stations_to_exclude, antennas_to_exclude ):
+    def __init__(self, ID, input_fname, stations_to_exclude, antennas_to_exclude, StationSampleTime, input_antenna_delays=None ):
         self.ID = ID
         self.stations_to_exclude = stations_to_exclude
         self.antennas_to_exclude = antennas_to_exclude
         self.data_file = h5py.File(input_fname, "r")
         self._num_data = 0
+        self.input_antenna_delays = input_antenna_delays
+        self.StationSampleTime = StationSampleTime  ## dictionary where key is sname, value is sample_number*5.0e-9
 
                  
     def prep_for_fitting(self, polarization, info):
         self.polarization = polarization ## 0 is even, 1 is odd, 2 is both
         
         self.pulse_times = np.empty( len(info.sorted_antenna_names), dtype=np.double )
+        self.used_antenna_delays = np.empty( len(info.sorted_antenna_names), dtype=np.double )
         self.pulse_times[:] = np.nan
+        self.used_antenna_delays[:] = np.nan
         self.waveforms = [None]*len(self.pulse_times)
         self.waveform_startTimes = [None]*len(self.pulse_times)
         
@@ -106,33 +113,53 @@ class source_object():
                 even_is_bad = (even_ant_name in self.antennas_to_exclude) or (even_ant_name in info.bad_ants)
                 if (not even_is_bad) and (polarization==0 or polarization==2 or polarization==3):
                     peak_time = ant_data.attrs['PolE_peakTime']
+
+                    filePolE_timeOffset = ant_data.attrs['PolE_timeOffset_CS'] + self.StationSampleTime[sname]
+                    if self.input_antenna_delays is not None:
+                        if even_ant_name in self.input_antenna_delays:
+                            polE_timeOffset = self.input_antenna_delays[ even_ant_name ]
+                        else:
+                            polE_timeOffset = 0.0
+                    else:
+                        polE_timeOffset = filePolE_timeOffset
+
                     waveform = ant_data[0,:]
                     HE_waveform = ant_data[1,:]
                     amp = np.max( HE_waveform )
                     
-                    if (not np.isfinite(peak_time)) or ( amp < info.min_ant_amplitude):
-                        peak_time = np.nan
-                        
-                    self.pulse_times[ ant_i ] = peak_time
-                    self.waveforms[ ant_i ] = waveform
-                    self.waveform_startTimes[ ant_i ] = start_index*5.0E-9 - ant_data.attrs['PolE_timeOffset_CS']
-                    self._num_data += 1
+                    if np.isfinite(peak_time) and amp >= info.min_ant_amplitude:
+
+                        self.used_antenna_delays[ant_i] = polE_timeOffset
+                        self.pulse_times[ ant_i ] = peak_time + (filePolE_timeOffset - polE_timeOffset)
+                        self.waveforms[ ant_i ] = waveform
+                        self.waveform_startTimes[ ant_i ] = start_index*5.0E-9 - ( polE_timeOffset - self.StationSampleTime[sname] )
+                        self._num_data += 1
 
                 ## odd
                 odd_is_bad = (odd_ant_name in self.antennas_to_exclude) or (odd_ant_name in info.bad_ants)
                 if (not odd_is_bad) and (polarization==1 or polarization==2 or polarization==3):
                     peak_time = ant_data.attrs['PolO_peakTime']
+
+                    filePolO_timeOffset = ant_data.attrs['PolO_timeOffset_CS']  + self.StationSampleTime[sname]
+                    if self.input_antenna_delays is not None:
+                        if odd_ant_name in self.input_antenna_delays:
+                            polO_timeOffset = self.input_antenna_delays[ odd_ant_name ]
+                        else:
+                            polO_timeOffset = 0.0
+                    else:
+                        polO_timeOffset = filePolO_timeOffset
+
                     waveform = ant_data[2,:]
                     HE_waveform = ant_data[3,:]
                     amp = np.max( HE_waveform )
                     
-                    if (not np.isfinite(peak_time)) or ( amp < info.min_ant_amplitude):
-                        peak_time = np.nan
-                        
-                    self.pulse_times[ ant_i+1 ] = peak_time
-                    self.waveforms[ ant_i+1 ] = waveform
-                    self.waveform_startTimes[ ant_i+1 ] = start_index*5.0E-9 - ant_data.attrs['PolO_timeOffset_CS']
-                    self._num_data += 1
+                    if np.isfinite(peak_time) and amp >= info.min_ant_amplitude:
+
+                        self.used_antenna_delays[ant_i+1] = polO_timeOffset
+                        self.pulse_times[ ant_i+1 ] = peak_time + (filePolO_timeOffset - polO_timeOffset)
+                        self.waveforms[ ant_i+1 ] = waveform
+                        self.waveform_startTimes[ ant_i+1 ] = start_index*5.0E-9 - ( polO_timeOffset - self.StationSampleTime[sname] )
+                        self._num_data += 1
                     
     def num_data(self):
         return self._num_data
@@ -142,7 +169,7 @@ class source_object():
 class run_fitter:
     def __init__(self, timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002"):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
         
         self.timeID = timeID
         self.output_folder = output_folder
@@ -157,6 +184,7 @@ class run_fitter:
         self.antennas_to_recalibrate = antennas_to_recalibrate
         self.min_ant_amplitude = min_ant_amplitude
         self.ref_station = ref_station
+        self.input_antenna_delays = input_antenna_delays ## this overrides the antenna delays in the pulse files. SHould be dict of antenna delays
         
         # variables to change
         self.num_stat_per_table = 10
@@ -172,12 +200,13 @@ class run_fitter:
         data_dir = processed_data_folder + "/" + self.output_folder
         if not isdir(data_dir):
             mkdir(data_dir)
-
+        self.data_dir = data_dir
 
         #Setup logger
-        logging_folder = data_dir + '/logs_and_plots'
-        if not isdir(logging_folder):
-            mkdir(logging_folder)
+        logging_folder = data_dir# + '/logs_and_plots'
+        # if not isdir(logging_folder):
+        #     mkdir(logging_folder)
+        self.logging_folder = logging_folder
             
         self.log = logger()
         self.log.set(logging_folder + "/log_out.txt") ## TODo: save all output to a specific output folder
@@ -211,11 +240,17 @@ class run_fitter:
         self.sorted_antenna_names = []
         self.station_to_antenna_index_dict = {}
         self.ant_loc_dict = {}
+        self.StationSampleTime = {}
+
+        if self.input_antenna_delays is not None:
+            self.used_antenna_delays = []
         
         for sname in self.station_order:
             first_index = len(self.sorted_antenna_names)
             
             stat_data = raw_data_files[sname]
+            self.StationSampleTime[sname] = stat_data.get_nominal_sample_number()*5.0e-9
+
             ant_names = stat_data.get_antenna_names()
             stat_ant_locs = stat_data.get_LOFAR_centered_positions()
             
@@ -223,8 +258,17 @@ class run_fitter:
             
             for ant_name, ant_loc in zip(ant_names,stat_ant_locs):
                 self.ant_loc_dict[ant_name] = ant_loc
+
+                if self.input_antenna_delays is not None:
+                    if ant_name in self.input_antenna_delays:
+                        self.used_antenna_delays.append( self.input_antenna_delays[ant_name] )
+                    else:
+                        self.used_antenna_delays.append( 0.0 )
                     
             self.station_to_antenna_index_dict[sname] = (first_index, len(self.sorted_antenna_names))
+
+        if self.input_antenna_delays is not None:
+            self.used_antenna_delays = np.array( self.used_antenna_delays )
         
         self.ant_locs = np.zeros( (len(self.sorted_antenna_names), 3))
         for i, ant_name in enumerate(self.sorted_antenna_names):
@@ -251,6 +295,9 @@ class run_fitter:
         
         self.current_sources = []
         self.num_XYZT_params = 0
+        if self.input_antenna_delays is None:
+            self.used_antenna_delays = None
+            
         for knownID in self.sources_to_fit:
             source_ID, input_name = input_manager.known_source( knownID )
             
@@ -260,9 +307,28 @@ class run_fitter:
             
             source_to_add = source_object(source_ID, input_name,
                                           self.source_stations_to_exclude[source_ID], 
-                                          self.source_antennas_to_exclude[source_ID] )
+                                          self.source_antennas_to_exclude[source_ID],
+                                          StationSampleTime = self.StationSampleTime,
+                                          input_antenna_delays = self.input_antenna_delays )
             source_to_add.prep_for_fitting( polarity, self)
-            
+            print("  n. ants:", source_to_add.num_data() )
+
+
+            if self.used_antenna_delays is None:
+                self.used_antenna_delays = np.array( source_to_add.used_antenna_delays )
+            elif self.input_antenna_delays is None:
+                diff = self.used_antenna_delays - source_to_add.used_antenna_delays
+                IS_FINITE = np.isfinite(diff)
+                if np.sum( IS_FINITE ) > 0:
+                    maxdiff = np.max( np.abs( diff[ IS_FINITE ] ) )
+                    if maxdiff > 1e-11:
+                        print('WARNING: antenna cal difference! max:', maxdiff )
+
+                for antI in range(len( self.sorted_antenna_names )):
+                    if (not np.isfinite( self.used_antenna_delays[antI] ) ) and np.isfinite( source_to_add.used_antenna_delays[antI] ):
+                        self.used_antenna_delays[antI] = source_to_add.used_antenna_delays[antI]
+
+
             self.num_XYZT_params += 4
             if polarity == 2:
                 self.num_XYZT_params += 1
@@ -270,7 +336,6 @@ class run_fitter:
                 self.num_XYZT_params += 4
             
             self.current_sources.append( source_to_add )
-            
             
             
             
@@ -313,14 +378,23 @@ class run_fitter:
             self.num_DOF += PSE.num_data()
             self.fitter.set_event( PSE.pulse_times, PSE.polarization )
             
-    def fit(self, num_stoch_iters, num_switch_iters, randomness=10E-9, ant_randomness=0.5e-9):        
-        
+    def fit(self, num_stoch_iters, num_switch_iters, max_s_itters=np.inf, randomness=10E-9, ant_randomness=0.5e-9, max_nfev=None):
+        """if num_switch_iters is negative, then it is minimum itterations, only ending once RMS increases between runs"""
+
+        num_switch_iters_isMinimum = False
+        if num_switch_iters < 0:
+            num_switch_iters = np.abs(num_switch_iters)
+            num_switch_iters_isMinimum = True
+        max_s_itters = max(max_s_itters, num_switch_iters)
+
         initial_RMS = self.fitter.RMS( self.current_solution, self.num_DOF )
         print("initial RMS:", initial_RMS)
         
         print('fitting:')
         best_sol = np.array( self.current_solution )
         best_RMS = initial_RMS
+        number_LS_runs = 0
+        num_LS_runs_needMoreItters = 0
         for i in range( num_stoch_iters ):
             
                 current_solution = np.array( best_sol )
@@ -329,25 +403,46 @@ class run_fitter:
                 current_solution[self.num_delays+self.num_RecalAnts:] += np.random.normal(scale=randomness, size=len(current_solution)-(self.num_delays+self.num_RecalAnts) )
 
                 print(i)
-                
-                for j in range(num_switch_iters):
-                    fit_res = least_squares( self.fitter.objective_fun_sq, current_solution, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+
+                switch_itter = 0
+                previous_RMS = np.inf
+                RMS_had_increased = False
+                while num_switch_iters_isMinimum or switch_itter<num_switch_iters:
+                    fit_res = least_squares( self.fitter.objective_fun_sq, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=max_nfev)
                     current_solution = fit_res.x
+                    if fit_res.status == 0:
+                        num_LS_runs_needMoreItters += 1
                     
                     ARMS = self.fitter.RMS( current_solution, self.num_DOF )
                     
-                    fit_res = least_squares( self.fitter.objective_fun, current_solution, jac='2-point', method='lm', xtol=1.0E-15, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac')
+                    fit_res = least_squares( self.fitter.objective_fun, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=max_nfev)
                     current_solution = fit_res.x
-                    
+                    if fit_res.status == 0:
+                        num_LS_runs_needMoreItters += 1
+
+                    number_LS_runs += 2
                     RMS = self.fitter.RMS( current_solution, self.num_DOF )
                     
-                    print("  ", i, j,  ":", RMS, '(', ARMS, ')')
+                    print("  ", i, switch_itter,  ":", RMS, '(', ARMS, ')', 'status=', fit_res.status)
+
+                    if RMS>previous_RMS:
+                        RMS_had_increased = True
                     
                     if RMS < best_RMS:
                         best_RMS = RMS
                         best_sol = np.array( current_solution )
                         print('IMPROVEMENT!')
+
+                    if num_switch_iters_isMinimum and (switch_itter>=num_switch_iters) and RMS_had_increased:
+                        break
+                    if switch_itter>=max_s_itters:
+                        break
+
+                    previous_RMS = RMS
+                    switch_itter += 1
+
         self.current_solution = best_sol
+        print('frac. runs need more itters:', num_LS_runs_needMoreItters/number_LS_runs)
         print()
         print()
         
@@ -438,6 +533,8 @@ class run_fitter:
             offset +=4
             if source.polarization == 2:
                 offset += 1
+            elif  source.polarization == 3:
+                offset += 4
                 
                 
     def print_antenna_info(self, antname):
@@ -445,7 +542,7 @@ class run_fitter:
 
     def print_antenna_RMS(self):
         print("goodness of fit by antenna")
-        print("antenna   number   RMS<2.0E-9   RMS")
+        print("antenna   num_fits  RMS<2.0E-9   RMS")
         print()
         print("  recalibrated antennas:")
         
@@ -461,7 +558,9 @@ class run_fitter:
                 
         print()
         print("  all antennas:")
-        for ant_i in range(len(self.sorted_antenna_names)):
+        RMSs = np.sqrt( antenna_SSqE/ (antenna_num_fits+1.0e-10) )
+        sorter = np.argsort( RMSs )[::-1]
+        for ant_i in sorter: #range(len(self.sorted_antenna_names)):
             print( self.sorted_antenna_names[ant_i],  antenna_num_fits[ant_i], end=' ')
             if antenna_num_fits[ant_i] == 0:
                 print()
@@ -547,15 +646,82 @@ class run_fitter:
             
         print()
         print()
-            
-        
 
 
-            
+    def output_totalcal(self, previous_PolFlips=[], previous_SignFlips=[] ):
+        """ outputs total cal file. TO be consistant it needs to know previous_PolFlips and previous_SignFlips, typically acquired from a different totalCal file.
+         previous_PolFlips should be a list of even antenna names corresponding to dipole pairs that should be flipped.
+         previous_SignFlips should be a list of dipole names that need a sign flip.
+         """
 
-    
-    
-    
-    
+        station_delays = self.current_solution[:self.num_delays]
+        antenna_delays = self.current_solution[ self.num_delays:self.num_delays+self.num_RecalAnts ]
+
+
+        with open( self.data_dir + '/totalCalOut.txt', 'w' ) as fout:
+            fout.write('v1\n')
+            fout.write('# timeid ')
+            fout.write(self.timeID)
+            fout.write('\n')
+            fout.write('#vair 299792458.0/1.000293')
+            fout.write('\n')
+            fout.write('# made')
+            fout.write( date.today().strftime('%d-%b-%Y') )
+            fout.write('\n')
+
+            fout.write('bad_antennas\n')
+            for antname in self.bad_ants:
+                fout.write(antname)
+                fout.write('\n')
+
+            antenna_SSqE, antenna_num_fits = self.fitter.fit_by_antenna(self.current_solution)
+            for ant_i in range(len(self.sorted_antenna_names)):
+                if antenna_num_fits[ant_i] == 0:
+                    name = self.sorted_antenna_names[ant_i]
+                    if name not in self.bad_ants:
+                        fout.write(name)
+                        fout.write('\n')
+
+
+
+
+
+            fout.write('antenna_delays\n')  ## these should be AFTER pol flips, so we're good!
+            for ant_i in range(len(self.sorted_antenna_names)):
+                name = self.sorted_antenna_names[ant_i]
+                if (not name in self.bad_ants) and (antenna_num_fits[ant_i] >0):
+                    delay = self.used_antenna_delays[ant_i]
+
+                    if ant_i in self.ant_recalibrate_order:
+                        I = np.where( self.ant_recalibrate_order == ant_i)[0][0]
+                        delay += antenna_delays[I]
+
+                    fout.write(name)
+                    fout.write(' ')
+                    fout.write(str(delay))
+                    fout.write('\n')
+
+
+
+
+
+            fout.write('station_delays\n')
+            for sname, delay in zip( self.station_order, station_delays ):
+                fout.write(sname)
+                fout.write(' ')
+                fout.write(str(delay))
+                fout.write('\n')
+            fout.write(self.ref_station)
+            fout.write(' 0.0\n')
+
+            fout.write('pol_flips\n')
+            for ant in previous_PolFlips:
+                fout.write(ant)
+                fout.write('\n')
+
+            fout.write('sign_flips\n')
+            for ant in previous_SignFlips:
+                fout.write(ant)
+                fout.write('\n')
     
     

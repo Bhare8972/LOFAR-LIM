@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
-""" NEED TO ADD GOOD DOC STRING. Press 'q' after running for info on controls. """
+""" NEED TO ADD GOOD DOC STRING. Press 'h' after running for info on controls. """
 
 ## TODO: impove documentation, add ability to search for events
-## overlap blocks so that there is no gap due to half-hann window
 
 #### future improvements
+## add a button that alligns all pulses from all stations
+## goto a station
 ## include the stochastic fitter somehow
 ## try to have a guided pulse-finder
 ## metric to estimate "goodness" metric of the pulse shape?
@@ -436,7 +437,7 @@ class pulses:
                     
                     if ave>min_T and ave<max_T:
                         
-                        plt.plot([ave,ave], [height,height+1], 'r')
+                        plt.plot([ave,ave], [height,height+1], 'tab:brown')
                         
                         #if is_ref_stat:
                         plt.annotate(str(pulse_I), (ave, height+0.5), fontsize=15)
@@ -496,7 +497,7 @@ class plot_stations:
         plt.rcParams['keymap.grid_minor'] = ''
         plt.rcParams['keymap.yscale'] = ''
         plt.rcParams['keymap.xscale'] = ''
-        plt.rcParams['keymap.all_axes'] = ''
+        #plt.rcParams['keymap.all_axes'] = ''
         plt.rcParams['keymap.copy'] = ''
 
 #keymap.help : f1                    ## display help about active tools
@@ -665,18 +666,11 @@ class plot_stations:
                 peak = np.max( self.temp_data_block[even_ant_i+1, block_i, :] )
                 if peak > station_max:
                     station_max = peak
-                    
-        #### plot saturated bits ####
-        time_by_block = {block_i:(self.time_array + (initial_block + block_i)*self.display_block_size*5.0E-9) for block_i in range(self.num_blocks)}
-        for block_i, ranges in saturated_ranges.items():
-            T = time_by_block[block_i]
-            for imin,imax in ranges:
-                Tmin = T[imin]
-                width = T[imax-1] - Tmin ## range does not include end point
-                
-                rect = patches.Rectangle((Tmin,height), width, 1, linewidth=1,edgecolor='r',facecolor='r')
-                self.axes.add_patch(rect)
-        
+
+
+
+        time_by_block = {block_i: (self.time_array + (initial_block + block_i) * self.display_block_size * 5.0E-9) for
+                         block_i in range(self.num_blocks)}
         #### plot data ####
         for pair_i in range( int(len(antenna_delays)/2) ):
             even_ant = pair_i*2
@@ -697,6 +691,16 @@ class plot_stations:
                 T = time_by_block[block_i][ self.edge_width:-self.edge_width ]
                 plt.plot(T, even_trace, 'g')
                 plt.plot(T, odd_trace, 'm')
+
+        #### plot saturated bits ####
+        for block_i, ranges in saturated_ranges.items():
+            T = time_by_block[block_i]
+            for imin, imax in ranges:
+                Tmin = T[imin]
+                width = T[imax - 1] - Tmin  ## range does not include end point
+
+                rect = patches.Rectangle((Tmin, height), width, 1, linewidth=1, edgecolor='r', facecolor='r')
+                self.axes.add_patch(rect)
                 
         minT, maxT = self.frame_manager.get_T_bounds()
         self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset - self.ave_ref_ant_delay)

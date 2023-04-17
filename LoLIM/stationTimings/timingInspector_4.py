@@ -38,7 +38,7 @@ class input_manager:
 def plot_all_stations(event_ID, 
                timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002"):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
     
     processed_data_folder = processed_data_dir( timeID )
     file_manager = input_manager( processed_data_folder, pulse_input_folders )
@@ -103,7 +103,6 @@ def plot_all_stations(event_ID,
             odd_time =  - total_correction
             
             if even_ant_name in antennas_to_recalibrate:
-                    
                 even_time -= antennas_to_recalibrate[even_ant_name]
                 
             if odd_ant_name in antennas_to_recalibrate:
@@ -113,12 +112,33 @@ def plot_all_stations(event_ID,
                 odd_time -= source_XYZT[4]
             else:
                 odd_time -= source_XYZT[3]
+
+
+
+            StationSampleTime = station_file.get_nominal_sample_number()*5.0e-9
+            filePolE_timeOffset = ant_dataset.attrs['PolE_timeOffset_CS'] + StationSampleTime
+            filePolO_timeOffset = ant_dataset.attrs['PolO_timeOffset_CS'] + StationSampleTime
+            polE_timeOffset = filePolE_timeOffset
+            polO_timeOffset = filePolO_timeOffset
+            if input_antenna_delays is not None:
+                if even_ant_name in input_antenna_delays:
+                    polE_timeOffset = input_antenna_delays[even_ant_name]
+                else:
+                    polE_timeOffset = 0.0
+
+                if odd_ant_name in input_antenna_delays:
+                    polO_timeOffset = input_antenna_delays[odd_ant_name]
+                else:
+                    polO_timeOffset = 0.0
+
+
+
                 
-            even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time
-            odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time
+            even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time  + (filePolE_timeOffset - polE_timeOffset)
+            odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time    + (filePolO_timeOffset - polO_timeOffset)
                 
-            even_time += ant_dataset.attrs['starting_index']*5.0E-9 - ant_dataset.attrs['PolE_timeOffset_CS']
-            odd_time += ant_dataset.attrs['starting_index']*5.0E-9 - ant_dataset.attrs['PolO_timeOffset_CS']
+            even_time += ant_dataset.attrs['starting_index']*5.0E-9  - ( polE_timeOffset - StationSampleTime )
+            odd_time += ant_dataset.attrs['starting_index']*5.0E-9   - ( polO_timeOffset - StationSampleTime )
             
             even_is_good = (even_amp>min_ant_amplitude) and not (even_ant_name in antennas_to_exclude) 
             odd_is_good  = (odd_amp>min_ant_amplitude) and not (odd_ant_name in antennas_to_exclude)
@@ -182,7 +202,7 @@ def plot_all_stations(event_ID,
 def plot_station(event_ID, sname_to_plot, plot_bad_antennas,
                timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002"):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
     
     processed_data_folder = processed_data_dir( timeID )
     file_manager = input_manager( processed_data_folder, pulse_input_folders )
@@ -267,12 +287,29 @@ def plot_station(event_ID, sname_to_plot, plot_bad_antennas,
             odd_time -= source_XYZT[4]
         elif (source_polarization==2 or source_polarization==3)  and len(source_XYZT)==8:
             odd_time -= source_XYZT[7]
-            
-        even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time
-        odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time
-            
-        even_time += ant_dataset.attrs['starting_index']*5.0E-9 - ant_dataset.attrs['PolE_timeOffset_CS']
-        odd_time += ant_dataset.attrs['starting_index']*5.0E-9 - ant_dataset.attrs['PolO_timeOffset_CS']
+
+
+        StationSampleTime = station_file.get_nominal_sample_number() * 5.0e-9
+        filePolE_timeOffset = ant_dataset.attrs['PolE_timeOffset_CS'] + StationSampleTime
+        filePolO_timeOffset = ant_dataset.attrs['PolO_timeOffset_CS'] + StationSampleTime
+        polE_timeOffset = filePolE_timeOffset
+        polO_timeOffset = filePolO_timeOffset
+        if input_antenna_delays is not None:
+            if even_ant_name in input_antenna_delays:
+                polE_timeOffset = input_antenna_delays[even_ant_name]
+            else:
+                polE_timeOffset = 0.0
+
+            if odd_ant_name in input_antenna_delays:
+                polO_timeOffset = input_antenna_delays[odd_ant_name]
+            else:
+                polO_timeOffset = 0.0
+
+        even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time + (filePolE_timeOffset - polE_timeOffset)
+        odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time + (filePolO_timeOffset - polO_timeOffset)
+
+        even_time += ant_dataset.attrs['starting_index'] * 5.0E-9 - (polE_timeOffset - StationSampleTime)
+        odd_time += ant_dataset.attrs['starting_index'] * 5.0E-9 - (polO_timeOffset - StationSampleTime)
         
         
         even_is_good = even_amp>min_ant_amplitude

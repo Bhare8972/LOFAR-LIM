@@ -263,7 +263,7 @@ class total_cal_object:
         self.polarization_flips = []
         self.station_delays = {}
         self.ant_delays = {}
-        self.sign_flips = {}
+        self.sign_flips = []
 
 #### data reading class ####
 # Note: ASTRON will "soon" release a new DAL (data )
@@ -527,7 +527,7 @@ class MultiFile_Dal1:
             
             if isinstance(total_cal, str):
                 self.total_cal = read_cal_file(total_cal, pol_flips_are_bad)
-            elif isinstance(total_cal, list):
+            elif isinstance(total_cal, total_cal_object):
                 self.total_cal = total_cal
             elif total_cal is True: # note the 'is' only works for literal True
                 self.total_cal = total_cal_object()
@@ -538,12 +538,15 @@ class MultiFile_Dal1:
                 self.total_cal.station_delays = {self.StationName:station_delay} ## hack to be compatible with below
 
                 additional_ant_delays = None ## since this should really be a different thing
+            else:
+                print('argument "total_cal", wierd type:', type(total_cal)  )
+                quit()
 
             ## TO BE COMPATIBLE WITH CODE BELOW
             bad_antennas = self.total_cal.bad_antenna_data
             polarization_flips = self.total_cal.polarization_flips
-            if self.StationName  in self.total_cal.station_delays:
-                station_delay = self.total_calstation_delays[ self.StationName ]
+            if self.StationName in self.total_cal.station_delays:
+                station_delay = self.total_cal.station_delays[ self.StationName ]
             else:
                 station_delay = 0.0
             
@@ -719,6 +722,7 @@ class MultiFile_Dal1:
     def find_and_set_polarization_delay(self, verbose=False, tolerance=1e-9):
         if self.using_total_cal:
             print('warning: calibration probably already accounts for polarized delay. IN: find_and_set_polarization_delay')
+            print('   note find_and_set_polarization_delay does NOT use totalcal timing data, but ASTRON-provided data')
         
         fpath = os.path.dirname(self.files[0].filename) + '/'+self.StationName
         phase_calibration = md.getStationPhaseCalibration(self.StationName, self.antennaSet,self.FilterSelection, file_location=fpath  )
@@ -778,7 +782,7 @@ class MultiFile_Dal1:
             else:
                 return False
 
-        index = self.index_adjusts(antenna_ID ) 
+        index = self.index_adjusts[ antenna_ID ]
         if self.antenna_to_file[index] is None:
             return False
         else:
@@ -790,7 +794,7 @@ class MultiFile_Dal1:
 
         n_pairs = int(len(self.dipoleNames)/2)
         ret = np.full( (n_pairs,2), -1, dtype=np.int)
-        for pair_i in range(ret):
+        for pair_i in range(n_pairs):
             if self.antennaSet == "LBA_OUTER":
                 X_index = 2*pair_i + 1
                 Y_index = 2*pair_i
@@ -971,13 +975,13 @@ class MultiFile_Dal1:
             return None
 
         atmo_to_use = atmosphere_override
-        if atmo is None:
+        if atmo_to_use is None:
             if self.using_total_cal:
                 atmo_to_use = self.total_cal.atmosphere
             else:
                 atmo_to_use = atmo.default_atmosphere
                 
-        v_airs = atmo_to_use(source_location, antenna_locations)
+        v_airs = atmo_to_use.get_effective_lightSpeed(source_location, antenna_locations)
 
         antenna_locations -= source_location
         antenna_locations *= antenna_locations

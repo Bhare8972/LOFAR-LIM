@@ -1625,6 +1625,43 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
                                         txtOut_info = {'RMS[ns]':RMS/1.0e-9, 'loc_error[m]':maxSqrtEig, 'numstations_excluded':numThrows, 'amplitude':RefAmp}
                                        )
     return new_dataset
+    
+def SPSF_to_DataSet(SPSF_file, name, cmap, marker='s', marker_size=5, color_mode='time'):
+
+    SPSF_data = SPSF_file.get_data()
+
+    num_points = len(SPSF_data)
+    
+    ID = np.empty(num_points, dtype=np.int)
+    X = np.empty(num_points, dtype=np.double)
+    Y = np.empty(num_points, dtype=np.double)
+    Z = np.empty(num_points, dtype=np.double)
+    T = np.empty(num_points, dtype=np.double)
+    
+    other_data = {cn:np.empty(num_points, dtype=np.double) for cn in SPSF_file.collums_headings[5:]}
+    
+
+    for i,dat in enumerate(SPSF_data):
+        ID[i] = dat[0]
+        X[i] = dat[1]
+        Y[i] = dat[2]
+        Z[i] = dat[3]
+        T[i] = dat[4]
+        
+        for ci,cn in enumerate(SPSF_file.collums_headings[5:]):
+            other_data[cn][i] = dat[5+ci]
+        
+    
+    new_dataset = DataSet_generic_PSE( X, Y, Z, T,
+                                       marker=marker, marker_size=marker_size, color_mode=color_mode, 
+                                       name=name, cmap=cmap,
+                                       min_filters = other_data,
+                                       max_filters = other_data,
+                                       print_info = other_data,
+                                       source_IDs = ID,
+                                        txtOut_info = other_data
+                                       )
+    return new_dataset
 
 class DataSet_generic_PSE(DataSet_Type):
     
@@ -1877,10 +1914,11 @@ class DataSet_generic_PSE(DataSet_Type):
             elif name == "max points":
                 self.max_num_points = int(str_value)
                 
-            elif name[4:] in self.min_parameters:
+                
+            elif name[:3]=='min' and (name[4:] in self.min_parameters):
                 self.set_min_param( name[4:], float(str_value) )
                 
-            elif name[4:] in self.max_parameters:
+            elif name[:3]=='max' and (name[4:] in self.max_parameters):
                 self.set_max_param( name[4:], float(str_value) )
                 
             else:

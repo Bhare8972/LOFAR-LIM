@@ -28,13 +28,14 @@ class pointSource_data:
 
         ### in case we want an empty file. Usefull for data-injection reasons
         if input_fname is None:
+            self.version = 1
             return
 
 
-        if isinstance(input_fname, str):
-            datafile = open(input_fname, 'r')
+        # if isinstance(input_fname, str):
+        datafile = open(input_fname, 'r')
 
-        version_line = data.readline().split()
+        version_line = datafile.readline().split()
         self.version = int( version_line[-1] )
 
         for line in datafile:
@@ -112,8 +113,16 @@ class pointSource_data:
     def write_to_file(self, out_fname):
         fout = open(out_fname, 'w')
 
+        if self.version is None:
+            print('cannot write SPSF, version not defined')
+            return
+        if self.timeID is None:
+            print('cannot write SPSF, timeID not defined')
+            return
+
+
         ## version
-        fout.write('v')
+        fout.write('v ')
         fout.write(str( self.version ))
         fout.write('\n')
 
@@ -135,10 +144,58 @@ class pointSource_data:
             fout.write('! timeID ')
             fout.write( self.timeID )
             fout.write('\n')
+
         if self.max_num_data is not None:
+            if self.data is not None:
+                towrite = max(self.max_num_data, len(self.data) )
+
             fout.write('! max_num_data ')
-            fout.write( str(self.max_num_data) )
-            fout.write( '\\n' )
+            fout.write( str(towrite) )
+            fout.write( '\n' )
+        elif self.data is not None:
+
+            fout.write('! max_num_data ')
+            fout.write( str( len(self.data) ) )
+            fout.write( '\n' )
+
+
+        ## write collumn heading names
+        for n in self.collums_headings:
+            fout.write(n)
+            fout.write(' ')
+        fout.write('\n')
 
         ## WRITE DATA!!
-        #HERE
+        if self.data is not None:
+            for point in self.data:
+                for d in point:
+                    fout.write( str(d) )
+                    fout.write(' ')
+                fout.write('\n')
+
+        
+def make_SPSF_from_data(timeID, collumn_names, data_iterator):
+    """give a timeID (as string), collumn names (list of strings), and a data iterator.
+    each item of teh data iterator should be a 1D iterator that can be cast to tuple. Each item should correspond, in order, to the collums.
+    Note the first six collums shoudl be defined according to teh SPSF format, which is not checked! (first is cast to int, following ones are cast to double)
+    This function then returns a SPSF object"""
+
+    new_SPSF = pointSource_data()
+    new_SPSF.timeID = timeID
+
+    new_SPSF.collums_headings = collumn_names
+    new_SPSF.dtype = np.dtype({'names': new_SPSF.collums_headings, 'formats': [np.int] + [np.double] * (len(new_SPSF.collums_headings) - 1)})
+
+    data_tmp = []
+    for item in data_iterator:
+        pointData = list( item )
+
+        D = [int(pointData[0])]
+        D += [float(pointData[i]) for i in range(1, len(new_SPSF.collums_headings))]
+        D = tuple(D)
+
+        data_tmp.append(D)
+
+    new_SPSF.data = np.array(data_tmp, dtype=new_SPSF.dtype)
+
+    return new_SPSF

@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 
 from scipy.signal import hilbert
 from scipy.signal import resample
+from scipy.signal import decimate
 
 from matplotlib.widgets import RectangleSelector
 from matplotlib.transforms import blended_transform_factory
@@ -62,8 +63,19 @@ class clock_offsets:
         return self.visual_offsets 
     
     def print_delays(self):
+
+        fout = open('stationDelayOut.txt', 'w')
+
         for sname, offset in self.input_offsets.items():
             print("'"+sname+"' :", offset, ',')
+
+            fout.write("'"+sname+"' : ")
+            fout.write(str(offset))
+            fout.write(' ,\n')
+            
+
+        print()
+        print(' written to stationDelayOut.txt')
         
     def shift_data_right(self, station, shift):
         """apply a shift to the station delays that moves the data to the right. (which makes the delay more negative). Returns new visual offsets, and a boolean.
@@ -86,16 +98,62 @@ class clock_offsets:
 class frames:
     """The frame is the set of stations and blocks that are presently being displayed. This class manages that"""
     
-    def __init__(self, initial_block, block_shift, station_names, max_num_stations, referance_station, display_block_size, num_blocks):
+    def __init__(self, initial_block, block_shift, station_names, max_num_stations, referance_station, display_block_size, num_blocks,
+        TBB_files, RFI_filters, edge_width, block_size, clock_offset_manager, antenna_time_corrections, ave_ref_ant_delay,
+        positive_saturation, negative_saturation, saturation_post_removal_length, saturation_half_hann_length, do_remove_saturation,
+        do_remove_RFI, decimation_factor):
         self.current_block = initial_block
         self.current_set = 0
         self.block_shift = block_shift
         self.display_block_size = display_block_size
         self.num_blocks = num_blocks
+        self.station_names = station_names
+
+        self.TBB_files = TBB_files
+        self.RFI_filters = RFI_filters
+        self.edge_width = edge_width
+        self.block_size = block_size
+        self.num_blocks = num_blocks
+        self.clock_offset_manager  = clock_offset_manager
+        self.antenna_time_corrections = antenna_time_corrections
+
+        self.display_block_size = self.block_size - 2*self.edge_width
+        self.ave_ref_ant_delay = ave_ref_ant_delay
+
+        self.positive_saturation = positive_saturation
+        self.negative_saturation = negative_saturation
+        self.saturation_post_removal_length = saturation_post_removal_length
+        self.saturation_half_hann_length = saturation_half_hann_length
+        self.do_remove_saturation = do_remove_saturation
+        self.do_remove_RFI = do_remove_RFI
+
+        self.decimation_factor = decimation_factor
+        if self.decimation_factor is not None:
+            # self.decimated_blocksize = int(self.display_block_size/self.decimation_factor)
+
+            EMPTY = np.empty( self.display_block_size )
+            demiated_empty = decimate( EMPTY, self.decimation_factor )
+            self.decimated_blocksize = len(demiated_empty)
+
+        else:
+            self.decimated_blocksize = self.display_block_size
+            self.decimation_factor = 1.0
+
+        self.total_data_length = self.decimated_blocksize*self.num_blocks
         
         self.station_sets = []
         current_set = None
+        self.current_data = {}
+        self.max_num_antennas_per_station = 0 
         for sname in station_names:
+
+
+            num_antennas = len( self.antenna_time_corrections )
+
+            self.current_data[ sname ] = np.empty( (num_antennas, self.total_data_length), dtype=np.double )
+            self.max_num_antennas_per_station = max( self.max_num_antennas_per_station, num_antennas )
+
+
             if sname == referance_station:
                 continue
             
@@ -108,6 +166,9 @@ class frames:
             if len(current_set) == max_num_stations:
                 self.station_sets.append( current_set )
                 current_set = None
+
+
+
                 
         if current_set is not None:
             self.station_sets.append( current_set )
@@ -116,15 +177,34 @@ class frames:
         
         ## plotting things
         self.transform = blended_transform_factory(plt.gca().transAxes, plt.gca().transData)
+
+
+        self.is_station_loaded = {sname:False for sname in self.station_names}
+        self.known_saturation = {sname:None for sname in self.station_names}
+        self.station_TOffset = {sname:0.0 for sname in self.station_names}
+
+        self.station_to_height = {}
+        for S in self.station_sets:
+            for i, sname in enumerate(S):
         
+                self.station_to_height[sname] = i 
+
+
+        self.tmp_block = np.empty( self.block_size , dtype=np.complex )
+
+
+
     def increment_block(self):
         self.current_block += self.block_shift
+        self.is_station_loaded = {sname:False for sname in self.station_names}
         
     def decrement_block(self):
         self.current_block -= self.block_shift
+        self.is_station_loaded = {sname:False for sname in self.station_names}
         
     def set_block(self, i):
         self.current_block = i
+        self.is_station_loaded = {sname:False for sname in self.station_names}
         
     def get_block(self):
         return self.current_block
@@ -157,6 +237,97 @@ class frames:
             return None
         else:
             return set[i]
+
+    def reload_station(self, station):
+
+        print('reloading station', station)
+        
+        station_clock_offset = self.clock_offset_manager.get_visual_offsets()[station]
+        antenna_delays = self.antenna_time_corrections[station] - self.ave_ref_ant_delay
+        TBB_file = self.TBB_files[station]
+        RFI_filter = self.RFI_filters[station]
+        initial_block = self.get_block()
+        
+        #### open data, track saturation ####
+        saturated_ranges = {block_i:[] for block_i in range(self.num_blocks)}
+        current_data_block = self.current_data[station]
+
+
+        station_max = 0.0
+        for even_ant_i in range(0, len(antenna_delays), 2):
+            delay = ( antenna_delays[even_ant_i] + antenna_delays[even_ant_i+1] )*0.5
+            total_delay = delay + station_clock_offset
+            delay_points = int(total_delay/5.0E-9)
+            
+            for block_i in range(self.num_blocks):
+                #block_start = (block_i+initial_block)*self.block_size
+                block_start = (initial_block + block_i)*self.display_block_size
+                
+                ##### even #### 
+                self.tmp_block[:] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i)
+                
+                if self.do_remove_saturation:
+                    sat_ranges = remove_saturation(self.tmp_block[:], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
+                    saturated_ranges[block_i] += sat_ranges
+                if self.do_remove_RFI:
+                    filtered_data = RFI_filter.filter( self.tmp_block[:] )
+                else:
+                    filtered_data = hilbert( self.tmp_block[:] )
+
+                data = np.abs(filtered_data)[ self.edge_width:-self.edge_width ]
+                if  self.decimation_factor > 1:
+                    current_data_block[even_ant_i, block_i*self.decimated_blocksize:(block_i+1)*self.decimated_blocksize] = decimate( data, self.decimation_factor )
+                else:
+                    current_data_block[even_ant_i, block_i*self.decimated_blocksize:(block_i+1)*self.decimated_blocksize] = data
+                
+
+
+                
+                ##### odd #### 
+                self.tmp_block[:] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i+1)
+                
+                if self.do_remove_saturation:
+                    sat_ranges = remove_saturation(self.tmp_block[:], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
+                    saturated_ranges[block_i] += sat_ranges
+                if self.do_remove_RFI:
+                    filtered_data = RFI_filter.filter( self.tmp_block[:] )
+                else:
+                    filtered_data = hilbert( self.tmp_block[:] )
+
+
+                data = np.abs(filtered_data)[ self.edge_width:-self.edge_width ]
+                if  self.decimation_factor > 1:
+                    current_data_block[even_ant_i+1, block_i*self.decimated_blocksize:(block_i+1)*self.decimated_blocksize] = decimate( data, self.decimation_factor )
+                else:
+                    current_data_block[even_ant_i+1, block_i*self.decimated_blocksize:(block_i+1)*self.decimated_blocksize] = data
+                
+
+            peak_odd = np.max( current_data_block[even_ant_i+1, :] )
+            peak_even = np.max( current_data_block[even_ant_i, :] )
+            peak = max( peak_odd, peak_even )
+            if peak > station_max:
+                station_max = peak
+
+
+        current_data_block /= station_max
+        current_data_block += self.station_to_height[ station ]
+
+        self.known_saturation[station] = saturated_ranges
+        self.is_station_loaded[station] = True
+        self.station_TOffset[station] = initial_block*self.display_block_size*5.0E-9  + station_clock_offset
+
+
+    def get_station_data(self, station):
+
+        if not self.is_station_loaded[station]:
+            self.reload_station( station )
+
+        T_array = np.arange( self.total_data_length, dtype=np.double )
+        T_array *= self.decimation_factor*5.0e-9
+        T_array += self.station_TOffset[ station ] - self.clock_offset_manager.get_visual_offsets()[station]
+
+        return T_array, self.current_data[station], self.known_saturation[station]
+
                 
 class pulses:
     """this is a class to manage the selected events and pulses"""
@@ -479,9 +650,10 @@ class pulses:
     
 class plot_stations:
     def __init__(self, timeID, guess_delays, block_size, initial_block, num_blocks, working_folder, other_folder=None, max_num_stations=np.inf, guess_location = None, 
-                bad_stations=[], polarization_flips="polarization_flips.txt", bad_antennas = "bad_antennas.txt", additional_antenna_delays = None,
+                bad_stations=[], total_cal_file=None, polarization_flips="polarization_flips.txt", bad_antennas = "bad_antennas.txt", additional_antenna_delays = None,
                 do_remove_saturation = True, do_remove_RFI = True, positive_saturation = 2046, negative_saturation = -2047, saturation_post_removal_length = 50,
-                saturation_half_hann_length = 50, referance_station = "CS002", pulse_length=50, upsample_factor=4, min_antenna_amplitude=5, fix_polarization_delay=True):
+                saturation_half_hann_length = 50, referance_station = "CS002", pulse_length=50, upsample_factor=4, min_antenna_amplitude=5, fix_polarization_delay=True,
+                decimation_factor=4):
         
         #### disable matplotlib shortcuts
         plt.rcParams['keymap.save'] = ''
@@ -521,36 +693,36 @@ class plot_stations:
         self.referance_station = referance_station
         
         #### open data ####
+
         processed_data_folder = processed_data_dir(timeID)
-        polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + polarization_flips )
-        bad_antennas = read_bad_antennas( processed_data_folder + '/' + bad_antennas )
-        if additional_antenna_delays is not None:
-            additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + additional_antenna_delays )
-            print("WARNING: Additional antenna delays should probably be None!")
                 
         raw_fpaths = filePaths_by_stationName(timeID)
         station_names = [sname for sname in raw_fpaths.keys() if sname not in bad_stations]
-        self.TBB_files = {sname:MultiFile_Dal1(raw_fpaths[sname], polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays) \
+
+
+        if total_cal_file:
+            self.TBB_files = {sname:MultiFile_Dal1(raw_fpaths[sname], total_cal=processed_data_folder + '/' +total_cal_file) \
                           for sname in station_names}
-        
-        if fix_polarization_delay:
-            for sname, file in self.TBB_files.items():
-                
-#                delays = file.get_timing_callibration_delays()
-#                print()
-#                print()
-#                print(sname)
-#                for even_ant_i in range(0,len(delays),2):
-#                    print("  ", delays[even_ant_i+1]-delays[even_ant_i])
-                
-                file.find_and_set_polarization_delay()
-                
-                
-#                delays = file.get_timing_callibration_delays()
-                
-#                print("after")
-#                for even_ant_i in range(0,len(delays),2):
-#                    print("  ", delays[even_ant_i+1]-delays[even_ant_i])
+
+
+            for sname, file in self.TBB_files.items(): ## need to ignore station delays in total cal
+                file.set_station_delay(0)
+
+        else:
+            polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + polarization_flips )
+            bad_antennas = read_bad_antennas( processed_data_folder + '/' + bad_antennas )
+            if additional_antenna_delays is not None:
+                additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + additional_antenna_delays )
+
+
+            self.TBB_files = {sname:MultiFile_Dal1(raw_fpaths[sname], polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays) \
+                              for sname in station_names}
+            
+            if fix_polarization_delay:
+                for sname, file in self.TBB_files.items():
+                    
+                    file.find_and_set_polarization_delay()
+
             
         self.RFI_filters = {sname:window_and_filter(timeID=timeID,sname=sname) for sname in station_names}
         self.edge_width = int( self.block_size*0.1 )
@@ -570,6 +742,7 @@ class plot_stations:
         
         self.figure = plt.gcf()
         self.axes = plt.gca()
+        plt.tight_layout()
         
         
         
@@ -577,7 +750,11 @@ class plot_stations:
         #### make managers
         guess_delays = {sname:delay for sname,delay in guess_delays.items() if sname not in bad_stations}
         self.clock_offset_manager = clock_offsets(referance_station, guess_delays, guess_location, self.TBB_files)
-        self.frame_manager = frames(initial_block, int(num_blocks/2), station_names, max_num_stations, referance_station, self.display_block_size, num_blocks)
+
+        self.frame_manager = frames(initial_block, int(num_blocks/2), station_names, max_num_stations, referance_station, self.display_block_size, num_blocks,
+            self.TBB_files, self.RFI_filters, self.edge_width, self.block_size, self.clock_offset_manager, self.antenna_time_corrections, self.ave_ref_ant_delay,
+            self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length, do_remove_saturation,
+            do_remove_RFI, decimation_factor )
         
         rem_sat_curry = cur( remove_saturation, 5 )(positive_saturation=positive_saturation, negative_saturation=negative_saturation, post_removal_length=saturation_post_removal_length, half_hann_length=saturation_half_hann_length)
         self.pulse_manager = pulses(pulse_length=pulse_length, block_size=block_size, out_folder=working_folder, other_folder=other_folder, TBB_data_dict=self.TBB_files, used_delay_dict=self.antenna_time_corrections, 
@@ -591,7 +768,7 @@ class plot_stations:
         self.input_mode = 0 ## 0 is normal. press 's' to enter 1, where numbers are used to enter event. press 's' again to go back to 0, and search for event
         self.search_string = ''
         self.rect_selector = RectangleSelector(plt.gca(), self.rectangle_callback, useblit=True, 
-                                               rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+                                               props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
         
         self.mouse_press = self.figure.canvas.mpl_connect('button_press_event', self.mouse_press) 
         self.mouse_release = plt.gcf().canvas.mpl_connect('button_release_event', self.mouse_release)
@@ -613,96 +790,134 @@ class plot_stations:
         self.axes.autoscale()
         self.home_lims = [ self.axes.get_xlim(), self.axes.get_ylim() ]
    
+    # def plot_a_station(self, sname, height):
+    #     print("plotting", sname)
+        
+    #     station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
+    #     antenna_delays = self.antenna_time_corrections[sname] - self.ave_ref_ant_delay
+    #     TBB_file = self.TBB_files[sname]
+    #     RFI_filter = self.RFI_filters[sname]
+    #     initial_block = self.frame_manager.get_block()
+        
+    #     #### open data, track saturation ####
+    #     saturated_ranges = {block_i:[] for block_i in range(self.num_blocks)}
+    #     station_max = 0.0
+        
+    #     for even_ant_i in range(0, len(antenna_delays), 2):
+    #         delay = ( antenna_delays[even_ant_i] + antenna_delays[even_ant_i+1] )*0.5
+    #         total_delay = delay + station_clock_offset
+    #         delay_points = int(total_delay/5.0E-9)
+            
+    #         for block_i in range(self.num_blocks):
+    #             #block_start = (block_i+initial_block)*self.block_size
+    #             block_start = (initial_block + block_i)*self.display_block_size
+                
+    #             ##### even #### 
+    #             self.temp_data_block[even_ant_i, block_i, :] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i)
+                
+    #             if self.do_remove_saturation:
+    #                 sat_ranges = remove_saturation(self.temp_data_block[even_ant_i, block_i, :], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
+    #                 saturated_ranges[block_i] += sat_ranges
+    #             if self.do_remove_RFI:
+    #                 filtered_data = RFI_filter.filter( self.temp_data_block[even_ant_i, block_i, :] )
+    #             else:
+    #                 filtered_data = hilbert( self.temp_data_block[even_ant_i, block_i, :] )
+    #             self.temp_data_block[even_ant_i, block_i, :] = np.abs(filtered_data)
+                
+    #             peak = np.max( self.temp_data_block[even_ant_i, block_i, :] )
+    #             if peak > station_max:
+    #                 station_max = peak
+                
+    #             ##### odd #### 
+    #             self.temp_data_block[even_ant_i+1, block_i, :] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i+1)
+                
+    #             if self.do_remove_saturation:
+    #                 sat_ranges = remove_saturation(self.temp_data_block[even_ant_i+1, block_i, :], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
+    #                 saturated_ranges[block_i] += sat_ranges
+    #             if self.do_remove_RFI:
+    #                 filtered_data = RFI_filter.filter( self.temp_data_block[even_ant_i+1, block_i, :] )
+    #             else:
+    #                 filtered_data = hilbert( self.temp_data_block[even_ant_i+1, block_i, :] )
+    #             self.temp_data_block[even_ant_i+1, block_i, :] = np.abs(filtered_data)
+                
+    #             peak = np.max( self.temp_data_block[even_ant_i+1, block_i, :] )
+    #             if peak > station_max:
+    #                 station_max = peak
+
+
+
+    #     time_by_block = {block_i: (self.time_array + (initial_block + block_i) * self.display_block_size * 5.0E-9) for
+    #                      block_i in range(self.num_blocks)}
+    #     #### plot data ####
+    #     for pair_i in range( int(len(antenna_delays)/2) ):
+    #         even_ant = pair_i*2
+    #         odd_odd = pair_i*2 + 1
+            
+    #         for block_i in range(self.num_blocks):
+    #             block_start = (initial_block + block_i)*self.display_block_size 
+                
+    #             even_trace = self.temp_data_block[even_ant, block_i][ self.edge_width:-self.edge_width  ]
+    #             odd_trace = self.temp_data_block[odd_odd, block_i][ self.edge_width:-self.edge_width ]
+                
+    #             even_trace /= station_max
+    #             odd_trace /= station_max
+                
+    #             even_trace += height
+    #             odd_trace += height
+                
+    #             T = time_by_block[block_i][ self.edge_width:-self.edge_width ]
+    #             plt.plot(T, even_trace, 'g')
+    #             plt.plot(T, odd_trace, 'm')
+
+    #     #### plot saturated bits ####
+    #     for block_i, ranges in saturated_ranges.items():
+    #         T = time_by_block[block_i]
+    #         for imin, imax in ranges:
+    #             Tmin = T[imin]
+    #             width = T[imax - 1] - Tmin  ## range does not include end point
+
+    #             rect = patches.Rectangle((Tmin, height), width, 1, linewidth=1, edgecolor='r', facecolor='r')
+    #             self.axes.add_patch(rect)
+                
+    #     minT, maxT = self.frame_manager.get_T_bounds()
+    #     self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset - self.ave_ref_ant_delay)
+
+
+   
     def plot_a_station(self, sname, height):
         print("plotting", sname)
-        
-        station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
-        antenna_delays = self.antenna_time_corrections[sname] - self.ave_ref_ant_delay
-        TBB_file = self.TBB_files[sname]
-        RFI_filter = self.RFI_filters[sname]
-        initial_block = self.frame_manager.get_block()
-        
-        #### open data, track saturation ####
-        saturated_ranges = {block_i:[] for block_i in range(self.num_blocks)}
-        station_max = 0.0
-        
-        for even_ant_i in range(0, len(antenna_delays), 2):
-            delay = ( antenna_delays[even_ant_i] + antenna_delays[even_ant_i+1] )*0.5
-            total_delay = delay + station_clock_offset
-            delay_points = int(total_delay/5.0E-9)
-            
-            for block_i in range(self.num_blocks):
-                #block_start = (block_i+initial_block)*self.block_size
-                block_start = (initial_block + block_i)*self.display_block_size
-                
-                ##### even #### 
-                self.temp_data_block[even_ant_i, block_i, :] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i)
-                
-                if self.do_remove_saturation:
-                    sat_ranges = remove_saturation(self.temp_data_block[even_ant_i, block_i, :], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
-                    saturated_ranges[block_i] += sat_ranges
-                if self.do_remove_RFI:
-                    filtered_data = RFI_filter.filter( self.temp_data_block[even_ant_i, block_i, :] )
-                else:
-                    filtered_data = hilbert( self.temp_data_block[even_ant_i, block_i, :] )
-                self.temp_data_block[even_ant_i, block_i, :] = np.abs(filtered_data)
-                
-                peak = np.max( self.temp_data_block[even_ant_i, block_i, :] )
-                if peak > station_max:
-                    station_max = peak
-                
-                ##### odd #### 
-                self.temp_data_block[even_ant_i+1, block_i, :] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i+1)
-                
-                if self.do_remove_saturation:
-                    sat_ranges = remove_saturation(self.temp_data_block[even_ant_i+1, block_i, :], self.positive_saturation, self.negative_saturation, self.saturation_post_removal_length, self.saturation_half_hann_length)
-                    saturated_ranges[block_i] += sat_ranges
-                if self.do_remove_RFI:
-                    filtered_data = RFI_filter.filter( self.temp_data_block[even_ant_i+1, block_i, :] )
-                else:
-                    filtered_data = hilbert( self.temp_data_block[even_ant_i+1, block_i, :] )
-                self.temp_data_block[even_ant_i+1, block_i, :] = np.abs(filtered_data)
-                
-                peak = np.max( self.temp_data_block[even_ant_i+1, block_i, :] )
-                if peak > station_max:
-                    station_max = peak
 
-
-
-        time_by_block = {block_i: (self.time_array + (initial_block + block_i) * self.display_block_size * 5.0E-9) for
-                         block_i in range(self.num_blocks)}
+        time_array, data, saturated_ranges = self.frame_manager.get_station_data( sname )
         #### plot data ####
-        for pair_i in range( int(len(antenna_delays)/2) ):
+        for pair_i in range( int(len(data)/2) ):
             even_ant = pair_i*2
             odd_odd = pair_i*2 + 1
-            
-            for block_i in range(self.num_blocks):
-                block_start = (initial_block + block_i)*self.display_block_size 
-                
-                even_trace = self.temp_data_block[even_ant, block_i][ self.edge_width:-self.edge_width  ]
-                odd_trace = self.temp_data_block[odd_odd, block_i][ self.edge_width:-self.edge_width ]
-                
-                even_trace /= station_max
-                odd_trace /= station_max
-                
-                even_trace += height
-                odd_trace += height
-                
-                T = time_by_block[block_i][ self.edge_width:-self.edge_width ]
-                plt.plot(T, even_trace, 'g')
-                plt.plot(T, odd_trace, 'm')
+
+
+            plt.plot(time_array, data[even_ant], 'g')
+            plt.plot(time_array, data[odd_odd], 'm')
 
         #### plot saturated bits ####
-        for block_i, ranges in saturated_ranges.items():
-            T = time_by_block[block_i]
-            for imin, imax in ranges:
-                Tmin = T[imin]
-                width = T[imax - 1] - Tmin  ## range does not include end point
+        try:
+            for block_i, ranges in saturated_ranges.items():
+                print('saturated ranges in block', block_i, 'N:', len(ranges) )
 
-                rect = patches.Rectangle((Tmin, height), width, 1, linewidth=1, edgecolor='r', facecolor='r')
-                self.axes.add_patch(rect)
+                time_by_block = time_array[ block_i*self.frame_manager.decimated_blocksize : (block_i+1)*self.frame_manager.decimated_blocksize ]
+                # T = time_by_block[block_i]
+                for imin, imax in ranges:
+                    Tmin = time_by_block[imin]
+                    width = time_by_block[imax - 1] - Tmin  ## range does not include end point
+
+                    rect = patches.Rectangle((Tmin, height), width, 1, linewidth=1, edgecolor='r', facecolor='r')
+                    self.axes.add_patch(rect)
+        except Exception as e:
+            print('ERROR when plotting saturated areas:')
+            print(e)
+
                 
         minT, maxT = self.frame_manager.get_T_bounds()
+
+        station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
         self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset - self.ave_ref_ant_delay)
                 
     def key_press_event(self, event):
@@ -782,6 +997,12 @@ class plot_stations:
                 
             elif event.key == '-':
                 self.pulse_manager.decrement_pulse()
+
+            elif event.key == 'r':
+                for i,sname in self.frame_manager.itter():
+                    self.frame_manager.reload_station(sname)
+                self.plot()
+                plt.draw()
                 
             elif event.key == 'n':
                 self.pulse_manager.set_unique_pulse_ID()
@@ -793,6 +1014,7 @@ class plot_stations:
                 print(" 'p' prints current delays")
                 print(" 'b' prints current block")
                 print(" 'o' prints current pulse info")
+                print(" 'r' forces a reload of the data")
                 print(" hold middle mouse button and drag to translate view")
                 print(" j resets view (zoom and translate) back to default.")
                 print()

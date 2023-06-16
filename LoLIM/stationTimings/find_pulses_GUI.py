@@ -148,7 +148,7 @@ class frames:
         for sname in station_names:
 
 
-            num_antennas = len( self.antenna_time_corrections )
+            num_antennas = len( self.antenna_time_corrections[sname] )
 
             self.current_data[ sname ] = np.empty( (num_antennas, self.total_data_length), dtype=np.double )
             self.max_num_antennas_per_station = max( self.max_num_antennas_per_station, num_antennas )
@@ -210,8 +210,8 @@ class frames:
         return self.current_block
     
     def get_T_bounds(self):
-        return self.current_block*5.0E-9*self.display_block_size, (self.current_block+self.num_blocks+1)*5.0E-9*self.display_block_size
-        
+        return self.current_block*5.0E-9*self.display_block_size,  (self.current_block+self.num_blocks)*5.0E-9*self.display_block_size
+
     def increment_station_set(self):
         self.current_set += 1
         if self.current_set == self.num_sets:
@@ -262,7 +262,8 @@ class frames:
             for block_i in range(self.num_blocks):
                 #block_start = (block_i+initial_block)*self.block_size
                 block_start = (initial_block + block_i)*self.display_block_size
-                
+
+
                 ##### even #### 
                 self.tmp_block[:] = TBB_file.get_data(block_start+delay_points, self.block_size, antenna_index=even_ant_i)
                 
@@ -310,11 +311,19 @@ class frames:
 
 
         current_data_block /= station_max
-        current_data_block += self.station_to_height[ station ]
+        # current_data_block += self.station_to_height[ station ]
 
         self.known_saturation[station] = saturated_ranges
         self.is_station_loaded[station] = True
         self.station_TOffset[station] = initial_block*self.display_block_size*5.0E-9  + station_clock_offset
+
+
+    def plotTime_to_StationTime(self, plotT, sname):
+        plot_start_t = self.get_T_bounds()[0]
+        station_start_t = self.get_block()*self.display_block_size*5.0e-9 + self.clock_offset_manager.get_visual_offsets()[ sname ] + self.edge_width*5.0e-9  - self.ave_ref_ant_delay
+
+        return plotT - plot_start_t + station_start_t
+
 
 
     def get_station_data(self, station):
@@ -326,7 +335,7 @@ class frames:
         T_array *= self.decimation_factor*5.0e-9
         T_array += self.station_TOffset[ station ] - self.clock_offset_manager.get_visual_offsets()[station]
 
-        return T_array, self.current_data[station], self.known_saturation[station]
+        return T_array, self.current_data[station], self.known_saturation[station], self.station_to_height[ station ]
 
                 
 class pulses:
@@ -418,6 +427,9 @@ class pulses:
         self.set_current_event_index( i )
         
     def print_pulse_info(self):
+        print()
+        print('current pulse:', self.current_event_index)
+
         for ID, data in self.editable_pulses.items():
             print()
             print()
@@ -452,6 +464,8 @@ class pulses:
         even_pulse_time_list = []
         odd_pulse_time_list = []
         
+        print()
+        print(station)
         for even_ant_i in range(0,len(antenna_names),2):
             even_delay = ant_delays[even_ant_i]
             odd_delay = ant_delays[even_ant_i+1]
@@ -503,6 +517,9 @@ class pulses:
             odd_real = odd_real_all[          initial_index : initial_index+self.pulse_length]
             
             ##### now we save the data ####
+
+            print( antenna_names[even_ant_i], 'amp:', np.max(even_HE) )
+            print( antenna_names[even_ant_i+1], 'amp:', np.max(odd_HE) )
             
             h5_Ant_dataset = h5_statGroup.require_dataset(antenna_names[even_ant_i], (4, self.pulse_length), dtype=np.double, exact=True)
             
@@ -762,11 +779,14 @@ class plot_stations:
                                     RFI_filter_dict=(self.RFI_filters if self.do_remove_RFI  else None), remove_saturation_curry=(rem_sat_curry if self.do_remove_saturation  else None))
         
         
-        self.plot()
-        
+
         self.mode = 0 ##0 is change delay, 1 is set peak, etc...
         self.input_mode = 0 ## 0 is normal. press 's' to enter 1, where numbers are used to enter event. press 's' again to go back to 0, and search for event
+        self.antenna_display_mode = 0 ## 0 means all antennas on top of each other. 1 means seperated
         self.search_string = ''
+
+        self.plot()
+        
         self.rect_selector = RectangleSelector(plt.gca(), self.rectangle_callback, useblit=True, 
                                                props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
         
@@ -887,15 +907,26 @@ class plot_stations:
     def plot_a_station(self, sname, height):
         print("plotting", sname)
 
-        time_array, data, saturated_ranges = self.frame_manager.get_station_data( sname )
+        time_array, data, saturated_ranges, bottom = self.frame_manager.get_station_data( sname )
+
+        num_pairs = int(len(data)/2)
         #### plot data ####
-        for pair_i in range( int(len(data)/2) ):
+        for pair_i in range( num_pairs ):
             even_ant = pair_i*2
             odd_odd = pair_i*2 + 1
 
+            if self.antenna_display_mode == 0:
+                plt.plot(time_array, data[even_ant] + bottom, 'g')
+                plt.plot(time_array, data[odd_odd] + bottom, 'm')
+            else:
+                A = data[odd_odd]/num_pairs 
+                A += pair_i/num_pairs + bottom
+                B = data[even_ant]/num_pairs 
+                B += pair_i/num_pairs + bottom
 
-            plt.plot(time_array, data[even_ant], 'g')
-            plt.plot(time_array, data[odd_odd], 'm')
+                plt.plot(time_array, A, 'm')
+                plt.plot(time_array, B, 'g')
+
 
         #### plot saturated bits ####
         try:
@@ -915,10 +946,14 @@ class plot_stations:
             print(e)
 
                 
+
         minT, maxT = self.frame_manager.get_T_bounds()
 
-        station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
-        self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset - self.ave_ref_ant_delay)
+        # station_clock_offset = self.clock_offset_manager.get_visual_offsets()[sname]
+        # self.pulse_manager.plot_lines( sname, height, minT, maxT, station_clock_offset)# - self.ave_ref_ant_delay)
+
+        self.pulse_manager.plot_lines( sname, height, minT, maxT,  self.frame_manager.plotTime_to_StationTime(0, sname) )
+
                 
     def key_press_event(self, event):
         ### modes ###
@@ -962,11 +997,13 @@ class plot_stations:
                 self.frame_manager.increment_block()
                 self.plot()
                 plt.draw()
+                print('t bounds', self.frame_manager.get_T_bounds())
                 
             elif event.key == 'a':
                 self.frame_manager.decrement_block()
                 self.plot()
                 plt.draw()
+                print('t bounds', self.frame_manager.get_T_bounds())
                 
             elif event.key == 'e':
                 self.mode=6
@@ -1006,6 +1043,20 @@ class plot_stations:
                 
             elif event.key == 'n':
                 self.pulse_manager.set_unique_pulse_ID()
+
+            elif event.key == 't':
+                if self.antenna_display_mode == 0:
+                    self.antenna_display_mode = 1
+                    print()
+                    print('now plotting antennas seperately')
+                    print()
+                elif self.antenna_display_mode == 1:
+                    self.antenna_display_mode = 0
+                    print()
+                    print('now plotting antennas together')
+                    print()
+                self.plot()
+                plt.draw()
             
             elif event.key == 'h':
                 print("how to use:")
@@ -1017,6 +1068,9 @@ class plot_stations:
                 print(" 'r' forces a reload of the data")
                 print(" hold middle mouse button and drag to translate view")
                 print(" j resets view (zoom and translate) back to default.")
+                print()
+                print(" t switches between plotting antennas together or seperately. Note, only whole stations can still be selected. Not individual antennas.")
+
                 print()
                 print(" there are multiple modes, that define what happens when main mouse button is dragged")
                 print("   '+' and '-' increase and decrease the pulse number that is being saved to.")
@@ -1164,8 +1218,15 @@ class plot_stations:
                 if station is None:
                     continue
                 print(station, H)
-                delay = self.clock_offset_manager.get_visual_offsets()[station] - self.ave_ref_ant_delay
-                self.pulse_manager.select_pulse(station, minT+delay, maxT+delay)
+
+                # delay = self.clock_offset_manager.get_visual_offsets()[station] - self.ave_ref_ant_delay
+                # self.pulse_manager.select_pulse(station, minT+delay, maxT+delay)
+
+
+                min_station_T = self.frame_manager.plotTime_to_StationTime( minT, station)
+                max_station_T = self.frame_manager.plotTime_to_StationTime( maxT, station)
+                self.pulse_manager.select_pulse(station, min_station_T, max_station_T)
+
                 
             Xlims, Ylims = self.axes.get_xlim(), self.axes.get_ylim()
             self.plot()

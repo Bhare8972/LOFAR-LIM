@@ -9,6 +9,9 @@ import matplotlib.pyplot as plt
 from LoLIM.utilities import  processed_data_dir, v_air, even_antName_to_odd
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
 
+
+print('WARNING!. timing inpector 4 not yet account for pol-flips!')
+
 class input_manager:
     def __init__(self, processed_data_folder, input_files):
         self.max_num_input_files = 10
@@ -30,6 +33,7 @@ class input_manager:
         
         file_i = int(ID/self.max_num_input_files)
         folder_i = ID - file_i*self.max_num_input_files
+
         file_list = self.input_data[ folder_i ]
         
         return [info for info in file_list if info[0]==ID][0]
@@ -79,6 +83,7 @@ def plot_all_stations(event_ID,
         
         peak_amp = 0.0
         ## first we open the data
+        print(sname)
         for ant_name, ant_loc in zip(station_file.get_antenna_names(),station_file.get_LOFAR_centered_positions()):
             if ant_name not in stat_group:
                 continue
@@ -94,6 +99,9 @@ def plot_all_stations(event_ID,
             
             even_amp = np.max(even_HE)
             odd_amp = np.max(odd_HE)
+
+            print(even_ant_name, 'amp:', even_amp)
+            print(odd_ant_name, 'amp:', odd_amp)
             
             
             travel_delay = np.sqrt( (ant_loc[0]-source_XYZT[0])**2 + (ant_loc[1]-source_XYZT[1])**2 + (ant_loc[2]-source_XYZT[2])**2 )/v_air
@@ -165,6 +173,7 @@ def plot_all_stations(event_ID,
 
             even_peakT_offset.append( even_peak_time )
             odd_peakT_offset.append( odd_peak_time )
+        print()
             
         earliest_T = np.inf
         for pair_i in range(len(even_HEs)):
@@ -314,23 +323,23 @@ def plot_station(event_ID, sname_to_plot, plot_bad_antennas,
         
         even_is_good = even_amp>min_ant_amplitude
         if not even_is_good:
-            print( even_ant_name, ": amp too low" )
+            print( even_ant_name, ": amp too low:", even_amp )
         else:
             even_is_good = not (even_ant_name in antennas_to_exclude)
             if not even_is_good:
                 print( even_ant_name, ": excluded" )
             else:
-                print( even_ant_name, ": good" )
+                print( even_ant_name, ": good. amp:", even_amp )
             
         odd_is_good  = odd_amp>min_ant_amplitude
         if not odd_is_good:
-            print( odd_ant_name, ": amp too low" )
+            print( odd_ant_name, ": amp too low:", odd_amp  )
         else:
             odd_is_good = not (odd_ant_name in antennas_to_exclude)
             if not odd_is_good:
                 print( odd_ant_name, ": excluded" )
             else:
-                print( odd_ant_name, ": good" )
+                print( odd_ant_name, ": good. amp:", odd_amp  )
                 
             
         even_HEs.append( even_HE )

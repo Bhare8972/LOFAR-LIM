@@ -12,14 +12,14 @@ from scipy.optimize import brute, least_squares
 
 import h5py
 
-from LoLIM.utilities import processed_data_dir, v_air, antName_is_even, BoundingBox_collision, logger
+from LoLIM.utilities import processed_data_dir, antName_is_even, BoundingBox_collision, logger
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1, read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
 from LoLIM.findRFI import window_and_filter
 from LoLIM.signal_processing import remove_saturation, data_cut_inspan, locate_data_loss
 
 
 from LoLIM.iterativeMapper.cython_utils import parabolic_fitter, planewave_locator_helper, autoadjusting_upsample_and_correlate, \
-    pointsource_locator, abs_max
+    pointsource_locator, abs_max, set_c_air_inverse
 
 def do_nothing(*A, **B):
     pass
@@ -71,7 +71,8 @@ class raw_data_manager:
             print_func('opening', sname)
             stat_i = len( self.station_data_files )
             
-            raw_data_file = MultiFile_Dal1(raw_fpaths[sname], polarization_flips=header.pol_flips, pol_flips_are_bad=header.pol_flips_are_bad)
+            raw_data_file = MultiFile_Dal1(raw_fpaths[sname], force_metadata_ant_pos=True,
+                polarization_flips=header.pol_flips, pol_flips_are_bad=header.pol_flips_are_bad)
             data_filter = window_and_filter(timeID=header.timeID, sname=sname, half_window_percent=header.hann_window_fraction)
             self.station_data_files.append( raw_data_file )
             self.RFI_filters.append( data_filter )
@@ -232,7 +233,9 @@ class raw_data_manager:
             try:
                 self.open_antenna_SampleNumber(antenna_i, start_sample_number)
             except Exception as e:
-                print('info', antenna_i, start_time, antenna_delay)
+                print_func('READ ERR:')
+                print_func('info', antenna_i, start_time, antenna_delay)
+                print_func(e)
                 raise e
             
             present_start_time = self.starting_time[ antenna_i ] + self.half_hann_safety_region*5.0E-9
@@ -289,7 +292,7 @@ class planewave_locator:
         for i, iloc in enumerate(self.antenna_locations):
             for j, jloc in enumerate(self.antenna_locations):
                 R = np.linalg.norm( iloc-jloc )
-                self.max_delta_matrix[i,j] = int( R/(v_air*5.0E-9) ) + 1
+                self.max_delta_matrix[i,j] = int( R/(header.v_air*5.0E-9) ) + 1
         
 
     
@@ -408,6 +411,8 @@ class iterative_mapper:
         
         
         ## load helpers:
+        set_c_air_inverse( 1.0/self.header.v_air )
+        
         self.planewave_manager = planewave_locator( header, self.data_manager, int(header.min_pulse_length_samples/2) )
         
         self.half_min_pulse_length_samples = int(header.min_pulse_length_samples/2)
@@ -442,11 +447,12 @@ class iterative_mapper:
         output_type = [("ID", 'i8'), ('x', 'd'), ('y', 'd'), ('z', 'd'), ('t', 'd'),
                ('RMS', 'd'),  ('RedChiSquared', 'd'), ('numRS', 'i8'), ('refAmp', 'i8'), ('numThrows', 'i8'), ('image_i', 'i8'),
                ('refAnt', 'S9'),
-               ('covXX', 'd'), ('covXY', 'd'), ('covXZ', 'd'), ('covYY', 'd'), ('covYZ', 'd'), ('covZZ', 'd')]
+               ('covXX', 'd'), ('covXY', 'd'), ('covXZ', 'd'), ('covYY', 'd'), ('covYZ', 'd'), ('covZZ', 'd'),
+                ('stationFilter', 'S'+str(len(self.station_order))) ]
         self.output_type = np.dtype( output_type )
         self.output_data = np.empty( self.header.max_events_perBlock, dtype=self.output_type )
 
-    def reload_data(self):
+    def reload_data(self, print_func):
         "this is where the magic REALLY happens"
         
         for stat_i in self.station_order:
@@ -473,19 +479,27 @@ class iterative_mapper:
                 ## check quality
                 if len(antenna_trace) != self.header.min_pulse_length_samples: ## something went wrong, I dobn't think this should ever really happen
                     self.antenna_mask[ ant_i ] = False
+                    # if self.station_mode[stat_i] == 2:
+                        # print_func('A', ant_i)
                     continue
                     
                 if abs_max( antenna_trace ) < self.header.min_amplitude:
                     self.antenna_mask[ ant_i ] = False
+                    # if self.station_mode[stat_i] == 2:
+                        # print_func('B', ant_i)
                     continue
                 
                 has_saturation = self.data_manager.check_saturation_span(ant_i, sample_index, sample_index+self.header.min_pulse_length_samples )
                 if  has_saturation:
                     self.antenna_mask[ ant_i ] = False
+                    # if self.station_mode[stat_i] == 2:
+                        # print_func('C', ant_i)
                     continue
                 
                 if self.data_manager.check_dataLoss_span(ant_i, sample_index, sample_index+self.header.min_pulse_length_samples ):
                     self.antenna_mask[ ant_i ] = False
+                    # if self.station_mode[stat_i] == 2:
+                        # print_func('D', ant_i)
                     continue
                 
             
@@ -541,7 +555,7 @@ class iterative_mapper:
                     diff_ref *= 1.0/ref_R
                     diff_ant *= 1.0/ant_R
                     diff_ant -= diff_ref
-                    diff_ant *= 1.0/v_air
+                    diff_ant *= 1.0/self.header.v_air
                     
                     ## now we make a sandwich!
                     prediction_variance =  np.dot(diff_ant, np.dot( self.covariance_matrix, diff_ant ))
@@ -561,22 +575,25 @@ class iterative_mapper:
                 
                 
                 ## check quality
+
+                self.antenna_mask[ ant_i ] = True
+
                 if len(antenna_trace) != self.header.min_pulse_length_samples: ## something went wrong, I dobn't think this should ever really happen
                     self.antenna_mask[ ant_i ] = False
-                    continue
+                    # continue
                     
                 if abs_max( antenna_trace ) < self.header.min_amplitude:
                     self.antenna_mask[ ant_i ] = False
-                    continue
+                    # continue
                 
                 has_saturation = self.data_manager.check_saturation_span(ant_i, sample_index, sample_index+self.header.min_pulse_length_samples )
                 if  has_saturation:
                     self.antenna_mask[ ant_i ] = False
-                    continue
+                    # continue
                 
                 if self.data_manager.check_dataLoss_span(ant_i, sample_index, sample_index+self.header.min_pulse_length_samples ):
                     self.antenna_mask[ ant_i ] = False
-                    continue
+                    # continue
                 
             
                 ## do cross correlation and get peak location
@@ -594,7 +611,6 @@ class iterative_mapper:
                 peak_location += trace_startTime - (self.referance_peakTime-self.half_min_pulse_length_samples*5.0E-9)
                 
                 self.measured_dt[ ant_i ] = peak_location
-                self.antenna_mask[ ant_i ] = True
                 
 #                if self.station_mode[ stat_i ] == 2:
 #                    self.TEST_MEMORY[ ant_i ] = peak_location
@@ -718,21 +734,17 @@ class iterative_mapper:
             num_throws = 0
             for stat_i in self.station_order:
                 self.station_mode[ stat_i ] = 2
-                
-#                if planewave_num_ants > 3:
-                self.reload_data()
-#                else:
-#                self.reload_data_and_plot(current_red_chi_sq)
-                
-#                if 190 <= event_i <= 194:
-#                    self.reload_data_and_plot( current_red_chi_sq )
-#                else:
-#                    self.reload_data()
+
+                # print_func('doing station', stat_i,  self.header.station_names[stat_i])
+
+                self.reload_data( print_func )
+                # self.reload_data_and_plot( current_red_chi_sq )
                 
                 self.station_mode[ stat_i ] = 1
                 
                 num_ants = np.sum( self.antenna_mask )
                 if  num_ants < 3:
+                    print_func('station', stat_i, '(', self.header.station_names[stat_i] ,') too few antennas' )
                     continue
                 
                 success, new_chi_squared = self.pointsource_manager.run_minimizer( self.XYZc, self.header.max_minimize_itters, 
@@ -744,7 +756,7 @@ class iterative_mapper:
                     ant_span = self.data_manager.station_to_antSpan[ stat_i ]
                     self.antenna_mask[ ant_span[0]:ant_span[1] ] = 0
                     
-                    print_func("  throwing station:", stat_i, 'had red. chi-squared of:', new_chi_squared, 'previous:', current_red_chi_sq) 
+                    print_func("  throwing station:", stat_i, '(', self.header.station_names[stat_i] ,') had red. chi-squared of:', new_chi_squared, 'previous:', current_red_chi_sq)
                     self.XYZc[:] = self.XYZc_old ## keep the old chi-squared and location
                     num_throws += 1
                     
@@ -758,6 +770,12 @@ class iterative_mapper:
                     current_red_chi_sq = new_chi_squared
                     self.XYZc[2] = np.abs( self.XYZc[2] )
                     self.XYZc_old[:] = self.XYZc
+
+
+                    ant_span = self.data_manager.station_to_antSpan[ stat_i ]
+                    num_ant = np.sum( self.antenna_mask[ ant_span[0]:ant_span[1] ] )
+                    if num_ant == 0:
+                        print_func("  warning station:", stat_i, '(', self.header.station_names[stat_i], ') has no active antennas')
                 
                 if stat_i == 0:
                     self.XYZc[:3] *= self.header.guess_distance/np.linalg.norm( self.XYZc[:3] )
@@ -773,12 +791,18 @@ class iterative_mapper:
             RMS = self.pointsource_manager.get_RMS()
             
             num_remote_stations = 0
+
+            has_station = []
             for stat_i in self.station_order:
-                if self.data_manager.is_RS[ stat_i ]:
-                    ant_span = self.data_manager.station_to_antSpan[ stat_i ]
-                    num_ant = np.sum( self.antenna_mask[ ant_span[0]:ant_span[1] ] )
-                    if num_ant > 0:
+                ant_span = self.data_manager.station_to_antSpan[ stat_i ]
+                num_ant = np.sum( self.antenna_mask[ ant_span[0]:ant_span[1] ] )
+                if num_ant > 0:
+                    has_station.append( '1' )
+                    if self.data_manager.is_RS[ stat_i ]:
                         num_remote_stations += 1
+                else:
+                    has_station.append( '0' )
+
                       
             self.pointsource_manager.load_covariance_matrix( self.XYZc, self.covariance_matrix )
             
@@ -786,12 +810,12 @@ class iterative_mapper:
                 eigvalues, eigenvectors = np.linalg.eigh( self.covariance_matrix )
                 np.sqrt(eigvalues, out=eigvalues)
             except:
-                print('eigenvalues did not converge???')
+                print_func('eigenvalues did not converge???')
                 eigvalues = None
                 eigenvectors = self.covariance_matrix
             
 #            T = (event_ref_index+start_index)*5.0E-9 - np.linalg.norm( self.XYZc[:3]-self.ref_XYZ )/v_air - self.header.refStat_delay
-            T = self.referance_peakTime - np.linalg.norm( self.XYZc[:3]-self.ref_XYZ )/v_air
+            T = self.referance_peakTime - np.linalg.norm( self.XYZc[:3]-self.ref_XYZ )/self.header.v_air
                    
             
             #### output!
@@ -825,6 +849,8 @@ class iterative_mapper:
             self.output_data[out_i]['covYY'] = self.covariance_matrix[1,1]
             self.output_data[out_i]['covYZ'] = self.covariance_matrix[1,2]
             self.output_data[out_i]['covZZ'] = self.covariance_matrix[2,2]
+
+            self.output_data[out_i]['stationFilter'] = ''.join( has_station )
             
             out_i += 1
             

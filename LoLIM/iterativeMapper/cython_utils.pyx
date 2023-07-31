@@ -7,6 +7,7 @@
 
 
 cimport numpy as np
+
 import numpy as np
 #from scipy import fftpack
 from libc.math cimport sqrt,log, sin, cos

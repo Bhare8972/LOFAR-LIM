@@ -7,8 +7,9 @@ import datetime
 import numpy as np
 import h5py
 
-from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1, read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays
+from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1, read_station_delays, read_antenna_pol_flips, read_bad_antennas, read_antenna_delays, read_cal_file
 from LoLIM.utilities import processed_data_dir, antName_is_even, BoundingBox_collision, SId_to_Sname
+import LoLIM.utilities  as utils
 
 def read_planewave_fits(cal_folder, station_name):
     """returns a dictionary, key is antenna name, value is RMS fit value of planewaves. If folder doesn't exist, returns empty dictionary.
@@ -34,7 +35,8 @@ def read_planewave_fits(cal_folder, station_name):
 
 class make_header:
     def __init__(self, timeID, initial_datapoint, 
-                 station_delays_fname, additional_antenna_delays_fname, bad_antennas_fname, pol_flips_fname):
+                 total_cal_fname=None,
+                 station_delays_fname=None, additional_antenna_delays_fname=None, bad_antennas_fname=None, pol_flips_fname=None):
         
         self.timeID = timeID
         self.initial_datapoint = initial_datapoint
@@ -42,6 +44,7 @@ class make_header:
         self.max_antennas_per_station = 6
         self.referance_station = None
         
+        self.total_cal_fname = total_cal_fname
         self.station_delays_fname = station_delays_fname
         self.additional_antenna_delays_fname = additional_antenna_delays_fname
         self.bad_antennas_fname = bad_antennas_fname
@@ -50,6 +53,8 @@ class make_header:
         self.stations_to_exclude = []
         
         self.blocksize = 2**16
+
+        self.use_even_antennas = True
         
         self.remove_saturation = True
         self.remove_RFI = True
@@ -93,10 +98,19 @@ class make_header:
         if dir_is_organized:
             output_dir = processed_data_folder +'/' + output_dir
         
-        polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + self.pol_flips_fname )
-        bad_antennas = read_bad_antennas( processed_data_folder + '/' + self.bad_antennas_fname )
-        additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + self.additional_antenna_delays_fname )
-        station_timing_offsets = read_station_delays( processed_data_folder+'/'+ self.station_delays_fname )
+        if self.total_cal_fname is not None:
+            total_cal_data = read_cal_file( processed_data_folder + '/' + self.total_cal_fname, self.pol_flips_are_bad )
+            bad_antennas = total_cal_data.bad_antenna_data
+            polarization_flips = total_cal_data.polarization_flips
+            station_timing_offsets  = total_cal_data.station_delays
+            additional_antenna_delays  = total_cal_data.ant_delays
+        else:
+            polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + self.pol_flips_fname )
+            bad_antennas = read_bad_antennas( processed_data_folder + '/' + self.bad_antennas_fname )
+            additional_antenna_delays = read_antenna_delays(  processed_data_folder + '/' + self.additional_antenna_delays_fname )
+            station_timing_offsets = read_station_delays( processed_data_folder+'/'+ self.station_delays_fname )
+
+        self.v_air = utils.v_air  ## TOTAL cal could have changed this
         
         raw_fpaths = filePaths_by_stationName( self.timeID )
 
@@ -109,12 +123,21 @@ class make_header:
         for station, fpaths  in raw_fpaths.items():
             if (station in station_timing_offsets) and (station not in self.stations_to_exclude ):
                 print('opening', station)
-                
-                raw_data_file = MultiFile_Dal1(fpaths, polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays, pol_flips_are_bad=self.pol_flips_are_bad)
-                self.station_data_files.append( raw_data_file )
-                
+
+                if self.total_cal_fname is not None:
+                    raw_data_file = MultiFile_Dal1(fpaths, force_metadata_ant_pos=True, total_cal = total_cal_data  )
+                else:
+                    raw_data_file = MultiFile_Dal1(fpaths, force_metadata_ant_pos=True, \
+                              total_cal = False,   \
+          polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays, pol_flips_are_bad=self.pol_flips_are_bad)
+
                 raw_data_file.set_station_delay( station_timing_offsets[station] )
-                raw_data_file.find_and_set_polarization_delay()
+
+                self.station_data_files.append( raw_data_file )
+
+                
+                if self.total_cal_fname is None:
+                    raw_data_file.find_and_set_polarization_delay()
                 
                 if self.posix_timestamp is None:
                     self.posix_timestamp = raw_data_file.get_timestamp()
@@ -149,14 +172,13 @@ class make_header:
             
             ## get RMS planewave fits
             if self.antenna_RMS_info is not None:
-                
                 antenna_RMS_dict = read_planewave_fits(processed_data_folder+'/'+self.antenna_RMS_info, stationFile.get_station_name() )
             else:
                 antenna_RMS_dict = {}
                 
                 
-            antenna_RMS_array = np.array([ antenna_RMS_dict[ant_name] if ant_name in antenna_RMS_dict else self.default_expected_RMS  for ant_name in ant_names if antName_is_even(ant_name)  ])
-            antenna_indeces = np.arange(num_evenAntennas)*2
+            antenna_RMS_array = np.array([ antenna_RMS_dict[ant_name] if ant_name in antenna_RMS_dict else self.default_expected_RMS  for ant_name in ant_names if (antName_is_even(ant_name) == self.use_even_antennas)   ])
+            antenna_indeces = np.arange(num_evenAntennas)*2 + (not self.use_even_antennas)
             
             ## remove bad antennas and sort
             ant_is_good = np.isfinite( antenna_RMS_array )
@@ -192,10 +214,19 @@ class make_header:
         header_outfile.attrs["initial_datapoint"] = self.initial_datapoint
         header_outfile.attrs["max_antennas_per_station"] = self.max_antennas_per_station
         header_outfile.attrs["referance_station"] = self.station_data_files[0].get_station_name()
-        header_outfile.attrs["station_delays_fname"] = self.station_delays_fname
-        header_outfile.attrs["additional_antenna_delays_fname"] = self.additional_antenna_delays_fname
-        header_outfile.attrs["bad_antennas_fname"] = self.bad_antennas_fname
-        header_outfile.attrs["pol_flips_fname"] = self.pol_flips_fname
+        
+        if self.total_cal_fname is not None:
+            header_outfile.attrs["total_cal_fname"] = self.total_cal_fname
+        if self.station_delays_fname is not None:
+            header_outfile.attrs["station_delays_fname"] = self.station_delays_fname
+        if self.additional_antenna_delays_fname is not None:
+            header_outfile.attrs["additional_antenna_delays_fname"] = self.additional_antenna_delays_fname
+        if self.bad_antennas_fname is not None:
+            header_outfile.attrs["bad_antennas_fname"] = self.bad_antennas_fname
+        if self.pol_flips_fname is not None:
+            header_outfile.attrs["pol_flips_fname"] = self.pol_flips_fname
+
+        header_outfile.attrs["use_even_antennas"] = self.use_even_antennas
         header_outfile.attrs["blocksize"] = self.blocksize
         header_outfile.attrs["remove_saturation"] = self.remove_saturation
         header_outfile.attrs["remove_RFI"] = self.remove_RFI
@@ -213,7 +244,11 @@ class make_header:
         header_outfile.attrs["guess_distance"] = self.guess_distance
         header_outfile.attrs["kalman_devations_toSearch"] = self.kalman_devations_toSearch
         header_outfile.attrs["pol_flips_are_bad"] = self.pol_flips_are_bad
-        header_outfile.attrs["antenna_RMS_info"] = self.antenna_RMS_info
+        if self.antenna_RMS_info is not None:
+            header_outfile.attrs["antenna_RMS_info"] = self.antenna_RMS_info
+
+        header_outfile.attrs["v_air"] = self.v_air
+        
         header_outfile.attrs["default_expected_RMS"] = self.default_expected_RMS
         header_outfile.attrs["max_planewave_RMS"] = self.max_planewave_RMS
         header_outfile.attrs["stop_chi_squared"] = self.stop_chi_squared
@@ -278,11 +313,41 @@ class read_header:
         if "referance_station" in header_infile.attrs:
             self.referance_station = header_infile.attrs["referance_station"]#.decode()
         
-        self.station_delays_fname = header_infile.attrs["station_delays_fname"]#.decode()
-        self.additional_antenna_delays_fname = header_infile.attrs["additional_antenna_delays_fname"]#.decode()
-        self.bad_antennas_fname = header_infile.attrs["bad_antennas_fname"]#.decode()
-        self.pol_flips_fname = header_infile.attrs["pol_flips_fname"]#.decode()
-        
+        if "total_cal_fname" in header_infile.attrs:
+            self.total_cal_fname = header_infile.attrs["total_cal_fname"]#.decode()
+        else:
+            self.total_cal_fname = None
+            
+        if "station_delays_fname" in header_infile.attrs:
+            self.station_delays_fname = header_infile.attrs["station_delays_fname"]#.decode()
+        else:
+            self.station_delays_fname = None
+            
+        if "additional_antenna_delays_fname" in header_infile.attrs:
+            self.additional_antenna_delays_fname = header_infile.attrs["additional_antenna_delays_fname"]#.decode()
+        else:
+            self.additional_antenna_delays_fname = None
+            
+        if "bad_antennas_fname" in header_infile.attrs:
+            self.bad_antennas_fname = header_infile.attrs["bad_antennas_fname"]#.decode()
+        else:
+            self.bad_antennas_fname = None
+            
+        if "pol_flips_fname" in header_infile.attrs:
+            self.pol_flips_fname = header_infile.attrs["pol_flips_fname"]#.decode()
+        else:
+            self.pol_flips_fname = None
+
+        if "v_air" in header_infile.attrs:
+            self.v_air = header_infile.attrs['v_air']
+        else:
+            self.v_air = utils.v_air
+
+        if "use_even_antennas" in header_infile.attrs:
+            self.use_even_antennas = header_infile.attrs["use_even_antennas"]
+        else:
+            self.use_even_antennas = True
+            
         self.blocksize = header_infile.attrs["blocksize"]
         self.remove_saturation = header_infile.attrs["remove_saturation"]
         self.remove_RFI = header_infile.attrs["remove_RFI"]
@@ -305,7 +370,12 @@ class read_header:
         
         self.pol_flips_are_bad = header_infile.attrs["pol_flips_are_bad"]
         
-        self.antenna_RMS_info = header_infile.attrs["antenna_RMS_info"]
+            
+        if "antenna_RMS_info" in header_infile.attrs:
+            self.antenna_RMS_info = header_infile.attrs["antenna_RMS_info"]#.decode()
+        else:
+            self.antenna_RMS_info = None
+            
         self.default_expected_RMS = header_infile.attrs["default_expected_RMS"]
         self.max_planewave_RMS = header_infile.attrs["max_planewave_RMS"]
         self.stop_chi_squared = header_infile.attrs["stop_chi_squared"]
@@ -346,6 +416,7 @@ class read_header:
                 new_antenna_object.sname = sname
                 new_antenna_object.ant_name = ant_group.attrs["antenna_name"]#.decode()
                 new_antenna_object.delay = ant_group.attrs["delay"]
+                
                 new_antenna_object.planewave_RMS = ant_group.attrs["planewave_RMS"]
                 new_antenna_object.location = ant_group.attrs["location"]
                 
@@ -371,11 +442,13 @@ class read_header:
         print_func('max_antennas_per_station:', self.max_antennas_per_station)
         print_func('referance_station:', self.referance_station)
         
+        print_func('total_cal_fname:', self.total_cal_fname)
         print_func('station_delays_fname:', self.station_delays_fname)
         print_func('additional_antenna_delays_fname:', self.additional_antenna_delays_fname)
         print_func('bad_antennas_fname:', self.bad_antennas_fname)
         print_func('pol_flips_fname:', self.pol_flips_fname)
-        
+
+        print_func('use even antennas:', self.use_even_antennas)
         print_func('blocksize:', self.blocksize)
         print_func('remove_saturation:', self.remove_saturation)
         print_func('remove_RFI:', self.remove_RFI)
@@ -412,7 +485,9 @@ class read_header:
         
     def print_all_info(self, print_func=print):
         self.print_settings(print_func)
-        
+
+        print_func('v_air:', self.v_air)
+
         print_func('refStat_delay:', self.refStat_delay)
         print_func('refStat_timestamp:', self.refStat_timestamp)
         print_func('refStat_sampleNumber:', self.refStat_sampleNumber)
@@ -434,8 +509,12 @@ class read_header:
     def resave_header(self, output_folder):
         """Used to adjust settings of mapper. Open header, edit settings, and use this method to re-save out header to a different folder for a new mapping run"""
         new_header = make_header( self.timeID, self.initial_datapoint, 
+             self.total_cal_fname,
              self.station_delays_fname, self.additional_antenna_delays_fname, self.bad_antennas_fname, self.pol_flips_fname )
-        
+
+        new_header.v_air = self.v_air
+
+        new_header.use_even_antennas = self.use_even_antennas
         new_header.max_antennas_per_station = self.max_antennas_per_station
         new_header.referance_station = self.referance_station
         new_header.stations_to_exclude =self.stations_to_exclude
@@ -497,6 +576,7 @@ class read_header:
             self.refAnt = None
             self.numThrows = None
             self.cov_matrix = np.empty( (3,3), dtype=np.double )
+            self.stationFilter = None
             self.__cov_eig__ = None
             
         def in_BoundingBox(self, BB):
@@ -521,6 +601,47 @@ class read_header:
                 return np.inf
             else:
                 return np.sqrt(np.max(cov_eigs[0]))
+
+        def get_stationFilter(self):
+            if self.stationFilter is None:
+                return None
+
+            return np.array( [ v=='1' for v in self.stationFilter], dtype=np.bool )
+
+
+
+    def get_blocks(self):
+        ret = []
+
+        file_names = [fname for fname in listdir(self.input_folder) if fname.endswith(".h5") and not fname.startswith('header')]
+        for fname in file_names:
+            infile = h5py.File(self.input_folder + '/' + fname, "r")
+
+            for block_dataset in infile.values():
+                block_i = block_dataset.attrs['block']
+                ret.append(block_i)
+
+        return ret
+
+    def get_orderedStations(self):
+
+        """ get station names in the order they are ued in the station filter. Terrible hack for a bad coding mistake"""
+
+        station_locs = []
+        for antenna_list in self.antenna_info:
+            station_location = np.zeros(3,dtype=float)
+            N = 0
+            for ant in antenna_list:
+                station_location += ant.location
+                N += 1
+            station_location /= N
+            station_locs.append(station_location)
+
+        station_locs  = np.array(station_locs)
+        relative_distances = np.linalg.norm( station_locs - station_locs[0], axis=1 )
+
+        return [ self.station_names[j] for j in np.argsort( relative_distances ) ]
+
         
     def load_data_as_sources(self, maxRMS=None, maxRChi2=None, minRS=None, minAmp=None, bounds=None, blocks=None ):
         """returns sources as deques"""
@@ -546,7 +667,8 @@ class read_header:
                     
                 do_num_throws = 'numThrows' in block_dataset.dtype.fields.keys()
                     
-                for source_info in block_dataset:
+                for source_info in block_dataset:  ## oddly, source_info has type numpy.void, which makes it hard to work with
+
                     new_source = self.PSE_source()
                     new_source.ID = source_info['ID']
                     new_source.uniqueID = block_i*self.max_events_perBlock + new_source.ID
@@ -577,6 +699,11 @@ class read_header:
                     new_source.cov_matrix[2,0] = new_source.cov_matrix[0,2]
                     new_source.cov_matrix[2,1] = new_source.cov_matrix[1,2]
                     new_source.cov_matrix[2,2] = source_info['covZZ']
+
+                    try:
+                        new_source.stationFilter = source_info['stationFilter'].decode()
+                    except:
+                        pass
                     
                     if maxRMS is not None and new_source.RMS > maxRMS:
                         continue

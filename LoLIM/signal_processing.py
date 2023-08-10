@@ -639,10 +639,16 @@ def plot_spans(spans, Y=0, T_array=None, color=None):
     
             
 
-def FFT_time_shift(frequencies, FFT_data, dt):
+def FFT_time_shift(frequencies, FFT_data, dt, out=None):
     """given some frequency dependent data, apply a positive time-shift dt. Operates
     on the data in-place """
-    FFT_data *= np.exp( frequencies*(-2j*np.pi*dt) )
+    if out is None:
+        A = frequencies*(-2j*np.pi*dt)
+    else:
+        A[:] = frequencies
+        A *= (-2j*np.pi*dt)
+
+    FFT_data *= np.exp( A, out=A )
     
 def make_stokes(X, Y):
     """given complex electric fields in X and Y direction (can be numpy arrays), return I, Q, U, and V"""
@@ -695,3 +701,52 @@ def make_stokes(X, Y):
     return I,Q,U,V
     
     
+from scipy.stats import poisson
+from scipy.optimize import root_scalar
+def poisson_error_bars(N):
+    """given an input number of counts (integer), returns 32% error bars. Equal to 1 standard devation for normal distribution.
+    Returns two numbers. First is with lower error bar, second is upper error bar"""
+
+    p=0.32
+
+    ## some utility functions
+    def CDF(L):
+        return poisson.cdf(N, L)
+    
+    def LA(L):
+        return CDF(L) - p
+    def LB(L):
+        return (1.0-CDF(L)) - p
+    
+    def LA_prime(L):
+        L_low = L-0.001
+        L_high = L+0.001
+        if L_low<0:
+            L_low=0
+        return (LA(L_high)-LA(L_low))/(L_high-L_low)
+    
+    def LB_prime(L):
+        L_low = L-0.001
+        L_high = L+0.001
+        if L_low<0:
+            L_low=0
+        return (LB(L_high)-LB(L_low))/(L_high-L_low)
+
+
+
+
+    if N >= 100:
+        ## large number limit
+        lower = N-np.sqrt(N)/2
+        upper = N+np.sqrt(N)/2
+    else:
+        lower = root_scalar(LB, x0=N, fprime=LB_prime, method='newton').root
+        upper = root_scalar(LA, x0=N, fprime=LA_prime, method='newton').root
+
+    if N==0 or N==1:
+        lower = 0
+
+    return lower, upper
+
+
+

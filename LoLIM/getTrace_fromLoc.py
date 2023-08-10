@@ -20,6 +20,12 @@ class getTrace_fromLoc:
         if station_timing_calibration is not None:
             for sname, TBB_file in data_file_dict.items():
                 TBB_file.set_station_delay( station_timing_calibration[sname] )
+
+    def get_TBBfile_dict(self):
+        return self.data_file_dict
+
+    def set_return_dbl_zeros(self, return_dbl_zeros):
+        self.return_dbl_zeros = return_dbl_zeros
                 
     def source_recieved_index(self, XYZT, ant_name):
         

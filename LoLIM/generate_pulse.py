@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from scipy.constants import mu_0
 import numpy as np
 
 from matplotlib import pyplot as plt
@@ -8,6 +7,8 @@ from matplotlib import pyplot as plt
 from LoLIM.utilities import RTD
 from LoLIM.FFT import complex_fft_obj
 from LoLIM.atmosphere import default_atmosphere
+
+from scipy.integrate import simpson
 
 
 from scipy import constants
@@ -68,6 +69,36 @@ class pulse_generator:
         print("NOT YET IMPLEMENTED")
         quit()
 
+    def energy(self, XYZ_moment, freq_min, freq_max):
+        """ give the amount of energy (folded with flat freq. filter between freq_min and freq_max (in Hz)) emitted by a moment of units  Cm/s^2."""
+
+        ## make filter
+        filter = np.zeros( len(self.frequencies) )
+        filter[ np.logical_and(self.frequencies>=freq_min, self.frequencies<=freq_max) ] = 1
+
+
+        ## for each component, filter, and sum squares
+        self.stat_zenithal_field[:] = 0
+        for i in range(3):
+            self.stat_azimuthal_field[:] = 0
+            self.stat_azimuthal_field[0] = XYZ_moment[i]
+
+            self.FFT_OBJ.fft( self.stat_azimuthal_field )
+            self.stat_azimuthal_field *= filter
+            self.FFT_OBJ.ifft( self.stat_azimuthal_field )
+
+            self.stat_azimuthal_field[:] = np.abs(self.stat_azimuthal_field)
+            self.stat_azimuthal_field *= self.stat_azimuthal_field 
+            self.stat_zenithal_field += self.stat_azimuthal_field
+
+
+        ## convert to power
+        self.stat_zenithal_field *= Z0/(12*np.pi*C*C)
+
+        ## integrate to energy
+        E = simpson(self.stat_zenithal_field, dx=5.0e-9)
+        return E
+
 
 
     def __call__(self, antenna_XYZs, antenna_polarization, XYZT_location, XYZ_moment, out_a=None, out_b=None, station_integer=None, centering_mode=None):
@@ -76,7 +107,7 @@ class pulse_generator:
         antenna_XYZs should be np.array( (num_antennas, 3), dtype=double ) of antenan positions
         antenna_polarization should be np.array( num_antennas ). Where 0 means antenna is X, and 1 means Y
         XYZT_location should be numpy.array( 4, dtype=double )
-        XYZ_moment numpy.array( 3, dtype=cdouble ) of the current moment in amp-meters-herz, and decreases linearly with frequency... ish.
+        XYZ_moment numpy.array( 3, dtype=cdouble ) is what I'm calling the ``radiation moment''. Is units of Cm/s^2. Looks like first derivative of current... but is a vector.
         If given, out_a should be np.array( (num_antennas, trace_length), dtype=cdouble ), and out_b=np.array( num_antennas, dtype=int ).
         station_integer, if given, is index of station. Used to store and skip calculstions if this funciton is in a loop (does generate new memory on first use). Assumes angle to source doesn't change.
         centering_mode, defines how pulse is positioned in traces. Options:
@@ -139,8 +170,8 @@ class pulse_generator:
         ## Z-orriented current
         zenithal_field  += -sin_stat_zenith * XYZ_moment[2]
 
-        azimuthal_field *= Z0*C/(4*np.pi)
-        zenithal_field  *= Z0*C/(4*np.pi)
+        azimuthal_field *= Z0/(4*np.pi*C)
+        zenithal_field  *= Z0/(4*np.pi*C)
 
 
     ### apply jones matrix

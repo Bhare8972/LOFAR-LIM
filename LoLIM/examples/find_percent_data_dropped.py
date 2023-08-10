@@ -13,11 +13,11 @@ from os.path import isdir
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20180809T141413.250Z"
+    timeID = "D20210618T174657.311Z"
     block_size = 2**16
     output_folder = "/find_percent_data_dropped"
     initial_block = 1000

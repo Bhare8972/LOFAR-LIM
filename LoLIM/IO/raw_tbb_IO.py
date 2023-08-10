@@ -224,7 +224,7 @@ def read_cal_file(fname, pol_flips_are_bad):
                 mode = 2
             elif line_data[0] == "station_delays":
                 mode = 3
-            elif line_data[0] == "antenna_delays":
+            elif line_data[0] == "antenna_delays":  ## these should be AFTER pol_flips. I.E., do not flip with pol_flips
                 mode = 4
             elif line_data[0] == "sign_flips":
                 mode = 5
@@ -496,11 +496,11 @@ class MultiFile_Dal1:
             additional_ant_delays  -a dictionary. Should rarely be needed. Behavior depends on total_cal
                                       If total_cal is None or boolean False (wierd and depreciated):
                                         Each key is name of even antenna, each value is a tuple with additional even and odd antenna delays, added to delays in TBB file.
-                                        assumed to be found BEFORE antenna flips are accounted for.
+                                        assumed to be found BEFORE antenna flips are accounted for. (i.e. get flipped with pol_flips)
                                       If total_cal is boolean True (probably also rarely used):
                                         Each key is antenna name, and value is delay. Even/odd antennas have different entries.
                                         additional_ant_delays IS the antenna time calibration and values from TBB file are discarded.
-                                        additional_ant_delays are assumed to be found AFTER antenna flips are accounted for.
+                                        additional_ant_delays are assumed to be found AFTER antenna flips are accounted for. (ie. do NOT flip with pol-flips)
             station_delay          -a single number that represents the clock offset of this station, as a delay
             NOTE: polarization_flips, bad_antennas, additional_ant_delays, and station_delay can now be strings that are file names. If this is the case, they will be read automatically. This behavior is depreciated.
 
@@ -759,6 +759,12 @@ class MultiFile_Dal1:
     def get_station_name(self):
         """returns the name of the station, as a string"""
         return self.StationName
+
+
+    def get_station_delay(self):
+        """ return the station delay"""
+        return self.station_delay
+                
     
     def get_station_ID(self):
         """returns the ID of the station, as an integer. This is not the same as StationName. Mapping is givin in utilities"""
@@ -907,7 +913,11 @@ class MultiFile_Dal1:
         
         if self.using_total_cal and not force_file_delays:
             for i,ant_name in enumerate( self.dipoleNames ):
-                out[i] = self.total_cal.ant_delays[ant_name]
+                if ant_name in self.total_cal.ant_delays:
+                    out[i] = self.total_cal.ant_delays[ant_name]
+                else:
+                    pritn("WARNING: cal. for antenna missing:", ant_name)
+                    out[i] = 0.0
             
         else:## this whole clunky thing is purly historical. SHould be depreciated!!
         

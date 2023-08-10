@@ -23,15 +23,15 @@ utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20190424T194432.504Z"
+    timeID = "D20210618T174657.311Z"
     output_folder = "/findRFI"
     out_fname = "/findRFI_results"
     block_size = 2**16
-    initial_block = 250
-    num_blocks = 20
+    initial_block = 1000
+    num_blocks = 10
     max_blocks = 500
     
-    skip_stations = ['CS201']
+    skip_stations = []
     
     
     processed_data_dir = processed_data_dir(timeID)
@@ -68,8 +68,10 @@ if __name__ == "__main__":
         station_log.set(path+'/log.txt')
         print("station", station)
             
-        TBB_data = MultiFile_Dal1( raw_fpaths[station] )
-        out = FindRFI(TBB_data, block_size, initial_block, num_blocks, max_blocks, verbose=True, figure_location=path, num_dbl_z=1000)
+        TBB_data = MultiFile_Dal1( raw_fpaths[station], force_metadata_ant_pos=True )
+        fig_loc = path
+        # fig_loc = "show"
+        out = FindRFI(TBB_data, block_size, initial_block, num_blocks, max_blocks, verbose=True, figure_location=fig_loc, num_dbl_z=1000)
         
         if out is None:
             log("cannot find RFI for station:", station)

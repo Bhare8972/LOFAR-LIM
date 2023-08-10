@@ -7,28 +7,20 @@ from LoLIM.iterativeMapper.iterative_mapper import make_header
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/lightning_data"
+utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
+# utilities.default_raw_data_loc = "/home/brian/local_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
-out_folder = 'iterMapper_50_CS002'
-#timeID = 'D20180813T153001.413Z'
-#timeID = 'D20170929T202255.000Z'
-timeID = 'D20180809T141413.250Z'
-initial_datapoint = 1000*(2**16)
+out_folder = 'iterMapper_9Aug2023Cal_evenAnts'
+timeID = 'D20190424T194432.504Z'
+
+initial_datapoint = 500*(2**16)
             
 outHeader = make_header(timeID, initial_datapoint, 
-   station_delays_fname = 'station_delays_CHRIS.txt', 
-#   station_delays_fname = 'station_delays4.txt', 
-   additional_antenna_delays_fname = 'ant_delays_CHRIS.txt', bad_antennas_fname = 'bad_antennas_CHRIS.txt', 
-   pol_flips_fname = 'polarization_flips_CHRIS.txt'
+   total_cal_fname = 'Cal_9Aug2023.txt'
    )
         
-outHeader.stations_to_exclude = []
-                     #[ 'RS407', 'RS409']#
-                                 #'CS002', 'CS003', 'CS004', 'CS005', 'CS006', 'CS007', 'CS011', 'CS013', 'CS017']
-                                 #'RS208', 'RS306', 'RS307', 'RS310', 'RS406', 'RS409', 'RS503', 'RS508', 'RS509'] 
-                                 
-#outHeader.stations_to_exclude = [ ]
+outHeader.stations_to_exclude = [ ]
                                  
 outHeader.max_events_perBlock = 500
 
@@ -36,6 +28,8 @@ outHeader.max_events_perBlock = 500
 
 #outHeader.max_antennas_per_station = 6
 outHeader.referance_station = 'CS002'
+
+outHeader.use_even_antennas = True
 #
 #outHeader.blocksize = 2**16
 #

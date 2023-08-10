@@ -649,6 +649,7 @@ cdef class delay_fitter:
 cdef class delay_fitter_polT:
     
     cdef int total_num_measurments
+    cdef int total_num_parameters
     cdef int next_event_i
     
     #cdef void *fitter_workspace
@@ -696,6 +697,8 @@ cdef class delay_fitter_polT:
         self.total_num_measurments = 0
         self.next_event_i = 0
         self.event_polarizations = np.empty( self.num_events, dtype=int )
+
+        self.total_num_parameters = self.num_station_delays + self.num_antenna_recalibrations  ## not done untill all events added!
         
     def set_event(self, np.ndarray[double, ndim=1] arrival_times, int polarization):
         filter_slice = self.measurement_filter[self.next_event_i*self.num_antennas : (self.next_event_i+1)*self.num_antennas]
@@ -713,10 +716,25 @@ cdef class delay_fitter_polT:
                 
             measurment_slice[ant_i] = arrival_times[ant_i] 
             
-        self.next_event_i += 1   
+        self.next_event_i += 1  
+
+
+        self.total_num_parameters += 4
+        if polarization == 2:
+            self.total_num_parameters += 1
+        elif polarization == 3:
+            self.total_num_parameters += 3
+
+
+    def get_num_measurments(self):
+        return self.total_num_measurments
+
+    def get_num_parameters(self):
+        return self.total_num_parameters
         
-    def objective_fun(self, np.ndarray[double , ndim=1] guess):
-        cdef np.ndarray[double , ndim=1] ret = np.empty(self.total_num_measurments)
+    def objective_fun(self, np.ndarray[double , ndim=1] guess, np.ndarray[double , ndim=1] ret=None, info=None):
+        if ret is None:
+            ret = np.empty(self.total_num_measurments)
         
         cdef double[:] station_delays = guess[ : self.num_station_delays]
         cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
@@ -815,11 +833,143 @@ cdef class delay_fitter_polT:
                     ret[output_i] = dt
                         
                     output_i += 1
-                    
+
         return ret
+
+    def objective_fun_jacobian(self, np.ndarray[double , ndim=1] guess, np.ndarray[double , ndim=2] jacobian_ret=None, info=None):
+        if jacobian_ret is None:
+            jacobian_ret = np.zeros( (self.total_num_measurments, self.total_num_parameters), dtype=np.double )
         
-    def objective_fun_sq(self, np.ndarray[double , ndim=1] guess):
-        cdef np.ndarray[double , ndim=1] ret = np.empty(self.total_num_measurments)
+        cdef double[:] station_delays = guess[ : self.num_station_delays]
+        cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:] event_XYZTs = guess[self.num_station_delays+self.num_antenna_recalibrations : ]
+
+
+        cdef double[:,:] station_jacobian = jacobian_ret[:, :self.num_station_delays]
+        cdef double[:,:] antenna_jacobian = jacobian_ret[:, self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:,:] event_L_jacobian = jacobian_ret[:, self.num_station_delays+self.num_antenna_recalibrations :]
+            
+        cdef double X
+        cdef double Y
+        cdef double Z
+        cdef double T
+        
+        cdef double Xodd = 0
+        cdef double Yodd = 0
+        cdef double Zodd = 0
+        cdef double Todd = 0
+        
+        cdef double X_to_use
+        cdef double Y_to_use
+        cdef double Z_to_use
+        cdef double T_to_use
+        
+        cdef double dx
+        cdef double dy
+        cdef double dz
+        cdef double dt
+        cdef double R
+        
+        cdef int event_i
+        cdef int antenna_i
+        cdef int station_i
+        cdef int recalibrate_i
+        cdef double total_delay
+        cdef int output_i = 0
+        cdef double[:] measurement_slice
+        cdef np.uint8_t[:] filter_slice
+        cdef long current_param_i = 0
+        cdef long next_param_i
+        cdef long event_polarization
+        cdef int antenna_polarization # 0 for even, 1 for odd
+        for event_i in range(self.num_events):
+            measurement_slice = self.measurement_times[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            filter_slice = self.measurement_filter[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            
+            event_polarization = self.event_polarizations[ event_i ]
+                        
+            X = event_XYZTs[ current_param_i + 0]
+            Y = event_XYZTs[ current_param_i + 1]
+            Z = event_XYZTs[ current_param_i + 2]
+            Z = fabs(Z)
+            T = event_XYZTs[ current_param_i + 3]
+            
+            next_param_i = current_param_i + 4
+            if event_polarization == 2:
+                Todd = event_XYZTs[ current_param_i+4 ]
+                next_param_i += 1
+            elif  event_polarization == 3:
+                Xodd = event_XYZTs[ current_param_i + 4+ 0]
+                Yodd = event_XYZTs[ current_param_i + 4+ 1]
+                Zodd = event_XYZTs[ current_param_i + 4+ 2]
+                Zodd = fabs(Zodd)
+                Todd = event_XYZTs[ current_param_i + 4+ 3]
+                next_param_i += 4
+            
+            antenna_polarization = -1
+            for antenna_i in range(self.num_antennas):
+                antenna_polarization += 1
+                if antenna_polarization == 2:
+                    antenna_polarization = 0
+                
+                if filter_slice[antenna_i] and (event_polarization==2 or event_polarization==3 or (event_polarization==0 and antenna_polarization==0) or (event_polarization==1 and antenna_polarization==1)):
+                    
+                    X_to_use = X
+                    Y_to_use = Y
+                    Z_to_use = Z
+                    T_to_use = T
+                    if event_polarization==2 and antenna_polarization==1:
+                        T_to_use = Todd
+                    elif event_polarization==3 and antenna_polarization==1:
+                        X_to_use = Xodd
+                        Y_to_use = Yodd
+                        Z_to_use = Zodd
+                        T_to_use = Todd
+                    
+                    dx = X_to_use - self.antenna_locations[antenna_i, 0]
+                    dy = Y_to_use - self.antenna_locations[antenna_i, 1]
+                    dz = Z_to_use - self.antenna_locations[antenna_i, 2]
+                    R = sqrt(dx*dx + dy*dy + dz*dz)
+
+                    dx *= c_air_inverse/R
+                    dy *= c_air_inverse/R
+                    dz *= c_air_inverse/R
+
+                    station_i = self.station_indexes[ antenna_i ]
+                    if station_i != self.num_station_delays:
+                        station_jacobian[output_i, station_i] = 1
+
+                    recalibrate_i = self.antenna_recalibration_indeces[ antenna_i ]
+                    if recalibrate_i != -1:
+                        antenna_jacobian[output_i, recalibrate_i] = 1
+
+                    if event_polarization==0 or event_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 0] = dx
+                        event_L_jacobian[output_i, current_param_i + 1] = dy
+                        event_L_jacobian[output_i, current_param_i + 2] = dz
+                        event_L_jacobian[output_i, current_param_i + 3] = 1
+
+                    elif event_polarization==2 and antenna_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 0] = dx
+                        event_L_jacobian[output_i, current_param_i + 1] = dy
+                        event_L_jacobian[output_i, current_param_i + 2] = dz
+                        event_L_jacobian[output_i, current_param_i + 4] = 1
+
+                    elif event_polarization==3 and antenna_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 4+ 0] = dx
+                        event_L_jacobian[output_i, current_param_i + 4+ 1] = dy
+                        event_L_jacobian[output_i, current_param_i + 4+ 2] = dz
+                        event_L_jacobian[output_i, current_param_i + 4+ 3] = 1
+                        
+                    output_i += 1
+
+            current_param_i = next_param_i
+
+        return jacobian_ret
+        
+    def objective_fun_sq(self, np.ndarray[double , ndim=1] guess, np.ndarray[double , ndim=1] ret=None, info=None):
+        if ret is None:
+            ret = np.empty(self.total_num_measurments)
         
         cdef double[:] station_delays = guess[ : self.num_station_delays]
         cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
@@ -921,8 +1071,144 @@ cdef class delay_fitter_polT:
                     ret[output_i] -= dz*dz
                         
                     output_i += 1
-                    
+        
         return ret
+        
+    def objective_fun_sq_jacobian(self, np.ndarray[double , ndim=1] guess, np.ndarray[double , ndim=2] jacobian_ret=None, info=None):
+        if jacobian_ret is None:
+            jacobian_ret = np.zeros( (self.total_num_measurments, self.total_num_parameters), dtype=np.double )
+        
+        cdef double[:] station_delays = guess[ : self.num_station_delays]
+        cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:] event_XYZTs = guess[self.num_station_delays+self.num_antenna_recalibrations : ]
+
+
+        cdef double[:,:] station_jacobian = jacobian_ret[:, :self.num_station_delays]
+        cdef double[:,:] antenna_jacobian = jacobian_ret[:, self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]
+        cdef double[:,:] event_L_jacobian = jacobian_ret[:, self.num_station_delays+self.num_antenna_recalibrations :]
+            
+            
+        cdef double X
+        cdef double Y
+        cdef double Z
+        cdef double T
+        
+        cdef double Xodd = 0
+        cdef double Yodd = 0
+        cdef double Zodd = 0
+        cdef double Todd = 0
+        
+        cdef double X_to_use
+        cdef double Y_to_use
+        cdef double Z_to_use
+        cdef double T_to_use
+        
+        cdef double dx
+        cdef double dy
+        cdef double dz
+        cdef double dt
+        
+        cdef int event_i
+        cdef int antenna_i
+        cdef int station_i
+        cdef int recalibrate_i
+        cdef double total_delay
+        cdef int output_i = 0
+        cdef double[:] measurement_slice
+        cdef np.uint8_t[:] filter_slice
+        cdef long current_param_i = 0
+        cdef long next_param_i
+        cdef long event_polarization
+        cdef int antenna_polarization # 0 for even, 1 for odd
+        for event_i in range(self.num_events):
+            measurement_slice = self.measurement_times[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            filter_slice = self.measurement_filter[event_i*self.num_antennas : (event_i+1)*self.num_antennas]
+            
+            event_polarization = self.event_polarizations[ event_i ]
+                        
+            X = event_XYZTs[ current_param_i + 0]
+            Y = event_XYZTs[ current_param_i + 1]
+            Z = event_XYZTs[ current_param_i + 2]
+            Z = fabs(Z)
+            T = event_XYZTs[ current_param_i + 3]
+            
+            next_param_i = current_param_i + 4
+            if event_polarization == 2:
+                Todd = event_XYZTs[ current_param_i ]
+                next_param_i += 1
+            elif  event_polarization == 3:
+                Xodd = event_XYZTs[ current_param_i + 0]
+                Yodd = event_XYZTs[ current_param_i + 1]
+                Zodd = event_XYZTs[ current_param_i + 2]
+                Zodd = fabs(Zodd)
+                Todd = event_XYZTs[ current_param_i + 3]
+                next_param_i += 4
+            
+            antenna_polarization = -1
+            for antenna_i in range(self.num_antennas):
+                antenna_polarization += 1
+                if antenna_polarization == 2:
+                    antenna_polarization = 0
+                
+                if filter_slice[antenna_i] and (event_polarization==2 or event_polarization==3 or (event_polarization==0 and antenna_polarization==0) or (event_polarization==1 and antenna_polarization==1)):
+                    
+                    X_to_use = X
+                    Y_to_use = Y
+                    Z_to_use = Z
+                    T_to_use = T
+                    if event_polarization==2 and antenna_polarization==1:
+                        T_to_use = Todd
+                    elif event_polarization==3 and antenna_polarization==1:
+                        X_to_use = Xodd
+                        Y_to_use = Yodd
+                        Z_to_use = Zodd
+                        T_to_use = Todd
+                    
+                    dx = self.antenna_locations[antenna_i, 0] - X_to_use
+                    dy = self.antenna_locations[antenna_i, 1] - Y_to_use
+                    dz = self.antenna_locations[antenna_i, 2] - Z_to_use
+                    
+                    total_delay = 0.0
+
+                    station_i = self.station_indexes[ antenna_i ]
+                    if station_i != self.num_station_delays:
+                        total_delay = guess[ station_i ]
+
+                    recalibrate_i =  self.antenna_recalibration_indeces[ antenna_i ]
+                    if recalibrate_i != -1:
+                        total_delay += antenna_delays[ recalibrate_i ]
+
+                    dt = 2*c_air*c_air*( T_to_use + total_delay - measurement_slice[ antenna_i ] )
+
+
+                    if station_i != self.num_station_delays:
+                        station_jacobian[output_i, station_i] = dt
+
+                    if recalibrate_i != -1:
+                        antenna_jacobian[output_i, recalibrate_i] = dt
+
+                    if event_polarization==0 or event_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 0] = -dx
+                        event_L_jacobian[output_i, current_param_i + 1] = -dy
+                        event_L_jacobian[output_i, current_param_i + 2] = -dz
+                        event_L_jacobian[output_i, current_param_i + 3] = dt
+
+                    elif event_polarization==2 and antenna_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 0] = -dx
+                        event_L_jacobian[output_i, current_param_i + 1] = -dy
+                        event_L_jacobian[output_i, current_param_i + 2] = -dz
+                        event_L_jacobian[output_i, current_param_i + 4] = dt
+
+                    elif event_polarization==3 and antenna_polarization==1:
+                        event_L_jacobian[output_i, current_param_i + 4+ 0] = -dx
+                        event_L_jacobian[output_i, current_param_i + 4+ 1] = -dy
+                        event_L_jacobian[output_i, current_param_i + 4+ 2] = -dz
+                        event_L_jacobian[output_i, current_param_i + 4+ 3] = dt
+
+                    output_i += 1
+            current_param_i = next_param_i
+        
+        return jacobian_ret
     
     def RMS(self, guess, num_DOF):
         diffs = self.objective_fun( guess )

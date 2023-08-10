@@ -1,0 +1,1 @@
+make so dont need both X and Y antennas in using TBB files

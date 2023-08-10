@@ -42,7 +42,7 @@ class input_manager:
 def plot_all_stations(event_ID, 
                timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None, new_pol_flips=[]):
     
     processed_data_folder = processed_data_dir( timeID )
     file_manager = input_manager( processed_data_folder, pulse_input_folders )
@@ -142,8 +142,19 @@ def plot_all_stations(event_ID,
 
 
                 
-            even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time  + (filePolE_timeOffset - polE_timeOffset)
-            odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time    + (filePolO_timeOffset - polO_timeOffset)
+            even_peak_time = ant_dataset.attrs["PolE_peakTime"]   + (filePolE_timeOffset - polE_timeOffset)
+            odd_peak_time = ant_dataset.attrs["PolO_peakTime"]    + (filePolO_timeOffset - polO_timeOffset)
+
+
+            if (even_ant_name in new_pol_flips) or (odd_ant_name in new_pol_flips):
+                even_peak_time, odd_peak_time = odd_peak_time, even_peak_time
+                polE_timeOffset, polO_timeOffset = polO_timeOffset, polE_timeOffset
+                even_amp, odd_amp = odd_amp, even_amp
+                even_HE, odd_HE = odd_HE, even_HE
+
+            even_peak_time += even_time
+            odd_peak_time  += odd_time
+
                 
             even_time += ant_dataset.attrs['starting_index']*5.0E-9  - ( polE_timeOffset - StationSampleTime )
             odd_time += ant_dataset.attrs['starting_index']*5.0E-9   - ( polO_timeOffset - StationSampleTime )
@@ -211,7 +222,7 @@ def plot_all_stations(event_ID,
 def plot_station(event_ID, sname_to_plot, plot_bad_antennas,
                timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None, new_pol_flips=[]):
     
     processed_data_folder = processed_data_dir( timeID )
     file_manager = input_manager( processed_data_folder, pulse_input_folders )
@@ -314,8 +325,21 @@ def plot_station(event_ID, sname_to_plot, plot_bad_antennas,
             else:
                 polO_timeOffset = 0.0
 
-        even_peak_time = ant_dataset.attrs["PolE_peakTime"] + even_time + (filePolE_timeOffset - polE_timeOffset)
-        odd_peak_time = ant_dataset.attrs["PolO_peakTime"] + odd_time + (filePolO_timeOffset - polO_timeOffset)
+        even_peak_time = ant_dataset.attrs["PolE_peakTime"] + (filePolE_timeOffset - polE_timeOffset)
+        odd_peak_time = ant_dataset.attrs["PolO_peakTime"]  + (filePolO_timeOffset - polO_timeOffset)
+
+
+
+        if (even_ant_name in new_pol_flips) or (odd_ant_name in new_pol_flips):
+            even_peak_time, odd_peak_time = odd_peak_time, even_peak_time
+            polE_timeOffset, polO_timeOffset = polO_timeOffset, polE_timeOffset
+            even_amp, odd_amp = odd_amp, even_amp
+            even_HE, odd_HE = odd_HE, even_HE
+            even_trace, odd_trace = even_trace, odd_trace
+
+        even_peak_time += even_time
+        odd_peak_time += odd_time
+
 
         even_time += ant_dataset.attrs['starting_index'] * 5.0E-9 - (polE_timeOffset - StationSampleTime)
         odd_time += ant_dataset.attrs['starting_index'] * 5.0E-9 - (polO_timeOffset - StationSampleTime)

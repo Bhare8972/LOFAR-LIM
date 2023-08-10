@@ -20,15 +20,13 @@ import h5py
 #mine
 from LoLIM.prettytable import PrettyTable
 from LoLIM.utilities import logger, processed_data_dir, v_air, SId_to_Sname, Sname_to_SId_dict, RTD, \
-    even_antName_to_odd, antName_is_even
-#from LoLIM.IO.binary_IO import read_long, write_long, write_double_array, write_string, write_double
-#from LoLIM.antenna_response import LBA_ant_calibrator
-#from LoLIM.porta_code import code_logger, pyplot_emulator
-#from LoLIM.signal_processing import parabolic_fit, remove_saturation, data_cut_at_index
+    even_antName_to_odd, antName_is_even, antName_to_even, antName_to_odd
+
 from LoLIM.IO.raw_tbb_IO import filePaths_by_stationName, MultiFile_Dal1
-#from LoLIM.findRFI import window_and_filter
-from LoLIM.stationTimings.autoCorrelator_tools import delay_fitter, delay_fitter_polT
-#from RunningStat import RunningStat
+
+from LoLIM.stationTimings.autoCorrelator_tools import  delay_fitter_polT
+
+from LoLIM.NumLib.LeastSquares import GSL_LeastSquares 
 
 
 ## TODO: 
@@ -78,7 +76,7 @@ class source_object():
         self.StationSampleTime = StationSampleTime  ## dictionary where key is sname, value is sample_number*5.0e-9
 
                  
-    def prep_for_fitting(self, polarization, info):
+    def prep_for_fitting(self, polarization, info, pol_flips):
         self.polarization = polarization ## 0 is even, 1 is odd, 2 is both
         
         self.pulse_times = np.empty( len(info.sorted_antenna_names), dtype=np.double )
@@ -105,61 +103,84 @@ class source_object():
                 
                 even_ant_name = ant_name
                 odd_ant_name = even_antName_to_odd( ant_name )
+
+                do_pol_flip = even_ant_name in pol_flips
                 
                 ant_data = station_group[ant_name]
                 start_index = ant_data.attrs['starting_index']
                 
-                ## even
+
+
+                ## even data
+                E_peak_time = ant_data.attrs['PolE_peakTime']
+                filePolE_timeOffset = ant_data.attrs['PolE_timeOffset_CS'] + self.StationSampleTime[sname]
+
+                if self.input_antenna_delays is not None:
+                    if even_ant_name in self.input_antenna_delays:
+                        polE_timeOffset = self.input_antenna_delays[ even_ant_name ]
+                    else:
+                        polE_timeOffset = 0.0
+                else:
+                    polE_timeOffset = filePolE_timeOffset
+
+                E_waveform = ant_data[0,:]
+                E_HE_waveform = ant_data[1,:]
+                E_amp = np.max( E_HE_waveform )
+
+
+                ## odd data
+                O_peak_time = ant_data.attrs['PolO_peakTime']
+
+                filePolO_timeOffset = ant_data.attrs['PolO_timeOffset_CS']  + self.StationSampleTime[sname]
+                if self.input_antenna_delays is not None:
+                    if odd_ant_name in self.input_antenna_delays:
+                        polO_timeOffset = self.input_antenna_delays[ odd_ant_name ]
+                    else:
+                        polO_timeOffset = 0.0
+                else:
+                    polO_timeOffset = filePolO_timeOffset
+
+                O_waveform = ant_data[2,:]
+                O_HE_waveform = ant_data[3,:]
+                O_amp = np.max( O_HE_waveform )
+
+
+
+                if do_pol_flip:
+                    E_waveform, O_waveform           = O_waveform, E_waveform
+                    polE_timeOffset, polO_timeOffset = polO_timeOffset, polE_timeOffset
+                    E_peak_time, O_peak_time         = O_peak_time, E_peak_time
+                    filePolE_timeOffset, filePolO_timeOffset = filePolO_timeOffset, filePolE_timeOffset
+                    E_waveform, O_waveform           = O_waveform, E_waveform
+                    E_amp, O_amp                     = O_amp, E_amp
+
+
+
+                ## actually set data if is good
                 even_is_bad = (even_ant_name in self.antennas_to_exclude) or (even_ant_name in info.bad_ants)
                 if (not even_is_bad) and (polarization==0 or polarization==2 or polarization==3):
-                    peak_time = ant_data.attrs['PolE_peakTime']
-
-                    filePolE_timeOffset = ant_data.attrs['PolE_timeOffset_CS'] + self.StationSampleTime[sname]
-                    if self.input_antenna_delays is not None:
-                        if even_ant_name in self.input_antenna_delays:
-                            polE_timeOffset = self.input_antenna_delays[ even_ant_name ]
-                        else:
-                            polE_timeOffset = 0.0
-                    else:
-                        polE_timeOffset = filePolE_timeOffset
-
-                    waveform = ant_data[0,:]
-                    HE_waveform = ant_data[1,:]
-                    amp = np.max( HE_waveform )
-                    
-                    if np.isfinite(peak_time) and amp >= info.min_ant_amplitude:
+                    if np.isfinite(E_peak_time) and E_amp >= info.min_ant_amplitude:
 
                         self.used_antenna_delays[ant_i] = polE_timeOffset
-                        self.pulse_times[ ant_i ] = peak_time + (filePolE_timeOffset - polE_timeOffset)
-                        self.waveforms[ ant_i ] = waveform
+                        self.pulse_times[ ant_i ] = E_peak_time + (filePolE_timeOffset - polE_timeOffset)
+                        self.waveforms[ ant_i ] = E_waveform
                         self.waveform_startTimes[ ant_i ] = start_index*5.0E-9 - ( polE_timeOffset - self.StationSampleTime[sname] )
+
                         self._num_data += 1
 
                 ## odd
                 odd_is_bad = (odd_ant_name in self.antennas_to_exclude) or (odd_ant_name in info.bad_ants)
                 if (not odd_is_bad) and (polarization==1 or polarization==2 or polarization==3):
-                    peak_time = ant_data.attrs['PolO_peakTime']
-
-                    filePolO_timeOffset = ant_data.attrs['PolO_timeOffset_CS']  + self.StationSampleTime[sname]
-                    if self.input_antenna_delays is not None:
-                        if odd_ant_name in self.input_antenna_delays:
-                            polO_timeOffset = self.input_antenna_delays[ odd_ant_name ]
-                        else:
-                            polO_timeOffset = 0.0
-                    else:
-                        polO_timeOffset = filePolO_timeOffset
-
-                    waveform = ant_data[2,:]
-                    HE_waveform = ant_data[3,:]
-                    amp = np.max( HE_waveform )
-                    
-                    if np.isfinite(peak_time) and amp >= info.min_ant_amplitude:
+                    if np.isfinite(O_peak_time) and O_amp >= info.min_ant_amplitude:
 
                         self.used_antenna_delays[ant_i+1] = polO_timeOffset
-                        self.pulse_times[ ant_i+1 ] = peak_time + (filePolO_timeOffset - polO_timeOffset)
-                        self.waveforms[ ant_i+1 ] = waveform
+                        self.pulse_times[ ant_i+1 ] = O_peak_time + (filePolO_timeOffset - polO_timeOffset)
+                        self.waveforms[ ant_i+1 ] = O_waveform
                         self.waveform_startTimes[ ant_i+1 ] = start_index*5.0E-9 - ( polO_timeOffset - self.StationSampleTime[sname] )
+
                         self._num_data += 1
+
+
                     
     def num_data(self):
         return self._num_data
@@ -169,7 +190,7 @@ class source_object():
 class run_fitter:
     def __init__(self, timeID, output_folder, pulse_input_folders, guess_timings, sources_to_fit, guess_source_locations,
                source_polarizations, source_stations_to_exclude, source_antennas_to_exclude, bad_ants,
-               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None):
+               antennas_to_recalibrate={}, min_ant_amplitude=10, ref_station="CS002", input_antenna_delays=None, new_pol_flips=[]):
         
         self.timeID = timeID
         self.output_folder = output_folder
@@ -184,7 +205,14 @@ class run_fitter:
         self.antennas_to_recalibrate = antennas_to_recalibrate
         self.min_ant_amplitude = min_ant_amplitude
         self.ref_station = ref_station
-        self.input_antenna_delays = input_antenna_delays ## this overrides the antenna delays in the pulse files. SHould be dict of antenna delays
+        self.input_antenna_delays = input_antenna_delays ## this overrides the antenna delays in the pulse files. SHould be dict of antenna delays.
+
+
+        ## make sure new_pol_flips is all even
+        self.new_pol_flips = [ antName_to_even(PF) for PF in new_pol_flips ]
+           ## this flips all known antenna delays, but NOT antennas_to_recalibrate
+
+
         
         # variables to change
         self.num_stat_per_table = 10
@@ -220,11 +248,9 @@ class run_fitter:
         print("guess locations:", self.guess_source_locations)
         print("polarization to use:", self.source_polarizations)
         print("source stations to exclude:", self.source_stations_to_exclude)
-        print("source antennas to exclude:", self.source_antennas_to_exclude)
         print("bad antennas:", self.bad_ants)
         print("referance station:", self.ref_station)
         print("guess delays:", self.guess_timings)
-        print()
         print()
         
         
@@ -267,8 +293,20 @@ class run_fitter:
                     
             self.station_to_antenna_index_dict[sname] = (first_index, len(self.sorted_antenna_names))
 
+
+
         if self.input_antenna_delays is not None:
             self.used_antenna_delays = np.array( self.used_antenna_delays )
+
+            ## account for pol flips
+            for even_pf in self.new_pol_flips:
+                if even_pf in self.sorted_antenna_names:
+                    ant_i = self.sorted_antenna_names.index( even_pf )
+                    A = self.used_antenna_delays[ant_i]
+                    self.used_antenna_delays[ant_i] = self.used_antenna_delays[ant_i+1]
+                    self.used_antenna_delays[ant_i+1] = A
+
+
         
         self.ant_locs = np.zeros( (len(self.sorted_antenna_names), 3))
         for i, ant_name in enumerate(self.sorted_antenna_names):
@@ -310,12 +348,12 @@ class run_fitter:
                                           self.source_antennas_to_exclude[source_ID],
                                           StationSampleTime = self.StationSampleTime,
                                           input_antenna_delays = self.input_antenna_delays )
-            source_to_add.prep_for_fitting( polarity, self)
+            source_to_add.prep_for_fitting( polarity, self, self.new_pol_flips)
             print("  n. ants:", source_to_add.num_data() )
 
 
             if self.used_antenna_delays is None:
-                self.used_antenna_delays = np.array( source_to_add.used_antenna_delays )
+                self.used_antenna_delays = np.array( source_to_add.used_antenna_delays )   ### this already accounts for pol-flips
             elif self.input_antenna_delays is None:
                 diff = self.used_antenna_delays - source_to_add.used_antenna_delays
                 IS_FINITE = np.isfinite(diff)
@@ -328,7 +366,6 @@ class run_fitter:
                     if (not np.isfinite( self.used_antenna_delays[antI] ) ) and np.isfinite( source_to_add.used_antenna_delays[antI] ):
                         self.used_antenna_delays[antI] = source_to_add.used_antenna_delays[antI]
 
-
             self.num_XYZT_params += 4
             if polarity == 2:
                 self.num_XYZT_params += 1
@@ -338,6 +375,8 @@ class run_fitter:
             self.current_sources.append( source_to_add )
             
             
+
+
             
         self.num_sources = len( self.current_sources )
         self.num_delays = len( self.original_delays )
@@ -378,7 +417,8 @@ class run_fitter:
             self.num_DOF += PSE.num_data()
             self.fitter.set_event( PSE.pulse_times, PSE.polarization )
             
-    def fit(self, num_stoch_iters, num_switch_iters, max_s_itters=np.inf, randomness=10E-9, ant_randomness=0.5e-9, max_nfev=None):
+    def fit(self, num_stoch_iters, num_switch_iters, max_s_itters=np.inf, randomness=10E-9, ant_randomness=0.5e-9, 
+        min_num_iters=10, max_num_iters=1000, xtol=1e-16, ftol=1e-16, gtol=1e-16):
         """if num_switch_iters is negative, then it is minimum itterations, only ending once RMS increases between runs"""
 
         num_switch_iters_isMinimum = False
@@ -395,6 +435,10 @@ class run_fitter:
         best_RMS = initial_RMS
         number_LS_runs = 0
         num_LS_runs_needMoreItters = 0
+
+        fitterSQ= GSL_LeastSquares( self.fitter.get_num_parameters(),  self.fitter.get_num_measurments(), self.fitter.objective_fun_sq, jacobian=self.fitter.objective_fun_sq_jacobian )
+        fitter = GSL_LeastSquares( self.fitter.get_num_parameters(),  self.fitter.get_num_measurments(), self.fitter.objective_fun, jacobian=self.fitter.objective_fun_jacobian )
+
         for i in range( num_stoch_iters ):
             
                 current_solution = np.array( best_sol )
@@ -408,22 +452,35 @@ class run_fitter:
                 previous_RMS = np.inf
                 RMS_had_increased = False
                 while num_switch_iters_isMinimum or switch_itter<num_switch_iters:
-                    fit_res = least_squares( self.fitter.objective_fun_sq, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=max_nfev)
-                    current_solution = fit_res.x
-                    if fit_res.status == 0:
+                    # fit_res = least_squares( self.fitter.objective_fun_sq, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=max_nfev)
+                    # fit_res = least_squares( self.fitter.objective_fun_sq, current_solution,  jac=self.fitter.objective_fun_sq_jacobian, method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=max_nfev)
+                    
+                    fitterSQ.reset( current_solution )
+                    code, text = fitterSQ.run(min_num_iters, max_itters=max_num_iters, xtol=xtol, gtol=gtol, ftol=ftol)
+                    current_solution = fitterSQ.get_X()
+                    # num_runs = fitterSQ.get_num_iters()
+
+                    if code == 4:
                         num_LS_runs_needMoreItters += 1
                     
                     ARMS = self.fitter.RMS( current_solution, self.num_DOF )
                     
-                    fit_res = least_squares( self.fitter.objective_fun, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=1.0E-15, gtol=1.0E-15, x_scale='jac', max_nfev=max_nfev)
-                    current_solution = fit_res.x
-                    if fit_res.status == 0:
+                    # fit_res = least_squares( self.fitter.objective_fun, current_solution, jac='2-point', method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=max_nfev)
+                    # fit_res = least_squares( self.fitter.objective_fun, current_solution, jac=self.fitter.objective_fun_sq_jacobian, method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=max_nfev)
+                    # fit_res = least_squares( self.fitter.objective_fun, current_solution, jac=self.fitter.objective_fun_jacobian, method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=max_num_iters)
+                    
+                    fitter.reset( current_solution )
+                    code, text = fitter.run(min_num_iters, max_itters=max_num_iters, xtol=xtol, gtol=gtol, ftol=ftol)
+                    current_solution = fitter.get_X()
+                    num_runs = fitter.get_num_iters()
+
+                    if code == 4:
                         num_LS_runs_needMoreItters += 1
 
                     number_LS_runs += 2
                     RMS = self.fitter.RMS( current_solution, self.num_DOF )
                     
-                    print("  ", i, switch_itter,  ":", RMS, '(', ARMS, ')', 'status=', fit_res.status)
+                    print("  ", i, switch_itter,  ":", RMS, '(', ARMS, ')', text, 'N:', num_runs)
 
                     if RMS>previous_RMS:
                         RMS_had_increased = True
@@ -432,16 +489,17 @@ class run_fitter:
                         best_RMS = RMS
                         best_sol = np.array( current_solution )
                         print('IMPROVEMENT!')
-
-                    if num_switch_iters_isMinimum and (switch_itter>=num_switch_iters) and RMS_had_increased:
-                        break
-                    if switch_itter>=max_s_itters:
-                        break
+                    else:
+                        if num_switch_iters_isMinimum and (switch_itter>=num_switch_iters) and RMS_had_increased:
+                            break
+                        if switch_itter>=max_s_itters:
+                            break
 
                     previous_RMS = RMS
                     switch_itter += 1
 
         self.current_solution = best_sol
+        self.GSL_covariance_matrix = fitter.get_covariance_matrix()
         print('frac. runs need more itters:', num_LS_runs_needMoreItters/number_LS_runs)
         print()
         print()
@@ -568,8 +626,11 @@ class run_fitter:
                 RMS = np.sqrt( antenna_SSqE[ant_i]/antenna_num_fits[ant_i] )
                 print(RMS<2.0E-9, RMS)
             
-    def print_cov_diag(self):
-        cov = self.fitter.analytical_covariance_matrix( self.current_solution )
+    def print_cov_diag(self, useGSL=True):
+        if useGSL:
+            cov = self.GSL_covariance_matrix
+        else:
+            cov = self.fitter.analytical_covariance_matrix( self.current_solution )
         diag_cov = np.sqrt( cov.diagonal() )
 
         stat_delays = diag_cov[:self.num_delays]
@@ -715,9 +776,14 @@ class run_fitter:
             fout.write(' 0.0\n')
 
             fout.write('pol_flips\n')
-            for ant in previous_PolFlips:
+            for ant in self.new_pol_flips:
                 fout.write(ant)
                 fout.write('\n')
+
+            for ant in previous_PolFlips:
+                if ant not in self.new_pol_flips:
+                    fout.write(ant)
+                    fout.write('\n')
 
             fout.write('sign_flips\n')
             for ant in previous_SignFlips:

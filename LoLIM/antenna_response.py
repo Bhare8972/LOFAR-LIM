@@ -550,6 +550,8 @@ def load_default_antmodel():
 aartfaac_average_LBA_model = load_default_antmodel ## for backwards compatibility
 
 
+
+### IS IT POSSIBLE TO IMPROVE LINEAR INTERPOLATN IN FREQUENCY? either interpolate harmonics in frequency, OR seperate frequency adn spatial interpolation!
 class SphHarm_antModel:
     def __init__(self, weight_array, freq_grid_start, freq_grid_spacing):
         """
@@ -666,6 +668,23 @@ class SphHarm_antModel:
             return_matrices[newF_i,1,1] = J11
 
         return return_matrices
+
+    def Jones_Matrices_Grid(self, zeniths, azimuths, frequencies):
+        """ return has shape: shape [2,2,num_thetas, num_phis, num_freqs], dtype=complex """
+
+        out = np.zeros((2,2,len(zeniths),len(azimuths),len(frequencies)), dtype=complex)
+
+        TMP = np.zeros( (len(frequencies),2,2), dtype=complex )
+
+        for zi, Ze in enumerate(zeniths):
+            for ai, Az in enumerate(azimuths):
+                self.Jones_Matrices(frequencies, Ze, Az, invert=False, freq_fill=0.0, out=TMP)
+                for fi in range(len(frequencies)):
+                    out[:,:, zi,ai,fi] = TMP[fi,:,:]
+
+        return out
+
+
 
     def save_as_numpyArray(self, fname):
         np.savez_compressed(fname, weight_array=self.weight_array, freq_grid_start=self.freq_grid_start, freq_grid_spacing=self.freq_grid_spacing)

@@ -1,4 +1,8 @@
 
+RANDOM NOTE:
+to get matplotlib and pyqt5 to work together, sometimes you must install:
+apt install libgl1-mesa-glx
+
 Here is a short description of some of the scripts:
 
 utilities

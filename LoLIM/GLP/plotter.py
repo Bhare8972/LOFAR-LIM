@@ -1620,7 +1620,7 @@ class DataSet_generic_PSE(DataSet_Type):
         return self._ignore_time
 
 
-from GLP.SPSF_readwrite import pointSource_data
+from .SPSF_readwrite import pointSource_data
 def read_pol_data( fnames, name, cmap ):
     if isinstance(fnames, str) or not isinstance(fnames, list):
         fnames = [fnames] ## for backwards compatibility
@@ -4169,20 +4169,32 @@ class FigureArea(FigureCanvas):
         
         #### create selectors on plots
 #        self.TAlt_selector_rect = None
-        self.TAlt_selector_rect = RectangleSelector(self.AltVsT_axes, self.TAlt_selector, useblit=False,
-                    rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
-        
-#        self.XAlt_selector_rect = None
-        self.XAlt_selector_rect = RectangleSelector(self.AltVsEw_axes, self.XAlt_selector, useblit=False,
-                    rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
-        
-#        self.XY_selector_rect = None
-        self.XY_selector_rect = RectangleSelector(self.NsVsEw_axes, self.XY_selector, useblit=False,
-                      rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
-        
-#        self.YAlt_selector_rect = None
-        self.YAlt_selector_rect = RectangleSelector(self.NsVsAlt_axes, self.AltY_selector, useblit=False,
-                    rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+        try:
+            self.TAlt_selector_rect = RectangleSelector(self.AltVsT_axes, self.TAlt_selector, useblit=False,
+                        rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.XAlt_selector_rect = RectangleSelector(self.AltVsEw_axes, self.XAlt_selector, useblit=False,
+                        rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.XY_selector_rect = RectangleSelector(self.NsVsEw_axes, self.XY_selector, useblit=False,
+                          rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.YAlt_selector_rect = RectangleSelector(self.NsVsAlt_axes, self.AltY_selector, useblit=False,
+                        rectprops=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+        except:
+            self.TAlt_selector_rect = RectangleSelector(self.AltVsT_axes, self.TAlt_selector, useblit=False,
+                        props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.XAlt_selector_rect = RectangleSelector(self.AltVsEw_axes, self.XAlt_selector, useblit=False,
+                        props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.XY_selector_rect = RectangleSelector(self.NsVsEw_axes, self.XY_selector, useblit=False,
+                          props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+            
+            self.YAlt_selector_rect = RectangleSelector(self.NsVsAlt_axes, self.AltY_selector, useblit=False,
+                        props=dict(alpha=0.5, facecolor='red'), button=1, state_modifier_keys={'move':'', 'clear':'', 'square':'', 'center':''})
+
             
             
         
@@ -4453,7 +4465,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
             H = QtWidgets.QDesktopWidget().screenGeometry(-1).height()
             width_height = [H*0.99, H*0.85]
 
-        self.setGeometry(0, 0, width_height[0], width_height[1])
+        self.setGeometry(0, 0, int(width_height[0]), int(width_height[1]))
         
 #        self.statusBar().showMessage("All hail matplotlib!", 2000) ##this shows messages on bottom left of window
 

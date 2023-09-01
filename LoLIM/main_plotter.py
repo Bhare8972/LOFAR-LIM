@@ -1,3 +1,3 @@
 #!/usr/bin/env python3
 
-from GLP.plotter import *
+from LoLIM.GLP.plotter import *

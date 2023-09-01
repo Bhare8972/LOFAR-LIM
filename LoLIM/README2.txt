@@ -3,6 +3,10 @@ RANDOM NOTE:
 to get matplotlib and pyqt5 to work together, sometimes you must install:
 apt install libgl1-mesa-glx
 
+a conda install enviroment can be:
+conda create -n MyEnv --strict-channel-priority -c conda-forge -c anaconda python numpy matplotlib scipy h5py cython qt pyqt gsl
+
+
 Here is a short description of some of the scripts:
 
 utilities

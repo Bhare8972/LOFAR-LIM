@@ -678,9 +678,9 @@ def IPSE_to_DataSet(IPSE, name, cmap, marker='s', marker_size=5, color_mode='tim
     intensity = np.empty(len(IPSE), dtype=np.double)
     S1S2_distance = np.empty(len(IPSE), dtype=np.double)
     amplitude = np.ones(len(IPSE), dtype=np.double)
-    block = np.empty(len(IPSE), dtype=np.int)
-    uniqueID = np.empty(len(IPSE), dtype=np.int)
-    ID = np.empty(len(IPSE), dtype=np.int)
+    block = np.empty(len(IPSE), dtype=int)
+    uniqueID = np.empty(len(IPSE), dtype=int)
+    ID = np.empty(len(IPSE), dtype=int)
     
     for i,itPSE in enumerate(IPSE):
         X[i] = itPSE.XYZT[0]
@@ -714,8 +714,8 @@ def LMA_to_DataSet(LMA_data, name, cmap, zero_datetime=None, marker='s', marker_
     power = np.empty(len(LMA_data), dtype=np.double)
     red_chi_squared = np.empty(len(LMA_data), dtype=np.double)
     RMS = np.empty(len(LMA_data), dtype=np.double)
-    stations = np.empty(len(LMA_data), dtype=np.int)
-    ID = np.empty(len(LMA_data), dtype=np.int)
+    stations = np.empty(len(LMA_data), dtype=int)
+    ID = np.empty(len(LMA_data), dtype=int)
     
     if header is not None:
         antenna_RMS = np.average( [ant.RMS_error for ant in header.antenna_info_list] )
@@ -768,11 +768,11 @@ def iterPSE_to_DataSet(iterPSE, name, cmap, marker='s', marker_size=5, color_mod
     maxSqrtEig = np.ones(len(iterPSE), dtype=np.double)
     # FractionRadialError = np.zeros(len(iterPSE), dtype=np.double)
     # FractionZError = np.zeros(len(iterPSE), dtype=np.double)
-    numRS = np.empty(len(iterPSE), dtype=np.int)
-    block = np.empty(len(iterPSE), dtype=np.int)
-    ID = np.empty(len(iterPSE), dtype=np.int)
-    blockID = np.empty(len(iterPSE), dtype=np.int)
-    numThrows = np.empty(len(iterPSE), dtype=np.int)
+    numRS = np.empty(len(iterPSE), dtype=int)
+    block = np.empty(len(iterPSE), dtype=int)
+    ID = np.empty(len(iterPSE), dtype=int)
+    blockID = np.empty(len(iterPSE), dtype=int)
+    numThrows = np.empty(len(iterPSE), dtype=int)
     
     eigMode = {'normal':1}[eigMode]
     for i,itPSE in enumerate(iterPSE):
@@ -829,7 +829,7 @@ def SPSF_to_DataSet(SPSF_file, name, cmap, marker='s', marker_size=5, color_mode
 
     num_points = len(SPSF_data)
     
-    ID = np.empty(num_points, dtype=np.int)
+    ID = np.empty(num_points, dtype=int)
     X = np.empty(num_points, dtype=np.double)
     Y = np.empty(num_points, dtype=np.double)
     Z = np.empty(num_points, dtype=np.double)

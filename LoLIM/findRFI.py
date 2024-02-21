@@ -8,6 +8,7 @@ However, it has been heavily modified for use with LOFAR-LIM by Brian Hare
 
 
 from pickle import load
+from os import path
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -106,7 +107,7 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
 
 
     #### now we try to find the best referance antenna, Require that antenan allows for maximum number of good antennas, and has **best** average recieved power
-    allowed_num_antennas = np.empty( num_antennas, dtype=np.int) ## if ant_i is choosen to be your referance antnena, then allowed_num_antennas[ ant_i ] is the number of antennas with num_blocks good blocks
+    allowed_num_antennas = np.empty( num_antennas, dtype=int) ## if ant_i is choosen to be your referance antnena, then allowed_num_antennas[ ant_i ] is the number of antennas with num_blocks good blocks
     for ant_i in range(num_antennas):### fill allowed_num_antennas
 
         blocks_can_use = np.where( blocks_good[ ant_i ] )[0]
@@ -154,9 +155,9 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     phase_mean =    np.zeros( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=complex  )
     spectrum_mean = np.zeros( (num_antennas, upper_frequency_index-lower_frequency_index), dtype=np.double)
 
-    data = np.empty( (num_antennas, len(frequencies)), dtype=np.complex )
+    data = np.empty( (num_antennas, len(frequencies)), dtype=complex )
     temp_mag_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.double)
-    temp_phase_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=np.complex)
+    temp_phase_spectrum = np.empty( (num_antennas, len(frequencies)), dtype=complex)
     for block_i in good_blocks:
         block = block_i + initial_block
         if verbose:
@@ -309,6 +310,27 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
     output_dict["frequency"] = frequencies
 
     return output_dict
+
+
+def openDefault_findRFI_data( timeID=None, folder=None ):
+
+    if not (timeID is None):
+        if (folder is None):
+            folder = "/findRFI/findRFI_results"
+
+        if folder[0]=='/':# python join will not work right in this case...
+            folder = folder[1:]
+        folder = path.join( processed_data_dir(timeID), folder )
+
+    elif (folder is None):
+        print('ERROR in openDefault_findRFI_data: timeID and folder cannot both be None')
+        quit()
+
+    with open( folder, 'rb' ) as fin:
+        in_dict = load(fin)
+
+    return in_dict
+
 
 
 class window_and_filter:

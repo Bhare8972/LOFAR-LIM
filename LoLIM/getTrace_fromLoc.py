@@ -3,6 +3,7 @@
 """ Given a location and an antenna (and other supporting information), this utility will find and return the correct trace """
 
 import numpy as np
+from matplotlib import pyplot as plt
 
 from LoLIM.utilities import processed_data_dir, v_air, SId_to_Sname
 from LoLIM.signal_processing import remove_saturation, num_double_zeros
@@ -16,6 +17,7 @@ class getTrace_fromLoc:
         self.data_filter_dict = data_filter_dict
 #        self.station_timing_calibration = station_timing_calibration
         self.return_dbl_zeros = return_dbl_zeros
+        self.atmosphere = None #atmosphere # I don't think this is needed. Atmo can be set by setting calibration when opening data file
         
         if station_timing_calibration is not None:
             for sname, TBB_file in data_file_dict.items():
@@ -58,7 +60,7 @@ class getTrace_fromLoc:
         
         total_time_offset = station_data.get_total_delays()[ file_antenna_index ]
         antenna_locations = station_data.get_LOFAR_centered_positions()
-        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1])[0] + XYZT[3]
+        predicted_arrival_time = station_data.get_geometric_delays(XYZT[:3], antenna_locations=antenna_locations[file_antenna_index:file_antenna_index+1], atmosphere_override=self.atmosphere)[0] + XYZT[3]
         
         data_arrival_index = int( predicted_arrival_time/5.0E-9 + total_time_offset/5.0E-9 )
         
@@ -71,7 +73,7 @@ class getTrace_fromLoc:
             remove_saturation( input_data, positive_saturation, negative_saturation, removal_length, half_hann_length )
 
         width_before = int(width*0.5)
-        width_after = width-width_before
+        width_after = int(width-width_before)
 
         if self.return_dbl_zeros :
             dbl_zeros = num_double_zeros( input_data[ local_data_index-width_before : local_data_index+width_after ] )

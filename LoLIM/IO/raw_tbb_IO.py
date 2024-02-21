@@ -192,7 +192,7 @@ def read_station_delays(fname):
     return station_delays
 
 ### this replaces the above four, and reads from one "ultimate" cal file
-def read_cal_file(fname, pol_flips_are_bad):
+def read_cal_file(fname, pol_flips_are_bad, timeID=None):
     
     # station_delays = {}
     # bad_antenna_data = []
@@ -200,10 +200,21 @@ def read_cal_file(fname, pol_flips_are_bad):
     # polarization_flips = []
     # sign_flips = []
 
+    if timeID is not None:
+        dir = util.processed_data_dir( timeID )
+        fname = os.path.join( dir, fname )
+
+
+
     RET = total_cal_object()
     
     with open(fname) as fin:
-        fin.readline() ## version of type of file. Presently unused as we only have one version
+        version = fin.readline() ## version of type of file. Presently unused as we only have one version
+
+        if version[0]=='O':
+            return read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=False)
+
+
         mode = 1 ## 1 = bad_antennas 2 = pol_flips 3 = station_delays 4 = antenna_delays
         
         for line in fin:
@@ -264,6 +275,80 @@ class total_cal_object:
         self.station_delays = {}
         self.ant_delays = {}
         self.sign_flips = []
+
+
+def read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=True):
+
+    def antSAI_to_antname( SAI ):
+        if len(SAI)==9:
+            return SAI
+
+        ant_num = SAI[-3:]
+        sname = SAI[:-3]
+        sname = sname.zfill(3)
+        RCU = str( int(int(ant_num)/8) ).zfill(3)
+        return sname + RCU + ant_num
+
+        
+    
+    RET = total_cal_object()
+    RET.atmosphere = atmo.olaf_varying_atmosphere
+    
+    with open(fname) as fin:
+        version = fin.readline() ## version of type of file. Presently unused as we only have one version
+
+        mode = 1 ## 1 = antenna delays, 2 = station delays, 3 = bad antennas, 4 = sign flips 
+        
+        for line in fin:
+            if len(line) == 0: # emptu line
+                continue
+
+            line_data = line.split()
+            
+          #  if line_data[0][0] == '#':
+                ## comment!
+          #      continue
+        
+            ## first check mode
+            
+            if line_data[0][0] == "=":
+                mode = 2
+            elif line_data[0] == "bad_antennas":
+                mode = 3
+            elif line_data[0] == "sign_flips":
+                mode = 4
+            #elif line_data[0] == "pol_flips":
+            #    mode = 5
+                
+            ### now we parse
+            elif mode == 1:
+                antSAI, delay_samples, do = line_data
+                antname = antSAI_to_antname( antSAI )
+
+                if (not int(do)) and unCalAnts_are_bad:
+                    RET.bad_antenna_data.append( antname )
+                else:
+                    RET.ant_delays[ antname ] = float( delay_samples )*5.0e-9
+
+
+            elif mode == 2:
+                RET.station_delays[ line_data[0] ] = float( line_data[1] )*5.0e-9
+
+
+            elif mode == 3:
+                antname = antSAI_to_antname( line_data[0] )
+                RET.bad_antenna_data.append( antname )
+
+            elif mode == 4:
+                antname = antSAI_to_antname( line_data[0] )
+                RET.sign_flips.append( antname )
+
+            else:
+                print('reading cal file error! in mode:', mode, 'line:', line)
+        
+    # return bad_antenna_data, polarization_flips, station_delays, ant_delays
+    return RET
+
 
 #### data reading class ####
 # Note: ASTRON will "soon" release a new DAL (data )
@@ -916,7 +1001,7 @@ class MultiFile_Dal1:
                 if ant_name in self.total_cal.ant_delays:
                     out[i] = self.total_cal.ant_delays[ant_name]
                 else:
-                    pritn("WARNING: cal. for antenna missing:", ant_name)
+                    print("WARNING: cal. for antenna missing:", ant_name)
                     out[i] = 0.0
             
         else:## this whole clunky thing is purly historical. SHould be depreciated!!
@@ -946,21 +1031,21 @@ class MultiFile_Dal1:
             
         return out
     
-    def get_total_delays(self, out=None):
+    def get_total_delays(self, out=None, force_file_delays=False):
         """Return the total delay for each antenna, accounting for all antenna delays, polarization delay, station clock offsets, and trigger time offsets (nominal sample number).
         This function should be prefered over 'get_timing_callibration_delays', but the offsets can have a large average. It is recomended to pick one antenna (on your referance station)
         and use it as a referance antenna so that it has zero timing delay. Note: this creates two defintions of T=0. I will call 'uncorrected time' is when the result of this function is
         used as-is, and a referance antenna is not choosen. (IE, the referance station can have a large total_delay offset), 'corrected time' will be otherwise.
         This function is literally the negative of get_time_from_second"""
         
-        delays = self.get_timing_callibration_delays(out)
+        delays = self.get_timing_callibration_delays(out,force_file_delays)
         delays += self.station_delay - self.get_nominal_sample_number()*(1/self.get_sample_frequency())
         
         return delays
     
-    def get_time_from_second(self, out=None):
+    def get_time_from_second(self, out=None, force_file_delays=False):
         """ return the time (in units of seconds) since the second of each antenna (which should be get_timestamp). accounting for delays. This is literally just the negative of get_total_delays"""
-        out = self.get_total_delays(out)
+        out = self.get_total_delays(out,force_file_delays)
         out *= -1
         return out
     

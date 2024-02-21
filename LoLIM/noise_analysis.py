@@ -13,7 +13,7 @@ def get_noise_std(timeID, initial_block, max_num_blocks, max_double_zeros=100, s
     processed_data_folder = processed_data_dir(timeID)
     if isinstance(polarization_flips, str):
         polarization_flips = read_antenna_pol_flips( processed_data_folder + '/' + polarization_flips )
-    if isinstance(processed_data_folder, str):
+    if isinstance(bad_antennas, str):
         bad_antennas = read_bad_antennas( processed_data_folder + '/' + bad_antennas )
         
     half_window_percent = 0.1

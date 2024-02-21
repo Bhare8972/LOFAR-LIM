@@ -310,7 +310,7 @@ class typical_transform( coordinate_transform ):
         return self.filter(outX, outY, outZ, outZt, outT, make_copy=False, ignore_T=ignore_T, bool_workspace=bool_workspace)
         
 #        if bool_workspace is None:
-#            bool_workspace = np.ones( len(outX), dtype=np.bool )
+#            bool_workspace = np.ones( len(outX), dtype=bool )
 #        else:
 #            bool_workspace = bool_workspace[:len(outX)]
 #            bool_workspace[:] = True
@@ -340,7 +340,7 @@ class typical_transform( coordinate_transform ):
     def get_filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, ignore_T=False, bool_workspace=None):
 
         if bool_workspace is None:
-            bool_workspace = np.ones( len(Xplot), dtype=np.bool )
+            bool_workspace = np.ones( len(Xplot), dtype=bool )
         else:
             bool_workspace = bool_workspace[:len(Xplot)]
             bool_workspace[:] = True
@@ -572,7 +572,7 @@ class AzEl_transform( coordinate_transform ):
         outAz, outEl, throw, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
         
         if bool_workspace is None:
-            bool_workspace = np.ones( len(outAz), dtype=np.bool )
+            bool_workspace = np.ones( len(outAz), dtype=bool )
         else:
             bool_workspace = bool_workspace[:len(outAz)]
             bool_workspace[:] = True
@@ -1376,7 +1376,7 @@ class DataSet_generic_PSE(DataSet_Type):
         
         self.set_total_mask()
         
-        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
         
         self.X_TMP[:] = self.X_array  
         self.Y_TMP[:] = self.Y_array  
@@ -1412,7 +1412,7 @@ class DataSet_generic_PSE(DataSet_Type):
         
 #        self.set_total_mask()
 #        
-#        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+#        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
 #        
 #        self.X_TMP[:] = self.X_array  
 #        self.Y_TMP[:] = self.Y_array  
@@ -1506,7 +1506,7 @@ class DataSet_generic_PSE(DataSet_Type):
     def print_info(self, coordinate_system):
         self.set_total_mask()
         
-        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
         
         self.X_TMP[:] = self.X_array  
         self.Y_TMP[:] = self.Y_array  
@@ -2091,7 +2091,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         coordinate_system.set_workingMemory(self.transform_memory)
 
 
-        loc_mask = np.empty(N, dtype=np.bool)
+        loc_mask = np.empty(N, dtype=bool)
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
             Xtmp, Ytmp, Ztmp, Ttmp,
             make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
@@ -2342,7 +2342,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         coordinate_system.set_workingMemory(self.transform_memory)
 
 
-        loc_mask = np.empty(N, dtype=np.bool)
+        loc_mask = np.empty(N, dtype=bool)
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
             Xtmp, Ytmp, Ztmp, Ttmp,
             make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
@@ -3283,7 +3283,7 @@ class DataSet_span(DataSet_Type):
         
         self.set_total_mask()
         
-        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
         
         self.X_TMP[:] = self.X_array  
         self.Y_TMP[:] = self.Y_array  
@@ -3318,7 +3318,7 @@ class DataSet_span(DataSet_Type):
         
 #        self.set_total_mask()
 #        
-#        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+#        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
 #        
 #        self.X_TMP[:] = self.X_array  
 #        self.Y_TMP[:] = self.Y_array  
@@ -3412,7 +3412,7 @@ class DataSet_span(DataSet_Type):
     def print_info(self, coordinate_system):
         self.set_total_mask()
         
-        bool_workspace = np.ones( len(self.total_mask), dtype=np.bool )
+        bool_workspace = np.ones( len(self.total_mask), dtype=bool )
         
         self.X_TMP[:] = self.X_array  
         self.Y_TMP[:] = self.Y_array  
@@ -4478,6 +4478,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 #        self.coordinate_system = coordinate_system
 
 
+        self.plot_save_location = "./plot_save"
+
         #### menu bar ###
      ##file
         self.file_menu = QtWidgets.QMenu('&File', self)
@@ -4493,6 +4495,12 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
         self.file_menu.addAction('&Save Plot PDF', self.savePlotPdf)
         # self.menuBar().addMenu(self.file_menu)
+
+
+        self.file_menu.addAction('&set plot save location', self.setPlotLocation_clicked)
+        self.file_menu.addAction('&get plot save location', self.getPlotLocation_clicked)
+
+        
         
    ##plot settings
         self.plot_settings_menu = QtWidgets.QMenu('&Plot Settings', self)
@@ -4780,6 +4788,21 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
         
         
+    def add_analysis(self, name, func):
+        """ call this, before finishing plotting calls, to add an analysis to tne analysis menu. 
+        name must be a string.
+        func must be a function that takes a coordinate system as first argument and dataset as second argument"""
+
+        def noErrorDS():
+            if self.current_data_set is None:
+                return None
+            else:
+                return self.figure_space.data_sets[ self.current_data_set ]
+
+
+        self.analysis_menu.addAction('&'+name, lambda: func( self.figure_space.coordinate_system,  noErrorDS()  ) )
+
+
         
         #### keyboard and mouse call backs ####
     def key_press_event(self, event):
@@ -4790,20 +4813,26 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
         
             #### menu bar call backs ####
+
+    def set_plotSaveLocation(self, location):
+        """method can be called externally to set where plots are saved"""
+        self.plot_save_location = location
+
+
     ## file
     def fileQuit(self):
         self.close()
         
     def savePlot(self):
-        output_fname = "./plot_save.png"
+        output_fname = self.plot_save_location+".png"
         self.figure_space.fig.savefig(output_fname, format='png')
         
     def savePlotSvg(self):
-        output_fname = "./plot_save.svg"
+        output_fname = self.plot_save_location+".svg"
         self.figure_space.fig.savefig(output_fname, format='svg')
         
     def savePlotPdf(self):
-        output_fname = "./plot_save.pdf"
+        output_fname = self.plot_save_location+".pdf"
         self.figure_space.fig.savefig(output_fname, format='pdf')
         
     def set_coordinate_system(self, index):
@@ -4821,6 +4850,24 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.position_get()
         self.figure_space.replot_data()
         self.figure_space.draw()
+
+
+
+    def setPlotLocation_clicked(self):
+        inputTXT = self.variable_txtBox.text().strip()
+        print('inputed', inputTXT)
+        if len(inputTXT) == 0:
+            print('NO LOCATION INPUTED')
+        else:
+            self.set_plotSaveLocation( inputTXT )
+
+
+
+    def getPlotLocation_clicked(self):
+        print('PSL:', self.plot_save_location)
+        self.variable_txtBox.setText( self.plot_save_location )
+
+
 
     ### plot settings
     def __set_ticks_(self, func):
@@ -5795,10 +5842,4 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 #        Z_ax.tick_params('both', labelsize=25)
 #        
 #        plt.show()
-    
-#### IDEA:
-    # add setting to ignore time cut (to overlay things from different times)
-    # Add way to save a current view (not the points, but the bounding box)
-    # turn 1:1 aspect ratio on or off
-    # show all position for all active datsets vs selected data set
-    # increase number of available colors
+

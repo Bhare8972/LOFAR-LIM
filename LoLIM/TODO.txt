@@ -7,3 +7,4 @@ need to update readme
 
 change iter mapper to use new  PSE format
     
+ make command-line tool to explore HDF5 files

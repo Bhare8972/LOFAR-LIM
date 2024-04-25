@@ -319,10 +319,10 @@ class run_fitter:
         #### sort the delays guess, and account for station locations ####
         self.current_delays_guess = np.array([ self.guess_timings[sname] for sname in self.station_order[:-1] ])
         self.original_delays = np.array( self.current_delays_guess )
-        self.ant_recalibrate_order = np.array( [ i for i,antname in enumerate( self.sorted_antenna_names ) if antname in self.antennas_to_recalibrate.keys() ], dtype=np.int)
+        self.ant_recalibrate_order = np.array( [ i for i,antname in enumerate( self.sorted_antenna_names ) if antname in self.antennas_to_recalibrate.keys() ], dtype=int)
         self.ant_recalibrate_guess = np.array( [self.antennas_to_recalibrate[ self.sorted_antenna_names[i] ] for i in self.ant_recalibrate_order] )
 
-        self.station_indeces = np.empty( len( self.sorted_antenna_names ), dtype=np.int )
+        self.station_indeces = np.empty( len( self.sorted_antenna_names ), dtype=int )
         for station_index, index_range in enumerate(self.station_to_antenna_index_list): ## note this DOES include ref stat
             first,last = index_range
             self.station_indeces[first:last] = station_index

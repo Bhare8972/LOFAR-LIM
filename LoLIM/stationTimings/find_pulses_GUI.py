@@ -190,7 +190,7 @@ class frames:
                 self.station_to_height[sname] = i 
 
 
-        self.tmp_block = np.empty( self.block_size , dtype=np.complex )
+        self.tmp_block = np.empty( self.block_size , dtype=complex )
 
 
 

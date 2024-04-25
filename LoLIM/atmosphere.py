@@ -93,7 +93,6 @@ class corsika_atmosphere( base_atmosphere ):
             
         else: 
             RefracIndex = self.RefIndex_by_height[ 0 ]
-
         return self.C/RefracIndex
 
 

@@ -13,16 +13,18 @@ from os.path import isdir
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20210618T174657.311Z"
+    timeID = "D20230713T110220.737Z"
     block_size = 2**16
     output_folder = "/find_percent_data_dropped"
     initial_block = 1000
     final_block = 2000
     
+    level_to_catch = 50  # if data dropeed is larger than this, then print antennas again once done
+
     raw_fpaths = filePaths_by_stationName(timeID)
  
     processed_data_dir = processed_data_dir(timeID)
@@ -36,6 +38,7 @@ if __name__ == "__main__":
     log.take_stdout()
         
    
+    bad_ants = []
     for station, fpaths in raw_fpaths.items():
         print( station )
         
@@ -51,6 +54,14 @@ if __name__ == "__main__":
                 num_zeros += num_double_zeros( data )
                 num_data_points += block_size
                 
-            print(i, ant_name, 100.0*float(num_zeros)/num_data_points)
+            F = 100.0*float(num_zeros)/num_data_points
+            print(i, ant_name, F)
+
+            if F>level_to_catch:
+                bad_ants.append( [ ant_name, F ] )
             
         print()
+
+    print('bad antennas')
+    for a,f in bad_ants:
+        print(a, f)

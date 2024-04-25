@@ -1427,7 +1427,7 @@ cdef class delay_fitter_polT:
     def fit_by_antenna(self, np.ndarray[double , ndim=1] guess):
         ### returns the SSqE for each antenna, and the number of measurments for each antenna
         cdef np.ndarray[double , ndim=1] ant_SSqE = np.zeros(self.num_antennas, dtype=np.double)
-        cdef np.ndarray[long , ndim=1] ant_num = np.zeros(self.num_antennas, dtype=np.int)
+        cdef np.ndarray[long , ndim=1] ant_num = np.zeros(self.num_antennas, dtype=int)
         
         cdef double[:] station_delays = guess[ : self.num_station_delays]
         cdef double[:] antenna_delays = guess[self.num_station_delays : self.num_station_delays+self.num_antenna_recalibrations]

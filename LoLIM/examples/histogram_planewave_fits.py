@@ -15,8 +15,8 @@ from LoLIM.utilities import v_air, processed_data_dir
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 
 

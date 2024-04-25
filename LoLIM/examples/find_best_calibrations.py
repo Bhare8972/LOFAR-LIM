@@ -22,8 +22,8 @@ from LoLIM.get_phase_callibration import get_station_history, get_ordered_revisi
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 
 def get_antenna_delays(cal_locs, station_name, antennaSet, filter, antenna_names):
@@ -52,12 +52,18 @@ def get_antenna_delays(cal_locs, station_name, antennaSet, filter, antenna_names
 
 if __name__ == "__main__":
     
-    timeID = "D20210618T174657.311Z"
+##WARNING:  This is not finding the even/odd shift when using TBB data
+## TODO: really need to improve this for total cal
+
+    timeID = "D20210605T055555.042Z"
     output_folder = "/find_calibration_out"
     
     history_folder = "./svn_phase_cal_history"
+
+    actually_seach_calibrations = False  ## if True, does job. If False, just checks cal in TBB files
     
-    stations_to_skip = []
+    stations_to_skip = ['CS011', 'CS013', 'CS024', 'CS028', 'CS101', 'RS106', 'RS307']
+## RS407, RS509
     
     min_num_planewaves = 100
     RMS_cut = 1.0E-8
@@ -118,20 +124,14 @@ if __name__ == "__main__":
         antenna_names = TBB_data.get_antenna_names()
         antenna_set = TBB_data.antennaSet
         antenna_filter = TBB_data.FilterSelection
+
+        timestamp = datetime.fromtimestamp( TBB_data.get_timestamp() )
         
       #  if len(antenna_names)<8:
       #      print('too little antennas:', sname)
       #      continue
-        
-        get_station_history( sname, history_folder )
-        timestamp = datetime.fromtimestamp( TBB_data.get_timestamp() )
-        revisions = get_ordered_revisions(sname, history_folder, timestamp, max_dt)
-        print(len(revisions), 'calibration revisions')
-        
-        if len(revisions) == 0:
-            print('no calibrations! resorting to latest')
-            R = get_latest_previous_revision(sname, history_folder, timestamp)
-            revisions = [R]
+
+
         
         if sname in find_RFI:
             do_find_RFI = timeID
@@ -173,19 +173,22 @@ if __name__ == "__main__":
         print( fitter_odd.num_found_planewaves, "planewaves found on odd antennas" )
         
         if fitter_even.num_found_planewaves+fitter_odd.num_found_planewaves  <  min_num_planewaves:
-            print("too few planewaves. Using cals closest in time")
-            R = get_latest_previous_revision(sname, history_folder, timestamp)
-            get_phase_callibration(sname, R, downloads_output_folder, mode=antenna_set,
-                                   filter=antenna_filter, force=True)
-            final_calibrations = get_antenna_delays(downloads_output_folder, sname, antenna_set, antenna_filter,
-                                                    antenna_names)
+            print("too few planewaves")
 
-            with open(antenna_output_folder + '/' + sname + "_delays.txt", 'w+') as fout:
-                for i, name in enumerate(antenna_names):
-                    fout.write(name)
-                    fout.write(' ')
-                    fout.write(str(final_calibrations[i]))
-                    fout.write('\n')
+            if actually_seach_calibrations:
+                print('Using cals closest in time')
+                R = get_latest_previous_revision(sname, history_folder, timestamp)
+                get_phase_callibration(sname, R, downloads_output_folder, mode=antenna_set,
+                                       filter=antenna_filter, force=True)
+                final_calibrations = get_antenna_delays(downloads_output_folder, sname, antenna_set, antenna_filter,
+                                                        antenna_names)
+
+                with open(antenna_output_folder + '/' + sname + "_delays.txt", 'w+') as fout:
+                    for i, name in enumerate(antenna_names):
+                        fout.write(name)
+                        fout.write(' ')
+                        fout.write(str(final_calibrations[i]))
+                        fout.write('\n')
 
             continue
         
@@ -194,6 +197,20 @@ if __name__ == "__main__":
         print()
         
         ### now loop over available calibrations
+
+
+        if actually_seach_calibrations:
+            get_station_history( sname, history_folder )
+
+            revisions = get_ordered_revisions(sname, history_folder, timestamp, max_dt)
+            print(len(revisions), 'calibration revisions')
+            
+            if len(revisions) == 0:
+                print('no calibrations! resorting to latest')
+                R = get_latest_previous_revision(sname, history_folder, timestamp)
+                revisions = [R]
+        else:
+            revisions = [None]
             
         prev = None
         min_delta = 1.0E-10 ## if difference in calibration is smaller, then skip
@@ -222,13 +239,21 @@ if __name__ == "__main__":
                         continue
 
             else:
+                print('checking TBB meta file delays')
                 new = TBB_data.get_timing_callibration_delays(force_file_delays=True)
             
             prev = new
             
             ## fit planewaves with new callibrations
-            even_RMSs, _, _, even_ant_fits = fitter_even.go_fit( max_RMS = RMS_cut, antenna_time_calibrations=new)
-            odd_RMSs,  _, _, odd_ant_fits = fitter_odd.go_fit(   max_RMS = RMS_cut,  antenna_time_calibrations=new)
+            EvenRet = fitter_even.go_fit( max_RMS = RMS_cut, antenna_time_calibrations=new)
+            OddRet = fitter_odd.go_fit(   max_RMS = RMS_cut,  antenna_time_calibrations=new)
+
+            if (EvenRet is None) or (OddRet is None):
+                print('skipping!')
+                continue
+
+            even_RMSs, _, _, even_ant_fits = EvenRet
+            odd_RMSs,  _, _, odd_ant_fits  = OddRet
             
             combined_RMSs = np.append( even_RMSs[even_RMSs < RMS_cut], odd_RMSs[odd_RMSs < RMS_cut] )
             aveRMS = np.average( combined_RMSs )
@@ -249,7 +274,9 @@ if __name__ == "__main__":
 #                odd_antenna_SecDer = fitter_odd.get_second_derivatives( odd_RMSs, max_RMS = RMS_cut )
                 
                 
-                
+        if best_combined_RMSs is None:
+            print('no good fits for station')
+            continue
                 
         print('using revision:', best_revision, 'with RMS:', best_RMS)
         #get_phase_callibration( sname, best_revision,  downloads_output_folder, mode=antenna_set,filter=antenna_filter,  force=True )

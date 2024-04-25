@@ -135,6 +135,11 @@ class planewave_fitter:
             max_RMS controls which fits are used to calculate RMS per antenna, does not affect the RMS, zenith or azimuth return arrays."""
         
         self.antenna_locations = self.TBB_data.get_LOFAR_centered_positions()[self.polarization::2]
+
+        if len(self.antenna_locations) == 0:
+            print('no available antennas!!')
+            return None
+
         if antenna_time_calibrations is None:
             antenna_delays = self.TBB_data.get_timing_callibration_delays()[self.polarization::2]
         else:
@@ -146,12 +151,13 @@ class planewave_fitter:
         Zeniths = np.empty( self.num_found_planewaves, dtype=np.double )
         Azimuths = np.empty( self.num_found_planewaves, dtype=np.double )
         antenna_SSqE = np.zeros( len(self.antenna_locations), dtype=np.double )
-        antenna_num = np.zeros( len(self.antenna_locations), dtype=np.int )
+        antenna_num = np.zeros( len(self.antenna_locations), dtype=int )
         for pw_i,PW_data in enumerate(self.planewave_data):
 #            print(pw_i)
             self.pulse_times = PW_data-antenna_delays
             self.filter = np.isfinite( PW_data )
             N = np.sum(self.filter)
+
 #            self.ref_i = np.where( self.filter )[0][0]
             
 #            print(self.pulse_times)
@@ -193,6 +199,7 @@ class planewave_fitter:
                 antenna_num += self.filter
         
         antenna_SSqE /= antenna_num
+
         antenna_RMS = np.sqrt( antenna_SSqE, out=antenna_SSqE )
         
         return RMSs, Zeniths, Azimuths, antenna_RMS
@@ -201,7 +208,7 @@ class planewave_fitter:
         """returns the average second derivative for each antenna. Can cut on planewave goodness of fit if given the RMS fits and cut value"""
         
         antenna_SecDer = np.zeros( len(self.antenna_locations), dtype=np.double )
-        antenna_num = np.zeros( len(self.antenna_locations), dtype=np.int )
+        antenna_num = np.zeros( len(self.antenna_locations), dtype=int )
         
         for pw_i,PW_secDer in enumerate(self.planewave_second_derivatives):
             filter_ = np.isfinite( PW_secDer )

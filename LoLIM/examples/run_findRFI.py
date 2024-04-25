@@ -17,17 +17,16 @@ from os import mkdir
 from os.path import isdir
 from pickle import dump
 
-## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20210618T174657.311Z"
+    timeID = "D20230713T110220.737Z"
     output_folder = "/findRFI"
     out_fname = "/findRFI_results"
     block_size = 2**16
-    initial_block = 1000
+    initial_block = 250
     num_blocks = 10
     max_blocks = 500
     

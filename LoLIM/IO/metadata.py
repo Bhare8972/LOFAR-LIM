@@ -23,7 +23,7 @@ def mapAntennasetKeyword(antennaset):
     # Strip whitespace
     antennaset = antennaset.strip()
     
-    allowed = ["LBA_OUTER", "LBA_INNER", "LBA_X", "LBA_Y", "HBA", "HBA_0", "HBA_1"]
+    allowed = ["LBA_OUTER", "LBA_INNER", "LBA_SPARSE_EVEN", "LBA_SPARSE_ODD","LBA_X", "LBA_Y", "HBA", "HBA_0", "HBA_1"]
     incorrect = {'LBA_INNER': 'LBA_INNER',
                   'LBA_OUTER': 'LBA_OUTER',
                   'HBA_ZERO': 'HBA_0',
@@ -578,14 +578,21 @@ def getItrfAntennaPosition(station, antennaset):
         feed["CS"] = {}
         feed["RS"] = {}
         feed["DE"] = {}
-        feed["CS"]["LBA_SPARSE_EVEN"] = "24llhh"
-        feed["CS"]["LBA_SPARSE_ODD"] = "24hhll"
+
+        #feed["CS"]["LBA_SPARSE_EVEN"] = "24llhh"
+        #feed["CS"]["LBA_SPARSE_ODD"] = "24hhll"
+        #feed["RS"]["LBA_SPARSE_EVEN"] = "24llhh"
+        #feed["RS"]["LBA_SPARSE_ODD"] = "24hhll"
+
+        feed["CS"]["LBA_SPARSE_EVEN"] = "24hhll"
+        feed["CS"]["LBA_SPARSE_ODD"] = "24llhh"
+        feed["RS"]["LBA_SPARSE_EVEN"] = "24hhll"
+        feed["RS"]["LBA_SPARSE_ODD"] = "24llhh"
+
         feed["CS"]["LBA_X"] = "48hl"
         feed["CS"]["LBA_Y"] = "48lh"
         feed["CS"]["LBA_INNER"] = "96h"
         feed["CS"]["LBA_OUTER"] = "96l"
-        feed["RS"]["LBA_SPARSE_EVEN"] = "24llhh"
-        feed["RS"]["LBA_SPARSE_ODD"] = "24hhll"
         feed["RS"]["LBA_X"] = "48hl"
         feed["RS"]["LBA_Y"] = "48lh"
         feed["RS"]["LBA_INNER"] = "96h"

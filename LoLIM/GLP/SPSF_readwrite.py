@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """this is code to read the standard point-source format."""
 
-## needs to be moved to main folder
 
 import numpy as np
+from copy import deepcopy
 
 
 ## a few helper functions
@@ -38,20 +38,20 @@ def format_to_functions( format_list ):
     return [ HELPER(f) for f in format_list ]
 
 
-def format_to_dtypes( format_list ):
+# def format_to_dtypes( format_list ):
 
-    def HELPER(f):
-        if f == 'i':
-            return int 
-        elif f == 'd':
-            return np.double
-        elif f[0] == 's':
-            return np.dtype('U'+f[1:])
-        else:
-            print('No format with name', f)
-            quit()
+#     def HELPER(f):
+#         if f == 'i':
+#             return int 
+#         elif f == 'd':
+#             return np.double
+#         elif f[0] == 's':
+#             return np.dtype('U'+f[1:])
+#         else:
+#             print('No format with name', f)
+#             quit()
 
-    return [ HELPER(f) for f in format_list ]
+#     return [ HELPER(f) for f in format_list ]
 
 
 ## Use this class to read the data
@@ -282,5 +282,59 @@ def make_SPSF_from_data(timeID, collumn_names, data_iterator, data_format=None, 
     new_SPSF.data = np.array(data_tmp, dtype=new_SPSF.dtype)
     new_SPSF.comments = comments
     new_SPSF.notes = extra_notes
+
+    return new_SPSF
+
+
+
+
+
+### apparently now we are passing SPSF objects between functions, we want to operate on them
+
+def filter_SPSF_byTime(in_SPSF, time_filters, include=True):
+    #### given a SPSF obect,  and a list of time filters. Where each time filter is a tupil of begin-end times. Return a new SPSF obect that has no sources between any of the time bounds.
+    ## if include is True, only include sources in time_filters, if include is false include sources outside the filters
+
+    SPSF_data = in_SPSF.get_data()
+
+    Tdata = SPSF_data['time_from_second']
+
+
+    F = np.zeros(len(Tdata), dtype=bool)  ## will be true for sources in filters
+    TMP1 = np.zeros(len(Tdata), dtype=bool)
+    TMP2 = np.zeros(len(Tdata), dtype=bool)
+
+    for Tmin, Tmax in time_filters:
+
+        TMP1 = np.greater_equal( Tdata, Tmin, out=TMP1 )
+        TMP2 = np.less( Tdata, Tmax, out=TMP2 )
+        TMP1 = np.logical_and(TMP1, TMP2, out=TMP1)
+
+        F = np.logical_or( F, TMP1, out=F )
+
+    if not include:
+        F = np.logical_not(F, out=F)
+
+    NA = np.array( SPSF_data[F] )
+
+
+
+    new_SPSF = pointSource_data()
+    new_SPSF.timeID = deepcopy( in_SPSF.timeID )
+
+    new_SPSF.collums_headings = deepcopy( in_SPSF.collums_headings )
+
+
+    new_SPSF.collumn_dataFormats =      deepcopy( in_SPSF.collumn_dataFormats )
+    new_SPSF.is_default_collumnFormat = deepcopy( in_SPSF.is_default_collumnFormat )
+
+    new_SPSF.dtype = deepcopy( in_SPSF.dtype )
+    if new_SPSF.collumn_dataFormats is not None:
+        new_SPSF.dataReadFuncs = format_to_functions(new_SPSF.collumn_dataFormats)
+
+
+    new_SPSF.data = NA
+    new_SPSF.comments = deepcopy( in_SPSF.comments )
+    new_SPSF.notes =    deepcopy( in_SPSF.notes )
 
     return new_SPSF

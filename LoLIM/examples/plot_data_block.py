@@ -13,22 +13,20 @@ from LoLIM.findRFI import window_and_filter
 
 
 
-## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-# utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_raw_data_loc = "/home/brian/local_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20190424T194432.504Z"
-    station = "CS002"
-    point = int( 797*(2**16) )
+    timeID = "D20210605T055555.042Z"
+    station = "RS509"
+    point = int( 2200*(2**16) )
     block_size = 2**16
     
     # bad_antennas = 'bad_antennas.txt'
     # polarization_flips = 'polarization_flips.txt'
     # additional_antenna_delays = 'ant_delays.txt'
-    cal_file = '/OlafCal_202201311810.txt'
+    cal_file = '/cal_file.txt'
     
     
     positive_saturation = 2046
@@ -45,14 +43,14 @@ if __name__ == "__main__":
     raw_fpaths = filePaths_by_stationName(timeID)
     TBB_data = MultiFile_Dal1( raw_fpaths[station],  total_cal= processed_data_folder+cal_file)
                               # polarization_flips=polarization_flips, bad_antennas=bad_antennas, additional_ant_delays=additional_antenna_delays )
-    # RFI_filter = window_and_filter(timeID=timeID, sname=station)
+    RFI_filter = window_and_filter(timeID=timeID, sname=station)
     
     #RFI_data = RFI_filter.RFI_data
     #print("num total channels 30-80 MHz:", np.sum(  np.logical_and(RFI_filter.FFT_frequencies>30e6, RFI_filter.FFT_frequencies<80e6 )) )
    # DC = RFI_filter.FFT_frequencies[RFI_data["dirty_channels"]]
    # print('num dirty channels 30-80 MHz:', np.sum(  np.logical_and(DC>30e6, DC<80e6 )) )
     
-    RFI_filter = window_and_filter(blocksize=block_size)
+    #RFI_filter = window_and_filter(blocksize=block_size)
 
     
     data = np.empty(block_size, dtype=np.double)
@@ -62,6 +60,9 @@ if __name__ == "__main__":
     t0 = np.arange(block_size)
     H = 0
     T = t0 + point
+
+    print('station:', station)
+
     for pair in range(num_antenna_pairs):
         data[:] = TBB_data.get_data(point, block_size, antenna_index=pair*2)
         remove_saturation(data, positive_saturation, negative_saturation, saturation_post_removal_length, saturation_half_hann_length)

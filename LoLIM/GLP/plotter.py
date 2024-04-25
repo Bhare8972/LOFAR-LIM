@@ -136,12 +136,12 @@ class coordinate_transform:
         return [[0], [0], [0], [0], [0]]
     
     def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
-            make_copy=True, ignore_T=False, bool_workspace=None):
+            make_copy=True, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):
         """like transform, but filters based on bounds"""
         return [[0], [0], [0], [0], [0]]
     
     def filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, 
-                make_copy=True, ignore_T=False, bool_workspace=None):  
+                make_copy=True, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):  
         """ only filters data in plot coordinates.. hopefully"""
         print("filter function in transform not implemented")
         quit()
@@ -304,10 +304,10 @@ class typical_transform( coordinate_transform ):
         return outX, outY, outZ, outZ, outT
     
     def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
-                make_copy=True, ignore_T=False, bool_workspace=None):
+                make_copy=True, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):
         """like transform, but filters based on bounds"""
         outX, outY, outZ, outZt, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
-        return self.filter(outX, outY, outZ, outZt, outT, make_copy=False, ignore_T=ignore_T, bool_workspace=bool_workspace)
+        return self.filter(outX, outY, outZ, outZt, outT, make_copy=False, ignore_T=ignore_T, bool_workspace=bool_workspace, ignore_time_bounds=ignore_time_bounds)
         
 #        if bool_workspace is None:
 #            bool_workspace = np.ones( len(outX), dtype=bool )
@@ -337,7 +337,7 @@ class typical_transform( coordinate_transform ):
 #        
 #        return outX[:N], outY[:N], outZ[:N], outZ[:N], outT[:N]
 
-    def get_filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, ignore_T=False, bool_workspace=None):
+    def get_filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):
 
         if bool_workspace is None:
             bool_workspace = np.ones( len(Xplot), dtype=bool )
@@ -357,13 +357,17 @@ class typical_transform( coordinate_transform ):
         if not ignore_T:
             np.greater_equal( Tplot, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
             np.greater_equal( self.T_bounds[1], Tplot, out=bool_workspace, where=bool_workspace )
+        elif ignore_time_bounds is not None:
+            np.greater_equal( Tplot, ignore_time_bounds[0], out=bool_workspace, where=bool_workspace )
+            np.greater_equal( ignore_time_bounds[1], Tplot, out=bool_workspace, where=bool_workspace )
+
 
         return bool_workspace
 
 
     
     def filter(self, Xplot, Yplot, Zplot, Ztplot, Tplot, 
-                make_copy=True, ignore_T=False, bool_workspace=None):  
+                make_copy=True, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):  
         
         if make_copy:
             outX = np.array( Xplot )
@@ -377,7 +381,7 @@ class typical_transform( coordinate_transform ):
             outT = np.asanyarray( Tplot )
         
 
-        bool_workspace = self.get_filter(Xplot, Yplot, Zplot, Ztplot, Tplot, ignore_T, bool_workspace)
+        bool_workspace = self.get_filter(Xplot, Yplot, Zplot, Ztplot, Tplot, ignore_T, bool_workspace, ignore_time_bounds=ignore_time_bounds)
         
         N = np.sum( bool_workspace )
         
@@ -567,7 +571,7 @@ class AzEl_transform( coordinate_transform ):
 
     
     def transform_and_filter(self, Xglobal, Yglobal, Zglobal, Tglobal, 
-                make_copy=True, ignore_T=False, bool_workspace=None):
+                make_copy=True, ignore_T=False, bool_workspace=None, ignore_time_bounds=None):
         """like transform, but filters based on bounds"""
         outAz, outEl, throw, throw, outT =  self.transform(Xglobal, Yglobal, Zglobal, Tglobal, make_copy)
         
@@ -588,6 +592,9 @@ class AzEl_transform( coordinate_transform ):
         if not ignore_T:
             np.greater_equal( outT, self.T_bounds[0], out=bool_workspace, where=bool_workspace )
             np.greater_equal( self.T_bounds[1], outT, out=bool_workspace, where=bool_workspace )
+        elif ignore_time_bounds is not None:
+            np.greater_equal( outT, ignore_time_bounds[0], out=bool_workspace, where=bool_workspace )
+            np.greater_equal( ignore_time_bounds[1], outT, out=bool_workspace, where=bool_workspace )
         
         N = np.sum( bool_workspace )
         
@@ -661,7 +668,7 @@ class DataSet_Type:
     def text_output(self):
         print("not implemented")
         
-    def ignore_time(self, ignore=None):
+    def ignore_time(self, ignore=None, min=-np.inf, max=np.inf):
         if ignore is not None:
             print("not implemented")
         return False
@@ -872,6 +879,7 @@ class DataSet_generic_PSE(DataSet_Type):
         self.cmap = cmap
         self.name = name
         self._ignore_time = False
+        self.ignore_time_bounds = None
         self.display = True
         
         self.X_array = X_array
@@ -1184,7 +1192,7 @@ class DataSet_generic_PSE(DataSet_Type):
         
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
             Xtmp, Ytmp, Ztmp, Ttmp, 
-            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask )
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask, ignore_time_bounds=self.ignore_time_bounds )
 
 
         if (not self.display) or len(plotX)==0:
@@ -1534,7 +1542,7 @@ class DataSet_generic_PSE(DataSet_Type):
         
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter( 
             Xtmp, Ytmp, Ztmp, Ttmp, 
-            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace )
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=bool_workspace, ignore_time_bounds=self.ignore_time_bounds )
         
         
         print()
@@ -1614,9 +1622,10 @@ class DataSet_generic_PSE(DataSet_Type):
                 
         print('done writing')
                     
-    def ignore_time(self, ignore=None):
+    def ignore_time(self, ignore=None, min=-np.inf, max=np.inf):
         if ignore is not None:
             self._ignore_time = ignore
+            self.ignore_time_bounds = [min, max]
         return self._ignore_time
 
 
@@ -1730,6 +1739,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         self.cmap = cmap
         self.name = name
         self._ignore_time = False
+        self.ignore_time_bounds = [-np.inf, np.inf]
         self.display = True
 
         self.X_array = X_array
@@ -1939,7 +1949,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         coordinate_system.set_plotT(-np.inf, np.inf)
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
             Xtmp, Ytmp, Ztmp, Ttmp,
-            make_copy=False, ignore_T=self._ignore_time, bool_workspace=self.total_mask)
+            make_copy=False, ignore_T=False, bool_workspace=self.total_mask)
         coordinate_system.set_plotT(A, B)
 
         ## return actual bounds
@@ -2094,7 +2104,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         loc_mask = np.empty(N, dtype=bool)
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
             Xtmp, Ytmp, Ztmp, Ttmp,
-            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask, ignore_time_bounds=self.ignore_time_bounds)
 
 
         if (not self.display) or len(plotX) == 0:
@@ -2301,9 +2311,10 @@ class DataSet_polarized_PSE(DataSet_Type):
         self.clear()
 
     ## the res of this is wrong
-    def ignore_time(self, ignore=None):
+    def ignore_time(self, ignore=None, min=-np.inf, max=np.inf):
         if ignore is not None:
             self._ignore_time = ignore
+            self.ignore_time_bounds = [min, max]
         return self._ignore_time
 
     def print_info(self, coordinate_system):
@@ -2345,7 +2356,7 @@ class DataSet_polarized_PSE(DataSet_Type):
         loc_mask = np.empty(N, dtype=bool)
         plotX, plotY, plotZ, plotZt, plotT = coordinate_system.transform_and_filter(
             Xtmp, Ytmp, Ztmp, Ttmp,
-            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask)
+            make_copy=False, ignore_T=self._ignore_time, bool_workspace=loc_mask, ignore_time_bounds=self.ignore_time_bounds)
 
         print( "dataset:", self.name )
 
@@ -4465,6 +4476,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
             H = QtWidgets.QDesktopWidget().screenGeometry(-1).height()
             width_height = [H*0.99, H*0.85]
 
+        print('window width/height:', width_height)
+
         self.setGeometry(0, 0, int(width_height[0]), int(width_height[1]))
         
 #        self.statusBar().showMessage("All hail matplotlib!", 2000) ##this shows messages on bottom left of window
@@ -4647,13 +4660,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.get_button.setText("get")
         self.get_button.clicked.connect(self.getButtonPressed)
         
-        ##ignore time
-        self.ignoreTimeCheckBox = QtWidgets.QCheckBox("ignore time", self)
-        self.ignoreTimeCheckBox.stateChanged.connect( self.clickIgnoreTime )
-        self.ignoreTimeCheckBox.move(5, 215)
         
-        
-        ##set button
+        ##show all time button
         self.showallTime_Button = QtWidgets.QPushButton(self)
         self.showallTime_Button.move(125, 215)
         self.showallTime_Button.setText("show all time")
@@ -4775,6 +4783,24 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.aspectRatioCheckBox.move(5, 520)
         self.aspectRatioCheckBox.setChecked( self.figure_space.rebalance_XY )
         self.aspectRatioCheckBox.resize(200,25)
+
+
+        ## ignore time
+            #check box
+        self.ignoreTimeCheckBox = QtWidgets.QCheckBox("ignore T. filt:", self)
+        self.ignoreTimeCheckBox.stateChanged.connect( self.clickIgnoreTime )
+        self.ignoreTimeCheckBox.move(5, 550)
+            # min
+        ## T min box
+        self.IgnoreTMin_txtBox = QtWidgets.QLineEdit(self)
+        self.IgnoreTMin_txtBox.move(100, 550)
+        self.IgnoreTMin_txtBox.resize(80,25)
+        self.IgnoreTMin_txtBox.setText('-inf')
+        ## T max box
+        self.IgnoreTMax_txtBox = QtWidgets.QLineEdit(self)
+        self.IgnoreTMax_txtBox.move(200, 550)
+        self.IgnoreTMax_txtBox.resize(80,25)
+        self.IgnoreTMax_txtBox.setText('inf')
         
 
         self.set_coordinate_system( 0 )
@@ -5231,8 +5257,26 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.figure_space.draw()
         
     def clickIgnoreTime(self):
+        min = self.IgnoreTMin_txtBox.text()
+        max = self.IgnoreTMax_txtBox.text()
+        print('ignore time bounds:', min, max)
+
+        try:
+            min=float(min)
+        except:
+            print('minimum ignore time bound not float. Default to -inf')
+            min = -np.inf
+            self.IgnoreTMin_txtBox.setText('-inf')
+
+        try:
+            max=float(max)
+        except:
+            print('maximume ignore time bound not float. Default to inf')
+            max = np.inf
+            self.IgnoreTMax_txtBox.setText('inf')
+
         DS = self.figure_space.data_sets[ self.current_data_set ]
-        DS.ignore_time( self.ignoreTimeCheckBox.isChecked() )
+        DS.ignore_time( self.ignoreTimeCheckBox.isChecked(), min, max )
         
         self.figure_space.replot_data()
         self.figure_space.draw()

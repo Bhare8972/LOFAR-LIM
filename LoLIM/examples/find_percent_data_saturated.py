@@ -17,7 +17,7 @@ utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
 utilities.default_processed_data_loc = "/home/brian/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20200814T122532.788Z"
+    timeID = "D20190424T194432.504Z"
     block_size = 2**16
     output_folder = "/find_percent_data_saturated"
     initial_block = 2500

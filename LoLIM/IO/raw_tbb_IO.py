@@ -218,10 +218,11 @@ def read_cal_file(fname, pol_flips_are_bad, timeID=None):
         mode = 1 ## 1 = bad_antennas 2 = pol_flips 3 = station_delays 4 = antenna_delays
         
         for line in fin:
-            if len(line) == 0: # empyt line
-                continue
 
             line_data = line.split()
+            
+            if len(line_data) == 0: # empyt line
+                continue
             
             if line_data[0][0] == '#':
                 ## comment!
@@ -229,7 +230,11 @@ def read_cal_file(fname, pol_flips_are_bad, timeID=None):
         
             ## first check mode
             
-            if line_data[0] == "bad_antennas":
+            if line_data[0] == "MDA": ## metadata adjusts
+                if line_data[1] == 'ANTENNA_SET':
+                    RET.metadata_adjusts['ANTENNA_SET'] = line_data[2]
+                    
+            elif line_data[0] == "bad_antennas":
                 mode = 1
             elif line_data[0] == "pol_flips":
                 mode = 2
@@ -276,6 +281,8 @@ class total_cal_object:
         self.ant_delays = {}
         self.sign_flips = []
 
+        self.metadata_adjusts = {}
+
 
 def read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=True):
 
@@ -292,7 +299,7 @@ def read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=True):
         
     
     RET = total_cal_object()
-    RET.atmosphere = atmo.olaf_varying_atmosphere
+    RET.atmosphere = atmo.olaf_constant_atmosphere
     
     with open(fname) as fin:
         version = fin.readline() ## version of type of file. Presently unused as we only have one version
@@ -358,12 +365,19 @@ def decode_if_needed(IN):
         return IN.decode()
     return IN
     
+
+#### NOTE:  metadata_adjusts is a dictionary of fixes to the metadata.
+  ## key is string, which is type of metadata to adjust
+  ## value is the new metadata info. Depends of type.
+  ## types:
+    ## ANTENNA_SET:   value is string ("LBA_OUTER", "LBA_SPARSE", etc.)  use this value for antenna set instead of that in file
+
 class TBBData_Dal1:
     """a class for reading one station from one file. However, since one station is often spread between different files, 
     use filePaths_by_stationName combined with MultiFile_Dal1 below.
     This class is kept simple, and MultiFile_Dal1 has all the fancy features"""
     
-    def __init__(self, filename, force_metadata_ant_pos=False, forcemetadata_delays=True):
+    def __init__(self, filename, force_metadata_ant_pos=False, forcemetadata_delays=True, metadata_adjusts={}):
         self.filename = filename
         self.force_metadata_ant_pos = force_metadata_ant_pos
         self.forcemetadata_delays = forcemetadata_delays
@@ -377,7 +391,10 @@ class TBBData_Dal1:
             print("WARNING! file", self.filename, "has more then one station")
         self.stationKey = stationKeys[0]
         
-        self.antennaSet = decode_if_needed( self.file.attrs['ANTENNA_SET'][0] )
+        if 'ANTENNA_SET' in metadata_adjusts:
+            self.antennaSet = metadata_adjusts['ANTENNA_SET']
+        else:
+            self.antennaSet = decode_if_needed( self.file.attrs['ANTENNA_SET'][0] )
 
 
         self.dipoleNames = list( self.file[ self.stationKey ].keys() )
@@ -596,7 +613,13 @@ class MultiFile_Dal1:
             pol_flips_are_bad      -if True, antennas that are in pol-flips are included in 'bad_antennas' 
         """
 
-        self.files = [TBBData_Dal1(fname, force_metadata_ant_pos) for fname in filename_list]
+        if isinstance(total_cal, str):
+            total_cal = read_cal_file(total_cal, pol_flips_are_bad)
+
+        if isinstance(total_cal, total_cal_object):
+            self.files = [TBBData_Dal1(fname, force_metadata_ant_pos, metadata_adjusts=total_cal.metadata_adjusts) for fname in filename_list]
+        else:
+            self.files = [TBBData_Dal1(fname, force_metadata_ant_pos) for fname in filename_list]
                 
         #### get some data that should be constant #### TODO: change code to make use of getters
         self.antennaSet = self.files[0].antennaSet
@@ -607,12 +630,12 @@ class MultiFile_Dal1:
         self.Time = self.files[0].Time
         
         
+
+
         if total_cal is not None:
             self.using_total_cal = True
             
-            if isinstance(total_cal, str):
-                self.total_cal = read_cal_file(total_cal, pol_flips_are_bad)
-            elif isinstance(total_cal, total_cal_object):
+            if isinstance(total_cal, total_cal_object):
                 self.total_cal = total_cal
             elif total_cal is True: # note the 'is' only works for literal True
                 self.total_cal = total_cal_object()
@@ -656,6 +679,8 @@ class MultiFile_Dal1:
                     # bad_antennas.append( (even_ant,1) )
                 polarization_flips = []
         
+
+
         self.bad_antennas = bad_antennas
         self.odd_pol_additional_timing_delay = 0.0 # anouther timing delay to add to all odd-polarized antennas. Should remain zero if using_total_cal
         self.station_delay = station_delay
@@ -758,8 +783,45 @@ class MultiFile_Dal1:
             print('station', self.StationName, 'has no antennas')
             return
                         
-        self.index_adjusts = np.arange( len(self.antenna_to_file) ) ##used to compensate for polarization flips
+        self.index_adjusts = np.arange( len(self.antenna_to_file) )
         ### when given an antnna index to open data, use this index instead to open the correct data location
+        ## internal_index = self.index_adjusts[ external_index ]
+        ## note, this does NOT apply to the name of the antenna
+        ## main job is to keep order of antenans as Y-X. This is for pol-flips and different modes
+
+        self.name_adjusts = np.arange( len(self.antenna_to_file) )
+        ### this is the same as above, but only applies to names of antennas. Job is to keep order of antennas to be Y-X
+
+
+        if self.antennaSet == "LBA_INNER":
+            for pair_i in range( int(len(self.antenna_to_file)/2) ):
+                self.index_adjusts[pair_i*2]   += 1
+                self.index_adjusts[pair_i*2+1] -= 1
+                self.name_adjusts[pair_i*2]   += 1
+                self.name_adjusts[pair_i*2+1] -= 1
+        elif self.antennaSet == "LBA_SPARSE_EVEN":
+##0 X    inner
+# 1 Y    inner
+# 2 Y    outer
+# 3 X    outer
+# 4 X    inner
+# 5 Y    inner
+# 6 Y    outer
+# 7 X    outer
+
+            for pair_i in range( int(len(self.antenna_to_file)/2) ):
+                antName_Y = self.dipoleNames[ pair_i*2 ]
+                NamePairI = int( int(antName_Y)/2 )
+
+                EvenIsX = (NamePairI%2)==0   ## antenna pair index (of the name) is even
+                AntNameIsEven = (int(antName_Y)%2)==0  ## should always be true?
+                if EvenIsX and AntNameIsEven:
+                    ## then this is an X antenna, and not a Y antenna, and they need a flipie-flipie
+                    self.index_adjusts[pair_i*2]   += 1
+                    self.index_adjusts[pair_i*2+1] -= 1
+                    self.name_adjusts[pair_i*2]   += 1
+                    self.name_adjusts[pair_i*2+1] -= 1
+
         
                         
         #### get sample numbers and offsets and lengths and other related stuff ####
@@ -781,57 +843,58 @@ class MultiFile_Dal1:
         self.sample_offsets = self.nominal_sample_number - self.SampleNumbers
         self.nominal_DataLengths = self.DataLengths - self.sample_offsets
         
-        self.even_ant_pol_flips = None
+        self.ant_pol_flips = None
         if polarization_flips is not None:
             self.set_polarization_flips( polarization_flips )
         self.additional_ant_delays = additional_ant_delays
 
-    def set_polarization_flips(self, even_antenna_names):
+    def set_polarization_flips(self, antenna_names):
         """given a set of names(IDs) of even antennas, flip the data between the even and odd antennas"""
-        self.even_ant_pol_flips = even_antenna_names
-        for ant_name in even_antenna_names:
+        self.ant_pol_flips = antenna_names
+        for ant_name in antenna_names:
             if ant_name in self.dipoleNames:
-                even_antenna_index = self.dipoleNames.index(ant_name)
-                
+                antenna_index = self.dipoleNames.index(ant_name)
+                even_antenna_index = int(antenna_index/2)*2  ## assumes adjusts are always flips!!
+
                 self.index_adjusts[even_antenna_index] += 1
                 self.index_adjusts[even_antenna_index+1] -= 1
                 
-    def set_odd_polarization_delay(self, new_delay):
-        self.odd_pol_additional_timing_delay = new_delay
+    # def set_odd_polarization_delay(self, new_delay):
+    #     self.odd_pol_additional_timing_delay = new_delay
         
     def set_station_delay(self, station_delay):
         """ set the station delay, should be a number"""
         self.station_delay = station_delay
                 
     ## this should be depreciated
-    def find_and_set_polarization_delay(self, verbose=False, tolerance=1e-9):
-        if self.using_total_cal:
-            print('warning: calibration probably already accounts for polarized delay. IN: find_and_set_polarization_delay')
-            print('   note find_and_set_polarization_delay does NOT use totalcal timing data, but ASTRON-provided data')
+    # def find_and_set_polarization_delay(self, verbose=False, tolerance=1e-9):
+    #     if self.using_total_cal:
+    #         print('warning: calibration probably already accounts for polarized delay. IN: find_and_set_polarization_delay')
+    #         print('   note find_and_set_polarization_delay does NOT use totalcal timing data, but ASTRON-provided data')
         
-        fpath = os.path.dirname(self.files[0].filename) + '/'+self.StationName
-        phase_calibration = md.getStationPhaseCalibration(self.StationName, self.antennaSet,self.FilterSelection, file_location=fpath  )
-        all_antenna_calibrations = md.convertPhase_to_Timing(phase_calibration, 1.0/self.SampleFrequency) 
+    #     fpath = os.path.dirname(self.files[0].filename) + '/'+self.StationName
+    #     phase_calibration = md.getStationPhaseCalibration(self.StationName, self.antennaSet,self.FilterSelection, file_location=fpath  )
+    #     all_antenna_calibrations = md.convertPhase_to_Timing(phase_calibration, 1.0/self.SampleFrequency) 
         
-        even_delays = all_antenna_calibrations[::2]
-        odd_delays = all_antenna_calibrations[1::2]
-        odd_offset = odd_delays-even_delays
-        median_odd_offset = np.median( odd_offset )
-        if verbose:
-            print("median offset is:", median_odd_offset)
-        below_tolerance = np.abs( odd_offset-median_odd_offset ) < tolerance
-        if verbose:
-            print(np.sum(below_tolerance), "antennas below tolerance.", len(below_tolerance)-np.sum(below_tolerance), "above.")
-        ave_best_offset = np.average( odd_offset[below_tolerance] )
-        if verbose:
-            print("average of below-tolerance offset is:", ave_best_offset)
-        self.set_odd_polarization_delay( -ave_best_offset )
+    #     even_delays = all_antenna_calibrations[::2]
+    #     odd_delays = all_antenna_calibrations[1::2]
+    #     odd_offset = odd_delays-even_delays
+    #     median_odd_offset = np.median( odd_offset )
+    #     if verbose:
+    #         print("median offset is:", median_odd_offset)
+    #     below_tolerance = np.abs( odd_offset-median_odd_offset ) < tolerance
+    #     if verbose:
+    #         print(np.sum(below_tolerance), "antennas below tolerance.", len(below_tolerance)-np.sum(below_tolerance), "above.")
+    #     ave_best_offset = np.average( odd_offset[below_tolerance] )
+    #     if verbose:
+    #         print("average of below-tolerance offset is:", ave_best_offset)
+    #     self.set_odd_polarization_delay( -ave_best_offset )
         
-        above_tolerance = np.zeros( len(all_antenna_calibrations), dtype=bool )
-        above_tolerance[::2] = np.logical_not( below_tolerance )
-        above_tolerance[1::2] = above_tolerance[::2]
-        above_tolerance = above_tolerance[ md.make_antennaID_filter(self.get_antenna_names()) ]
-        return [AN for AN, AT in zip(self.get_antenna_names(),above_tolerance) if AT]
+    #     above_tolerance = np.zeros( len(all_antenna_calibrations), dtype=bool )
+    #     above_tolerance[::2] = np.logical_not( below_tolerance )
+    #     above_tolerance[1::2] = above_tolerance[::2]
+    #     above_tolerance = above_tolerance[ md.make_antennaID_filter(self.get_antenna_names()) ]
+    #     return [AN for AN, AT in zip(self.get_antenna_names(),above_tolerance) if AT]
         
                 
     #### GETTERS ####
@@ -859,42 +922,50 @@ class MultiFile_Dal1:
         """return name of antenna as a list of strings. This is really the RCU id, and the physical antenna depends on the antennaSet.
         Note that antenna_id used elsewhere in this class is the index of this list (order stays the same!).
         However, order and such is nto garunteed between different class instances, thus if you need to save info, save antenna_name, NOT antenna_ID.
-        even antenna names always have an even antenna_ID (index in this array). Thus, if only_complete_pairs was false, some antennas may be here but not
-        actually exist. Thus you need next function."""
-        return self.dipoleNames
+        even indeces are always Y-oriented dipole, which are even-named antennas only for LBA_OUTER.
+        Thus, if only_complete_pairs was false, some antennas may be here but not actually exist. Thus you need method "has_antenna"."""
+        ret = []
+        for i in self.name_adjusts:
+            ret.append( self.dipoleNames[i] )
+        return ret
+        #return self.dipoleNames
     
-    def has_antenna(self, antenna_name=None, antenna_ID=None):
+    def has_antenna(self, antenna_name=None, antenna_index=None):
         """if only_complete_pairs is False, then we could have antenna names without the data.
-        Give either antenna_name or antenna_ID.
+        Give either antenna_name or antenna_index.
         Return True if we actually have the antenna, False otherwise. This accounts for polarization flips."""
         if antenna_name is not None:
             if antenna_name in self.dipoleNames:
-                antenna_ID = self.dipoleNames.index(antenna_name)
+                internal_name_index = self.dipoleNames.index(antenna_name)
+                antenna_index = self.name_adjusts.index( internal_name_index )
             else:
                 return False
 
-        index = self.index_adjusts[ antenna_ID ]
-        if self.antenna_to_file[index] is None:
+        internal_antenna_index = self.index_adjusts[ antenna_index ]
+
+
+        if self.antenna_to_file[ internal_antenna_index ] is None:
             return False
         else:
             return True
 
     def get_XYdipole_indeces(self):
         """Return 2D [i,j] array of integers. i is the index of the "full" dual-polarizated antenna (half of length of get_antenna_names). j is 0 for X-dipoles (odd for LBA_OUTER), 1 for Y-dipoles.
-        Value is antenna_id (index of get_antenna_names). Will be -1 if antenna does not exist"""
+        Value is antenna_id (index of get_antenna_names). Will be -1 if antenna does not exist
+        NOTE: this method may be phased out. As in future, order will always be Y-X"""
 
         n_pairs = int(len(self.dipoleNames)/2)
         ret = np.full( (n_pairs,2), -1, dtype=np.int)
         for pair_i in range(n_pairs):
-            if self.antennaSet == "LBA_OUTER":
-                X_index = 2*pair_i + 1
-                Y_index = 2*pair_i
-            elif self.antennaSet == "LBA_INNER":
-                X_index = 2*pair_i
-                Y_index = 2*pair_i + 1
-            else:
-                print('unknown antenna set in get_XYdipole_indeces:', self.antennaSet)
-                return None
+            #if self.antennaSet == "LBA_OUTER":
+            X_index = 2*pair_i + 1
+            Y_index = 2*pair_i
+            #elif self.antennaSet == "LBA_INNER":
+                #X_index = 2*pair_i
+                #Y_index = 2*pair_i + 1
+            #else:
+            #    print('unknown antenna set in get_XYdipole_indeces:', self.antennaSet)
+            #    return None
 
             if self.has_antenna(antenna_ID=X_index):
                 ret[pair_i, 0] = X_index
@@ -928,13 +999,23 @@ class MultiFile_Dal1:
         """get the number of samples stored for each antenna. Note that due to the fact that the antennas do not start recording
         at the exact same instant (in general), this full data length is not all usable
         returns array of ints. Value is -1 if antenna does not exist."""
-        return self.DataLengths
+
+        ret = np.empty(len(self.DataLengths), dtype=int)
+        for outI, correct_i in enumerate(self.order_adjusts):
+            ret[outI] = self.DataLengths[correct_i]
+        return ret
     
     def get_all_sample_numbers(self):
         """return numpy array that contains the sample numbers of each antenna. Divide this by the sample frequency to get time
         since the timestame of the first data point. Note that since these are, in general, different, they do NOT refer to sample
         0 of "get_data". Value is -1 if antenna does not exist """
-        return self.SampleNumbers
+        ##return self.SampleNumbers
+
+        ret = np.empty(len(self.SampleNumbers), dtype=int)
+        for external_index, internal_index in enumerate(self.index_adjusts):
+            ret[external_index] = self.SampleNumbers[internal_index]
+        return ret
+    
     
     def get_nominal_sample_number(self):
         """return the sample number of the 0th data sample returned by get_data.
@@ -944,7 +1025,12 @@ class MultiFile_Dal1:
     def get_nominal_data_lengths(self):
         """return the number of data samples that are usable for each antenna, accounting for different starting sample numbers.
         returns array of ints"""
-        return self.nominal_DataLengths
+        #return self.nominal_DataLengths
+
+        ret = np.empty(len(self.nominal_DataLengths), dtype=int)
+        for external_index, internal_index in enumerate(self.index_adjusts):
+            ret[ external_index ] = self.nominal_DataLengths[ internal_index ]
+        return ret
     
     def get_ITRF_antenna_positions(self, out=None):
         """returns the ITRF positions of the antennas. Returns a 2D numpy array. 
@@ -953,8 +1039,13 @@ class MultiFile_Dal1:
         if out is None:
             out = np.empty( (len(self.dipoleNames), 3) )
         
-        for ant_i, (TBB_file,station_ant_i) in enumerate(self.antenna_to_file):
-            out[ant_i] = TBB_file.ITRF_dipole_positions[station_ant_i]
+        #for ant_i, (TBB_file,station_ant_i) in enumerate(self.antenna_to_file):
+            #out[ant_i] = TBB_file.ITRF_dipole_positions[station_ant_i]
+        
+        for external_index, internal_index in enumerate(self.index_adjusts):
+            TBB_file,station_ant_i = self.antenna_to_file[ internal_index ]
+
+            out[ external_index ] = TBB_file.ITRF_dipole_positions[station_ant_i]
             
         return out
         
@@ -969,21 +1060,26 @@ class MultiFile_Dal1:
             
         return out
     
-    def get_timing_callibration_phases(self):
+    ##def get_timing_callibration_phases(self):
         """only a test function for the moment, do not use"""
         
-        out = [None for i in range(len(self.dipoleNames))]
+        # out = [None for i in range(len(self.dipoleNames))]
         
-        for TBB_file in self.files:
-            ret = TBB_file.get_timing_callibration_phases()
-            if ret is None:
-                return None
+        # for TBB_file in self.files:
+        #     ret = TBB_file.get_timing_callibration_phases()
+        #     if ret is None:
+        #         return None
             
-            for ant_i, (TBB_fileA,station_ant_i) in enumerate(self.antenna_to_file):
-                if TBB_fileA is TBB_file:
-                    out[ant_i] = ret[station_ant_i]
+        #     #for ant_i, (TBB_fileA,station_ant_i) in enumerate(self.antenna_to_file):
+        #     #    if TBB_fileA is TBB_file:
+        #     #        out[ant_i] = ret[station_ant_i]
+            
+        #     for ant_i, adjust_i in enumerate(self.order_adjusts):
+        #         TBB_fileA,station_ant_i = self.antenna_to_file[ adjust_i ]
+        #         if TBB_fileA is TBB_file:
+        #             out[ant_i] = ret[station_ant_i]
                     
-        return np.array(out)
+        # return np.array(out)
     
     def get_timing_callibration_delays(self, out=None, force_file_delays=False):
         """return the timing callibration of the anntennas, as a 1D np array. If not included in the TBB_metadata, will look
@@ -997,35 +1093,61 @@ class MultiFile_Dal1:
             out = np.zeros( len(self.dipoleNames), dtype=np.double )
         
         if self.using_total_cal and not force_file_delays:
-            for i,ant_name in enumerate( self.dipoleNames ):
+            #for i,ant_name in enumerate( self.dipoleNames ):
+            #    if ant_name in self.total_cal.ant_delays:
+            #        out[i] = self.total_cal.ant_delays[ant_name]
+            for external_index, internal_index in enumerate( self.name_adjusts):
+                ant_name = self.dipoleNames[internal_index]
                 if ant_name in self.total_cal.ant_delays:
-                    out[i] = self.total_cal.ant_delays[ant_name]
+                    out[ external_index ] = self.total_cal.ant_delays[ant_name]
                 else:
                     print("WARNING: cal. for antenna missing:", ant_name)
-                    out[i] = 0.0
+                    out[ external_index ] = 0.0
             
         else:## this whole clunky thing is purly historical. SHould be depreciated!!
-        
+
             for TBB_file in self.files:
                 ret = TBB_file.get_timing_callibration_delays(force_file_delays)
                 if ret is None:
                     return None
                 
-                
-                for ant_i, adjust_i in enumerate(self.index_adjusts):
-                    TBB_fileA,station_ant_i = self.antenna_to_file[adjust_i]
+                for external_index, internal_data_index in enumerate( self.index_adjusts ):
+                    internal_name_index = self.name_adjusts[ external_index ]
+
+                    TBB_fileA,station_ant_i = self.antenna_to_file[ internal_data_index ]
                     
                     if TBB_fileA is TBB_file:
-                        out[ant_i] = ret[station_ant_i]
+                        out[ external_index ] = ret[station_ant_i]
                         
                         if self.additional_ant_delays is not None:
+                            print('antenna delay code probably not working right')
+
                             ## additional_ant_delays stores only even antenna names for historical reasons. so we need to be clever here
-                            antenna_polarization = 0 if (ant_i%2==0) else 1 
-                            even_ant_name = self.dipoleNames[ ant_i-antenna_polarization ]
+                            ## this is probably completely wrong
+                            antenna_polarization = 0 if (external_index%2==0) else 1 
+                            even_ant_name = self.dipoleNames[ internal_name_index-antenna_polarization ]
                             if even_ant_name in self.additional_ant_delays:
-                                if even_ant_name in self.even_ant_pol_flips:
+                                if even_ant_name in self.ant_pol_flips:
                                     antenna_polarization = int(not antenna_polarization)
                                 out[ant_i] += self.additional_ant_delays[ even_ant_name ][ antenna_polarization ]
+
+
+                # for ant_i, adjust_i_A in enumerate(self.order_adjusts):
+                #     adjust_i = self.index_adjusts[adjust_i_A]
+
+                #     TBB_fileA,station_ant_i = self.antenna_to_file[adjust_i]
+                    
+                #     if TBB_fileA is TBB_file:
+                #         out[ant_i] = ret[station_ant_i]
+                        
+                #         if self.additional_ant_delays is not None:
+                #             ## additional_ant_delays stores only even antenna names for historical reasons. so we need to be clever here
+                #             antenna_polarization = 0 if (ant_i%2==0) else 1 
+                #             even_ant_name = self.dipoleNames[ ant_i-antenna_polarization ]
+                #             if even_ant_name in self.additional_ant_delays:
+                #                 if even_ant_name in self.even_ant_pol_flips:
+                #                     antenna_polarization = int(not antenna_polarization)
+                #                 out[ant_i] += self.additional_ant_delays[ even_ant_name ][ antenna_polarization ]
                         
         out[1::2] += self.odd_pol_additional_timing_delay
             
@@ -1085,17 +1207,19 @@ class MultiFile_Dal1:
         out /= v_airs
         return out
             
-    def get_data(self, start_index, num_points, antenna_index=None, antenna_ID=None):
+
+    def get_data(self, start_index, num_points, antenna_index=None, antenna_name=None):
         """return the raw data for a specific antenna, as an 1D int16 numpy array, of length num_points. First point returned is 
-        start_index past get_nominal_sample_number(). Specify the antenna by giving the antenna_ID (which is a string, same
+        start_index past get_nominal_sample_number(). Specify the antenna by giving the antenna_name (which is a string, same
         as output from get_antenna_names(), or as an integer antenna_index. An antenna_index of 0 is the first antenna in 
         get_antenna_names()."""
         
         if antenna_index is None:
-            if antenna_ID is None:
-                raise LookupError("need either antenna_ID or antenna_index")
-            antenna_index = self.dipoleNames.index(antenna_ID)
-            
+            if antenna_name is None:
+                raise LookupError("need either antenna_name or antenna_index")
+            internal_name_index = self.dipoleNames.index(antenna_name)
+            antenna_index = self.name_adjusts.index( internal_name_index )
+
         antenna_index = self.index_adjusts[antenna_index] ##incase of polarization flips
             
         initial_point = self.sample_offsets[ antenna_index ] + start_index
@@ -1105,21 +1229,21 @@ class MultiFile_Dal1:
         if to_file is None:
             raise LookupError("do not have data for this antenna")
         TBB_file,station_antenna_index = to_file
-        antenna_ID = self.dipoleNames[ antenna_index ]
+        antenna_name = self.dipoleNames[ antenna_index ]
         
-        if final_point >= len( TBB_file.file[ TBB_file.stationKey ][ antenna_ID ] ):
-            print("WARNING! data point", final_point, "is off end of file", len( TBB_file.file[ TBB_file.stationKey ][ antenna_ID ] ))
+        if final_point >= len( TBB_file.file[ TBB_file.stationKey ][ antenna_name ] ):
+            print("WARNING! data point", final_point, "is off end of file", len( TBB_file.file[ TBB_file.stationKey ][ antenna_name ] ))
 
         try:
-            RET = TBB_file.file[ TBB_file.stationKey ][ antenna_ID ][initial_point:final_point]
+            RET = TBB_file.file[ TBB_file.stationKey ][ antenna_name ][initial_point:final_point]
 
-            if self.using_total_cal and (antenna_ID in self.total_cal.sign_flips):
+            if self.using_total_cal and (antenna_name in self.total_cal.sign_flips):
                 RET *= -1
 
         except BaseException as error:
 
             print('error reading HDF5 TBB file. file:',  TBB_file.filename)
-            print('   station', TBB_file.stationKey, 'ant ID', antenna_ID)
+            print('   station', TBB_file.stationKey, 'internal ant name', antenna_name)
             print('   init n final point', initial_point, final_point)
             print('   error msg:', repr(error) )
             print('RERAISING')

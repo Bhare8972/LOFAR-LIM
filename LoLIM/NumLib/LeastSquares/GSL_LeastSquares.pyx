@@ -120,7 +120,7 @@ cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
 
 
 
-cdef int call_F ( const gsl_vector * x,    void* data,   gsl_vector* F) :
+cdef int call_F ( const gsl_vector * x,    void* data,   gsl_vector* F) noexcept:
 
 
     cdef size_t Xn = x.size
@@ -148,7 +148,7 @@ cdef int call_F ( const gsl_vector * x,    void* data,   gsl_vector* F) :
 
 
 
-cdef int call_df ( const gsl_vector * x,    void* data,   gsl_matrix* J) :
+cdef int call_df ( const gsl_vector * x,    void* data,   gsl_matrix* J) noexcept:
 
     cdef size_t Xn = x.size
     cdef double[:] Xview = <double[:Xn]> x.data

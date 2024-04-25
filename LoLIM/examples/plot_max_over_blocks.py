@@ -13,14 +13,15 @@ from os.path import isdir
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/home/brian/KAP_data_link/lightning_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 if __name__ == "__main__":
-    timeID = "D20210618T174657.311Z"
+    timeID = "D20230713T110220.737Z"
     output_folder = "/max_over_blocks"
     block_size = 2**16
     
+    X_axis_is_time_from_second = False ## false gives block number
     
     processed_data_dir = processed_data_dir(timeID)
     
@@ -36,6 +37,7 @@ if __name__ == "__main__":
         
         #### open the data for this station ####
         TBB_data = MultiFile_Dal1( raw_fpaths[station] )
+        TBB_data_start_times = TBB_data.get_time_from_second(force_file_delays=True) ## only needed if X_axis_is_time_from_second
         
         num_antennas = len( TBB_data.get_antenna_names() )
         num_blocks = int( np.min(TBB_data.get_nominal_data_lengths()) /block_size ) ### note that this throws away the last partial data block
@@ -60,7 +62,16 @@ if __name__ == "__main__":
                     
                 data[block_i] = antenna_block_max
                 
-            plt.plot(data)
+
+            if X_axis_is_time_from_second:
+                t0 = TBB_data_start_times[antenna_i]
+                T = np.arange( num_blocks,dtype=np.double )
+                T *= block_size*(5.0e-9)
+                T += t0
+                plt.plot(T, data)
+
+            else:
+                plt.plot(data)
 #            plt.show()
         
         print("saving figure:", output_fpath+'/'+station+'.png')

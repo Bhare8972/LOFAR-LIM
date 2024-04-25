@@ -13,11 +13,11 @@ from LoLIM.read_pulse_data import  read_station_delays, read_antenna_pol_flips, 
 
 ## these lines are anachronistic and should be fixed at some point
 from LoLIM import utilities
-utilities.default_raw_data_loc = "/exp_app2/appexp1/public/raw_data"
-utilities.default_processed_data_loc = "/home/brian/processed_files"
+utilities.default_raw_data_loc = "/data/lightning_data"
+utilities.default_processed_data_loc = "/home/hare/processed_files"
 
 if __name__ == "__main__":
-    timeID = 'D20170929T202255.000Z'
+    timeID = "D20210605T055555.042Z"
     
     
     raw_fpaths = filePaths_by_stationName(timeID)

@@ -285,6 +285,7 @@ class total_cal_object:
 
 
 def read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=True):
+    """read Olaf's cal fill. HOWEVER: the cal file needs to be hand-modified to be read here. Ask Brian for details and hope he remembers"""
 
     def antSAI_to_antname( SAI ):
         if len(SAI)==9:
@@ -302,7 +303,17 @@ def read_olaf_file(fname, pol_flips_are_bad, unCalAnts_are_bad=True):
     RET.atmosphere = atmo.olaf_constant_atmosphere
     
     with open(fname) as fin:
-        version = fin.readline() ## version of type of file. Presently unused as we only have one version
+        firstline = fin.readline() ## version of type of file. Presently unused as we only have one version
+        firstline_data = firstline.split() ## first item is version
+        if len(firstline_data) > 1:
+            atmo_info = firstline_data[0]
+            if atmo_info == 'HeightCorrectIndxRef':
+                RET.atmosphere = atmo.olaf_varying_atmosphere
+            elif atmo_info == 'ConstIndxRef':
+                RET.atmosphere = atmo.olaf_constant_atmosphere ## may be redundeant
+
+
+
 
         mode = 1 ## 1 = antenna delays, 2 = station delays, 3 = bad antennas, 4 = sign flips 
         

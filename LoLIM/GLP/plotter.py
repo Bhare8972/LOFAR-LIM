@@ -47,6 +47,29 @@ def gen_olaf_cmap(num=256):
     RGBlist = [RGB(x) for x in np.linspace(0.05,0.95,num)]
     return colors.LinearSegmentedColormap.from_list( 'OlafOfManyColors', RGBlist, N=num)
 
+def gen_brian_cmap_modified(num=256):
+
+    def RGB(V):
+        cs = 0.9 + V*0.9
+        R = 0.5 + 0.5*np.cos( 2*3.14*cs )
+        G = 0.5 + 0.5*np.cos( 2*3.14*(cs+0.25)  )
+        B = 0.5 + 0.5*np.cos( 2*3.14*(cs+0.5) )
+
+        brightness = (R+G+B)/3.0
+        desired_brightness = 0.4
+
+        f = desired_brightness/brightness
+
+        R *= f
+        G *= f
+        B *= f
+
+        return R,G,B
+
+    RGBlist = [RGB(x) for x in np.linspace(0.0,1.0,num)]
+    return colors.LinearSegmentedColormap.from_list( 'BrianOfManyColors', RGBlist, N=num)
+
+
         
 
 ### TODO: make rebalancing x-y as part of coordinate system!
@@ -881,7 +904,38 @@ class DataSet_generic_PSE(DataSet_Type):
         self._ignore_time = False
         self.ignore_time_bounds = None
         self.display = True
-        
+
+
+    ### check lengths of things
+        L = len(X_array)
+        if len(Y_array) != L:
+            print('input Y_array is wrong length')
+            quit()
+        if len(Z_array) != L:
+            print('input Z_array is wrong length')
+            quit()
+        if len(T_array) != L:
+            print('input T_array is wrong length')
+            quit()
+        for name,data in min_filters.items():
+            if len(data)!=L:
+                print('data:', name, 'in min_filters is wrong length' )
+                quit()
+        for name,data in max_filters.items():
+            if len(data)!=L:
+                print('data:', name, 'in max_filters is wrong length' )
+                quit()
+        for name,data in color_options.items():
+            if len(data)!=L:
+                print('data:', name, 'in color_options is wrong length' )
+                quit()
+        for name,data in print_info.items():
+            if len(data)!=L:
+                print('data:', name, 'in print_info is wrong length' )
+                quit()
+
+
+    ### continue with some stuff
         self.X_array = X_array
         self.Y_array = Y_array
         self.Z_array = Z_array
@@ -1547,23 +1601,47 @@ class DataSet_generic_PSE(DataSet_Type):
         
         print()
         print()
+        
+        ##print header
+        print('ID X Y Z T', end='')
+        
+        for name, data in self.min_filters.items():
+            print("",name, end='')
+        for name, data in self.max_filters.items():
+            print("",name, end='')
+        for name, data in self.print_data.items():
+            print("",name, end='')
+        print()
+        
+        
         N = 0
         for i in range( len(self.X_array) ):
             if not (self.total_mask[i] and bool_workspace[i]):
                 continue
-            
-            print('source:', self.source_IDs[i])
-            print("  X:{:.2f} Y:{:.2f} Z:{:.2f} T:{:.10f}:".format( self.X_array[i], self.Y_array[i], self.Z_array[i], self.T_array[i]) )
-            j = np.sum(bool_workspace[:i])
-            print("  plot coords X, Y, Z, Zt, T", plotX[j], plotY[j], plotZ[j], plotZt[j], plotT[j])
+                
+            print(self.source_IDs[i], "{:.2f} {:.2f} {:.2f} {:.10f}".format( self.X_array[i], self.Y_array[i], self.Z_array[i], self.T_array[i]), end='')
             
             for name, data in self.min_filters.items():
-                print("  ",name, data[i])
+                print("",data[i],end='')
             for name, data in self.max_filters.items():
-                print("  ",name, data[i])
+                print("",data[i],end='')
             for name, data in self.print_data.items():
-                print("  ",name, data[i])
+                print("",data[i],end='')
             print()
+            
+            
+        #    print('source:', self.source_IDs[i])
+        #    print("  X:{:.2f} Y:{:.2f} Z:{:.2f} T:{:.10f}:".format( self.X_array[i], self.Y_array[i], self.Z_array[i], self.T_array[i]) )
+       #     j = np.sum(bool_workspace[:i])
+        #    print("  plot coords X, Y, Z, Zt, T", plotX[j], plotY[j], plotZ[j], plotZt[j], plotT[j])
+            
+      #      for name, data in self.min_filters.items():
+           #     print("  ",name, data[i])
+       #     for name, data in self.max_filters.items():
+       #         print("  ",name, data[i])
+       #     for name, data in self.print_data.items():
+       #         print("  ",name, data[i])
+       #     print()
             
             N +=1
         print(N, "source")
@@ -2810,6 +2888,9 @@ class linearSpline_DataSet(DataSet_Type):
             
         print()
         print('length:', length)
+
+    def get_lines(self):
+        return np.array(self.X_points), np.array(self.Y_points), np.array(self.Z_points)
         
     
     def clear(self):
@@ -4355,6 +4436,21 @@ class FigureArea(FigureCanvas):
             print(event.inaxes)
             print(event.xdata)
             print(event.ydata)
+            
+        elif (event.key == 'b') or (event.key == 'B'):
+            print('backing it UP!!')
+            
+            if len(self.previous_view_states)>0:
+                previous_state = self.previous_view_states.pop(-1)
+                X, Y, Z, Zt, T = previous_state.limits
+                
+                self.set_XY_lims(X[0], X[1], Y[0], Y[1])
+                self.set_Z_lims(Z[0], Z[1])
+                self.set_Zt_lims(Zt[0], Zt[1])
+                self.set_T_lims(T[0], T[1])
+                
+                self.replot_data()
+                self.draw()
         
     def key_release_event(self, event):
 #        print "key release:", event.key
@@ -4362,7 +4458,7 @@ class FigureArea(FigureCanvas):
             self.z_button_pressed = False
             
     def button_press_event(self, event):
-#        print "mouse pressed:", event
+        #print( "mouse pressed:", event )
         
         if event.button == 2 and len(self.previous_view_states)>0: ##middle mouse, back up
             previous_state = self.previous_view_states.pop(-1)
@@ -4491,6 +4587,7 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 #        self.coordinate_system = coordinate_system
 
 
+        self.DPI = 400
         self.plot_save_location = "./plot_save"
 
         #### menu bar ###
@@ -4529,6 +4626,8 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
         self.plot_settings_menu.addAction('&set label font size', self.set_labelSize_callback)
         self.plot_settings_menu.addAction('&set tick font size', self.set_tickFontSize_callback)
+
+        self.plot_settings_menu.addAction('&set DPI', self.setDPI)
 
         
         ## analysis
@@ -4851,15 +4950,15 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         
     def savePlot(self):
         output_fname = self.plot_save_location+".png"
-        self.figure_space.fig.savefig(output_fname, format='png')
+        self.figure_space.fig.savefig(output_fname, format='png', dpi=self.DPI)
         
     def savePlotSvg(self):
         output_fname = self.plot_save_location+".svg"
-        self.figure_space.fig.savefig(output_fname, format='svg')
+        self.figure_space.fig.savefig(output_fname, format='svg', dpi=self.DPI)
         
     def savePlotPdf(self):
         output_fname = self.plot_save_location+".pdf"
-        self.figure_space.fig.savefig(output_fname, format='pdf')
+        self.figure_space.fig.savefig(output_fname, format='pdf', dpi=self.DPI)
         
     def set_coordinate_system(self, index):
         CS = self.coordinate_systems[index]
@@ -4925,6 +5024,18 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
     def setAltvsTimeNumTicks(self):
         self.__set_ticks_( self.figure_space.set_altVtime_numTicks )
+
+
+    def setDPI(self):
+
+        try: 
+            inputTXT = float( self.variable_txtBox.text().strip() )
+            self.DPI = inputTXT
+
+            print('set DPI:', self.DPI)
+
+        except:
+            print('could not set DEP!')
 
 
 

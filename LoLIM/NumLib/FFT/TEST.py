@@ -2,7 +2,7 @@
 
 
 import numpy as np
-from LoLIM.FFT import complex_fft_obj
+from LoLIM.NumLib.FFT import complex_fft_obj
 
 def check_within(DATA, value, error):
     if np.any( DATA < (value-error) ):
@@ -12,7 +12,7 @@ def check_within(DATA, value, error):
     else:
         return True
 
-if __name__ == "__main__":
+def doTest():
     N = 100
 
     FFT_OBJ = complex_fft_obj( N )
@@ -37,3 +37,6 @@ if __name__ == "__main__":
     print('TEST3 (slicing)')
     print("  ", check_within( np.real(S[0]), 100, 0.1) and check_within(np.real(S[1:]), 0, 0.1) and check_within(np.imag(S), 0, 0.1))
     print("  ", check_within( np.real(B[1::2]), 2, 0.1) and check_within(np.imag(B[1::2]), 0, 0.1) )
+
+if __name__ == "__main__":
+    doTest()

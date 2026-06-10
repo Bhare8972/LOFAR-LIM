@@ -8,21 +8,25 @@ import numpy as np
 use_numpy = False
 try:
     from .GSL_FFT import GSL_complex_FFT
-except:
-    print("cannot import GSL FFT. Trying to compile")
+except Exception as e: 
+    print(e)
 
-    ## ths is a dumb way to this, but I don't know a better way
-    import subprocess
-    R1 = ['cython', '-a', 'GSL_FFT.pyx']
-    R2 = ['python3', 'setup_utils.py', 'build_ext', '--inplace'] ## this one is extra stupid
+    print("cannot import GSL FFT. Falling back on Numpy")
+    use_numpy = True
+    
+    # print("cannot import GSL FFT. Trying to compile")
+    # ## ths is a dumb way to this, but I don't know a better way
+    # import subprocess
+    # R1 = ['cython', '-a', 'GSL_FFT.pyx']
+    # R2 = ['python3', 'setup.py', 'build_ext', '--inplace'] ## this one is extra stupid
 
-    try:
-        subprocess.run(R1, capture_output=False, check=True)
-        subprocess.run(R2, capture_output=False, check=True)
-        from .GSL_FFT import GSL_complex_FFT
-    except:
-        print('cannot compile GSL FFT. Using Numpy instead')
-        use_numpy = True
+    # try:
+    #     subprocess.run(R1, capture_output=False, check=True)
+    #     subprocess.run(R2, capture_output=False, check=True)
+    #     from .GSL_FFT import GSL_complex_FFT
+    # except:
+    #     print('cannot compile GSL FFT. Using Numpy instead')
+    #     use_numpy = True
 
 
 class complex_fft_obj:

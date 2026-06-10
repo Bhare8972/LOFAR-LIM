@@ -4,6 +4,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from LoLIM.NumLib.LeastSquares import GSL_LeastSquares
+from scipy.optimize import least_squares
 
 
 
@@ -11,7 +12,7 @@ def model(X, time, f_out):
     A = X[0]
     L = X[1]
     B = X[2]
-
+    
     f_out[:] = time
     f_out *= -L
     np.exp(f_out, out=f_out)
@@ -24,14 +25,23 @@ class fit_tester:
         self.data = data
 
 
-    def objective_function(self, X, f_out, additional_info):
+    def objective_function(self, X, f_out=None, additional_info=None):
+
+        if f_out is None:
+            f_out = np.empty( len(self.T), dtype=np.double )
 
         model(X, self.T, f_out)
 
         f_out -= self.data
 
+        return f_out
 
-    def jacobian(self, X, J_out, additional_info):
+
+    def jacobian(self, X, J_out=None, additional_info=None):
+
+        if J_out is None:
+            J_out = np.empty( (len(self.T), len(X)), dtype=np.double )
+
         ##J[i,j] where i refers to the sample, and j to the parameter
         A = X[0]
         L = X[1]
@@ -51,6 +61,8 @@ class fit_tester:
 
         ## with respect to B
         J_out[:,2]  = 1
+
+        return J_out
 
 
 
@@ -80,13 +92,19 @@ if __name__ == "__main__":
 
 
     fitter = GSL_LeastSquares( 3, num_points, fitData.objective_function, fitData.jacobian )
+    fitter.set_TrustRegionMethod( 2 )
+    fitter.set_ScalingMethod( 1 )
+    fitter.set_SolvingMethod( 1 )
+
+    fitter.print_parameters()
+    print()
 
     guess_location = np.array([1.0, 1.0, 0.0])
     weights = np.array(  [  1/noise**2 ]*num_points )
     fitter.reset( guess_location, weights )
 
-    code, text = fitter.run(2, max_itters=1000, xtol=1e-50, gtol=1e-16, ftol=1e-16)
-    code, text = fitter.run(2, max_itters=1000, xtol=1e-50, gtol=1e-16, ftol=1e-16)
+    code, text = fitter.run(2, max_itters=10000, xtol=1e-50, gtol=1e-16, ftol=1e-16)
+    #code, text = fitter.run(2, max_itters=1000, xtol=1e-50, gtol=1e-16, ftol=1e-16)
     print(code, text)
 
     resultX = fitter.get_X()
@@ -94,11 +112,26 @@ if __name__ == "__main__":
     print('num_iters', fitter.get_num_iters() )
     print('rc2', fitter.get_reduced_chi_squared() )
 
+
+    fit_res = least_squares( fitData.objective_function, guess_location, jac=fitData.jacobian , method='lm', xtol=3.0E-16, ftol=3.0E-16, gtol=3.0E-16, x_scale='jac', max_nfev=1000)
+
+
+
+
     ModelResult = np.empty( num_points )
     model( resultX,  time, ModelResult)
 
+    CorrectModelResult = np.empty( num_points )
+    model( [correct_A, correct_L, correct_B],  time, CorrectModelResult)
+
+    SciPyResult = np.empty( num_points )
+    model( fit_res.x,  time, SciPyResult)
+
     plt.scatter( time, data )
-    plt.plot(time, ModelResult , 'r')
+    plt.plot(time, ModelResult , 'r' ,  label='fitted')
+    plt.plot(time, CorrectModelResult , 'g', label='correct')
+    plt.plot(time, SciPyResult , 'm', label='SciPyResult')
+    plt.legend()
     plt.show()
 
 

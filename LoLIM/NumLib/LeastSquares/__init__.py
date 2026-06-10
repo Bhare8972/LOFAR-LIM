@@ -14,16 +14,16 @@ use_numpy = False
 try:
     from .GSL_LeastSquares import GSL_LeastSquares
 except:
-    print("cannot import GSL LeastSquares. Trying to compile")
+    print("cannot import GSL LeastSquares")#. Trying to compile")
 
-    ## ths is a dumb way to this, but I don't know a better way
-    import subprocess
-    R1 = ['cython', '-a', 'GSL_LeastSquares.pyx']
-    R2 = ['python3', 'setup_utils.py', 'build_ext', '--inplace'] ## this one is extra stupid
+    # ## ths is a dumb way to this, but I don't know a better way
+    # import subprocess
+    # R1 = ['cython', '-a', 'GSL_LeastSquares.pyx']
+    # R2 = ['python3', 'setup.py', 'build_ext', '--inplace'] ## this one is extra stupid
 
-    try:
-        subprocess.run(R1, capture_output=False, check=True)
-        subprocess.run(R2, capture_output=False, check=True)
-        from .GSL_LeastSquares import GSL_LeastSquares
-    except:
-        print('cannot compile GSL LeastSquares.')
+    # try:
+    #     subprocess.run(R1, capture_output=False, check=True)
+    #     subprocess.run(R2, capture_output=False, check=True)
+    #     from .GSL_LeastSquares import GSL_LeastSquares
+    # except:
+    #     print('cannot compile GSL LeastSquares.')

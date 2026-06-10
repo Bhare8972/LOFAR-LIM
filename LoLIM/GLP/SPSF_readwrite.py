@@ -54,9 +54,24 @@ def format_to_functions( format_list ):
 #     return [ HELPER(f) for f in format_list ]
 
 
+def file_to_iterator(datafile, formats):
+    """given a datafile and list of formats, return an iterator over each row. Where each item is a list of space-seperated values formated according to formats"""
+
+    dataReadFuncs = format_to_functions(formats)
+
+    for line in datafile:
+        line_data = line.split()
+
+        D = [ dataReadFuncs[0](line_data[0]) ]  ## why is this first row special??
+        D += [ dataReadFuncs[i](line_data[i]) for i in range(1,len(formats)) ]
+
+        yield tuple(D)
+
+
 ## Use this class to read the data
+## in future, need to seperate file-reading to it's own functions!
 class pointSource_data:
-    def __init__(self, input_fname=None, read_all_pointsources=True):
+    def __init__(self, input_fname=None, read_all_pointsources=False):
         
 
         ## make an empty object. Fill it later if possible
@@ -71,7 +86,8 @@ class pointSource_data:
         self.collumn_dataFormats = None
         self.is_default_collumnFormat = None
         self.dtype = None
-        self.data = None
+        self.data_array = None ## this is a specifically formated numpy array. Is preferred if available
+        self.data_iterator = None ## an iterator where each item is a tuple, list, or array of values corresponding to each point
 
         ### in case we want an empty file. Usefull for data-injection reasons
         if input_fname is None:
@@ -79,6 +95,7 @@ class pointSource_data:
             return
 
 
+## this stuff should be elsewhere!!
         # if isinstance(input_fname, str):
         datafile = open(input_fname, 'r')
 
@@ -113,58 +130,70 @@ class pointSource_data:
 
 
 
-        self.datafile = datafile
-        self.dataReadFuncs = format_to_functions(self.collumn_dataFormats)
+        #self.datafile = datafile
+        #self.dataReadFuncs = format_to_functions(self.collumn_dataFormats)
+        self.data_iterator = file_to_iterator( datafile, self.collumn_dataFormats )
         if read_all_pointsources:
             self.get_data()
 
 
     def get_data(self):
-        if self.data is None:
+        if self.data_array is None:
             if self.max_num_data is not None:
                 next_data_I = 0
-                self.data = np.empty( self.max_num_data, dtype=self.dtype )
+                self.data_array = np.empty( self.max_num_data, dtype=self.dtype )
             else:
                 data_tmp = []
 
 
-            for line in self.datafile:
-                line_data = line.split()
+            #for line in self.datafile:
+            #    line_data = line.split()
 
-                D = [ self.dataReadFuncs[0](line_data[0]) ]
-                D += [ self.dataReadFuncs[i](line_data[i]) for i in range(1,len(self.collums_headings)) ]
-                D = tuple(D)
+            #    D = [ self.dataReadFuncs[0](line_data[0]) ]
+            #    D += [ self.dataReadFuncs[i](line_data[i]) for i in range(1,len(self.collums_headings)) ]
+            #    D = tuple(D)
+
+
+            for D in self.data_iterator:
 
                 if self.max_num_data is not None:
-                    self.data[ next_data_I ] = D
+                    self.data_array[ next_data_I ] = D
                     next_data_I += 1
                 else:
                     data_tmp.append( D )
 
             if self.max_num_data is None:
-                self.data = np.array( data_tmp, dtype= self.dtype )
+                self.data_array = np.array( data_tmp, dtype= self.dtype )
             else:
-                self.data = self.data[:next_data_I]
+                self.data_array = self.data_array[:next_data_I]
 
-        return self.data
+        return self.data_array
 
     def iterdata(self):
-        if self.data is None:
 
-            for line in self.datafile:
-                line_data = line.split()
-
-                D = [ self.dataReadFuncs[0](line_data[0]) ]
-                D += [ self.dataReadFuncs[i](line_data[i]) for i in range(1,len(self.collums_headings)) ]
-
-                yield D
-
-        else:
-            for d in self.data:
-                yield  d
+        i = self.data_iterator if self.data_array is None else self.data_array
+        for d in i:
+            yield  d
 
 
-    def write_to_file(self, out_fname):
+        #if self.data_array is None:
+
+        #    yield self.data_iterator
+
+            #for line in self.datafile:
+                #line_data = line.split()
+
+            #    D = [ self.dataReadFuncs[0](line_data[0]) ]
+            #    D += [ self.dataReadFuncs[i](line_data[i]) for i in range(1,len(self.collums_headings)) ]
+
+            #    yield D
+
+        #else:
+        #    for d in self.data_array:
+        #        yield  d
+
+
+    def write_to_file(self, out_fname, format_strings=None):
         fout = open(out_fname, 'w')
 
         if self.version is None:
@@ -205,13 +234,15 @@ class pointSource_data:
             fout.write('\n')
 
         if self.max_num_data is not None:
-            if self.data is not None:
+
+            towrite = self.max_num_data
+            if self.data_array is not None:
                 towrite = max(self.max_num_data, len(self.data) )
 
             fout.write('! max_num_data ')
             fout.write( str(towrite) )
             fout.write( '\n' )
-        elif self.data is not None:
+        elif self.data_array is not None:
 
             fout.write('! max_num_data ')
             fout.write( str( len(self.data) ) )
@@ -232,21 +263,35 @@ class pointSource_data:
         fout.write('\n')
 
         ## WRITE DATA!!
-        if self.data is not None:
-            for point in self.data:
+        if format_strings is not None:
+
+            for point in self.iterdata():
+                for d,fs in zip(point,format_strings):
+
+                    if fs is None:
+                        fout.write( str(d) )
+                        fout.write(' ')
+                    else:
+                        formater = '{0:'+fs+'}'
+                        fout.write( formater.format( d ) )
+                        fout.write(' ')
+
+                fout.write('\n')
+        else:
+            for point in self.iterdata():
                 for d in point:
                     fout.write( str(d) )
                     fout.write(' ')
-                fout.write('\n')
 
-  
+                fout.write('\n')
 
 
 ## this function is to make a new SPSF dataset       
 def make_SPSF_from_data(timeID, collumn_names, data_iterator, data_format=None, extra_notes=None, comments=None):
     """give a timeID (as string), collumn names (list of strings), and a data iterator.
-    each item of teh data iterator should be a 1D iterator that can be cast to tuple. Each item should correspond, in order, to the collums.
-    Note the first six collums shoudl be defined according to teh SPSF format, which is not checked! (first is cast to int, following ones are cast to double)
+    Returns a pointSource_data object.
+    Each item of the data iterator should be a 1D iterator that can be cast to tuple. Each item should correspond, in order, to the collums.
+    Note the first six collums should be defined according to the SPSF format, which is not checked! (first is cast to int, following ones are cast to double)
     This function then returns a SPSF object
     data_format should be None, or a list same length as collumn_names. Each item describes type of collumn. Options are 'i', 'd', 's' for integer, double, and string
     extra_notes should be a dictionary of lists of stings.
@@ -265,21 +310,29 @@ def make_SPSF_from_data(timeID, collumn_names, data_iterator, data_format=None, 
         new_SPSF.is_default_collumnFormat = False
         new_SPSF.collumn_dataFormats = data_format
 
+    if comments is None:
+        comments = []
+
+    if extra_notes is None:
+        extra_notes = {}
+
 
     new_SPSF.dtype = np.dtype({'names': new_SPSF.collums_headings, 'formats': format_to_dtypes( new_SPSF.collumn_dataFormats)  })
-    new_SPSF.dataReadFuncs = format_to_functions(new_SPSF.collumn_dataFormats)
+    #new_SPSF.dataReadFuncs = format_to_functions(new_SPSF.collumn_dataFormats)
 
-    data_tmp = []
-    for item in data_iterator:
-        pointData = list( item )
+    #data_tmp = []
+    #for item in data_iterator:
+    #    pointData = list( item )
 
-        D = [  new_SPSF.dataReadFuncs[0](pointData[0])]
-        D += [ new_SPSF.dataReadFuncs[i](pointData[i]) for i in range(1, len(new_SPSF.collums_headings))]
-        D = tuple(D)
+    #    D = [  new_SPSF.dataReadFuncs[0](pointData[0])]
+    #    D += [ new_SPSF.dataReadFuncs[i](pointData[i]) for i in range(1, len(new_SPSF.collums_headings))]
+     #   D = tuple(D)
 
-        data_tmp.append(D)
+    #    data_tmp.append(D)
 
-    new_SPSF.data = np.array(data_tmp, dtype=new_SPSF.dtype)
+    #new_SPSF.data = np.array(data_tmp, dtype=new_SPSF.dtype)
+    new_SPSF.data_iterator = data_iterator
+
     new_SPSF.comments = comments
     new_SPSF.notes = extra_notes
 

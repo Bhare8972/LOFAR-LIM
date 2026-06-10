@@ -4948,8 +4948,11 @@ class Active3DPlotter(QtWidgets.QMainWindow):
     def fileQuit(self):
         self.close()
         
-    def savePlot(self):
-        output_fname = self.plot_save_location+".png"
+    def savePlot(self, saveLoc=None):
+        if saveLoc is None:
+            output_fname = self.plot_save_location
+        else:
+            output_fname = saveLoc
         self.figure_space.fig.savefig(output_fname, format='png', dpi=self.DPI)
         
     def savePlotSvg(self):

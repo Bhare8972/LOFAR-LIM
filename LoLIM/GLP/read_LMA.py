@@ -10,8 +10,10 @@ import datetime
 
 
 ### some initial functions and info
-ITRFCS002 = np.array([3826577.06611,   461022.947639,   5064892.786   ]) ## CS002 location in ITRF coordinates
+ITRFCS002 = None ## not sure this is right?   #np.array([3826577.06611,   461022.947639,   5064892.786   ]) ## CS002 location in ITRF coordinates
 latlonCS002 = np.array([52.91512249, 6.869837540]) ## lattitude and longitude of CS002 in degrees
+
+RTD = 180/np.pi
 
 
 def geoditic_to_ITRF(latLonAlt):
@@ -40,7 +42,7 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     ================== ==============================================
     Argument           Description
     ================== ==============================================
-    *itrfpos*          an ITRF position as 1D numpy array, or list of positions as a 2D array
+    *itrfpos*          an ITRF position as 1D numpy array, or list of positions as a 2D array. Note is transposed from output of geoditic_to_ITRF
     *phase_center*     the origin of the coordinate system, in ITRF. Default is CS002.
     *reflatlon*        the rotation of the coordinate system. Is the [lat, lon] (in degrees) on the Earth which defines "UP"
     
@@ -62,6 +64,8 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     else:
         ret = out
     
+    print( itrfpos.shape, arg0.shape)
+
     ret[:]  = np.outer(itrfpos[...,0]-phase_center[0], arg0 )
     ret += np.outer(itrfpos[...,1]-phase_center[1], arg1 )
     ret += np.outer(itrfpos[...,2]-phase_center[2], arg2 )

@@ -51,6 +51,14 @@ if __name__=="__main__":
 						print( current_obj.attrs[ c_list[0] ] )
 
 
+			elif words[0] == 'all_attrs':
+				for k, v in current_obj.attrs.items():
+					print('attr key:', k)
+					print('   value:', v)
+
+				print()
+
+
 			elif words[0] == 'name':
 				print('current name:', current_obj.name)
 
@@ -99,6 +107,8 @@ if __name__=="__main__":
 				print('  attr [name] [c]')
 				print('    Print names of all attributes of current object. If followed by name of an attribute, then that attribute will be printed.')
 				print('      If there is a third argument that \'c\', then attribute will be guessed based on partial naming.')
+				print('  all_attrs')
+				print('     Prints names and values of all attributes.')
 				print('  name')
 				print('    Print name of current object')
 				print('  parent')

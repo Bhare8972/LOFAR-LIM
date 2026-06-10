@@ -9,6 +9,7 @@ from os.path import isdir, dirname, abspath
 
 import os
 import subprocess
+from datetime import datetime
 
 import weakref
 
@@ -50,15 +51,18 @@ class logger(object):
             logger.out_file.flush()
     
     
-    def __init__(self):
+    def __init__(self, fname=None, to_screen=True):
         
         self.has_stderr = False
         self.has_stdout = False
         
         self.old_stderr = sys.stderr
         self.old_stdout = sys.stdout
+
+        if fname is None:
+            fname="out_log"
         
-        self.set("out_log")
+        self.set(fname, to_screen)
         
     def set(self, fname, to_screen=True):
         self.out_file = open(fname, 'w')
@@ -110,12 +114,105 @@ class logger(object):
     def flush(self):
         self.out_file.flush()
             
-#    def __del__(self):
-#        self.restore_stderr()
-#        self.restore_stdout()
+    def __del__(self):
+        self.restore_stderr()
+        self.restore_stdout()
         
 #log = logger()
         
+
+#### this is a useful class to make JSON data more accsesable.
+
+## encoder allows for dumping of numpy arrays, and it will test if class has methods _toJSON 
+## USE: json.dumps( data , cls=JSON_CustomEncoder)  
+
+## note:   _toJSON ought to return a dictionary of jsonable-objects. One key must be _type, and object must be a unique name of the object type. 
+## and _fromJSON ought to take that dictionary and return the reconstructed object
+
+
+## decoder use: out = json.load( fp=open('tst1.txt', 'r'), cls=utils.JSON_CustomDecoder_maker( [encodeable] ) )
+## where encodeable os the clase
+
+
+## this info needs updating
+
+import json
+import io
+class JSON_CustomEncoder(json.JSONEncoder):
+    """ allow dumping numpy ndarrays, and objects with a _toJSON method.""" 
+
+    def default(self, obj):
+
+        if  getattr(obj, "_toJSON", None) is not None:
+            return obj._toJSON()
+
+        elif isinstance(obj, np.ndarray):
+
+            memfile = io.BytesIO()
+            np.save(memfile, obj, allow_pickle=False)
+            serialized = memfile.getvalue().decode('latin-1')
+
+            return { '_type':'np.ndarray', 'data':serialized }
+
+        elif isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.bool_):
+            return bool(obj)
+
+        else:
+            return super(JSON_CustomEncoder, self).default(obj)
+
+
+def JSON_CustomDecoder_maker( decodeables=[] ):
+
+
+
+    class JSON_CustomDecoder(json.JSONDecoder):
+
+        list_of_decodable_objects = {}
+
+        #@classmethod
+        #def registerDecodeable(cls, decodeable):
+            #JSON_CustomDecoder.list_of_decodable_objects[ decodeable.getJSON_type() ] = decodeable
+
+
+
+        def __init__(self, *args, **kwargs):
+
+            json.JSONDecoder.__init__(self, object_hook=self.object_hook, *args, **kwargs)
+
+        def object_hook(self, obj):
+            if '_type' not in obj:
+                return obj
+
+            type = obj['_type']
+
+            if type == 'np.ndarray':
+                data = obj['data']
+
+                memfile = io.BytesIO()
+                memfile.write(data.encode('latin-1'))
+
+                memfile.seek(0)
+                return np.load(memfile)
+
+            elif type in JSON_CustomDecoder.list_of_decodable_objects:
+                return JSON_CustomDecoder.list_of_decodable_objects[type]._fromJSON( obj )
+
+            else:
+                return obj
+
+
+    JSON_CustomDecoder.list_of_decodable_objects = {  d.getJSON_type():d for d in decodeables }
+
+    return JSON_CustomDecoder
+
+
+
+
+
 def iterate_pairs(list_one, list_two, list_one_avoid=[], list_two_avoid=[]):
     """returns an iterator that loops over all pairs of the two lists"""
     for item_one in list_one:
@@ -141,12 +238,18 @@ def Fname_data(Fpath):
     Fname = Fpath.split('/')[-1]
     data = Fname.split('_')
     timeID = data[1]
-    station_name = data[2]
+    station_name = data[2].upper()
     
-    if len(data[3][1:])==0:
-        file_number = 0
-    else:
-        file_number = int(data[3][1:])
+    try:  ## this works for L1
+        if len(data[3][1:])==0:
+            file_number = 0
+        else:
+            file_number = int(data[3][1:])
+    except:  ## this should work for L2
+        if len(data[4][1:])==0:
+            file_number = 0
+        else:
+            file_number = int(data[4][1:])
     
     return timeID, station_name, Fpath, file_number
 
@@ -155,11 +258,39 @@ def Fname_data(Fpath):
 ## the timeID is used to uniquely identify triggers
 
 def get_timeID(fname):
-    data=fname.split("_")
-    return data[1]
+    data = fname.split("_")[1]
+    #if not include_subseconds:
+    #    data = data.split('.')[0]
+    return data
 
 def year_from_timeID(timeID):
     return timeID[1:5]
+
+def month_from_timeID(timeID):
+    return timeID[5:7]
+
+def day_from_timeID(timeID):
+    return timeID[7:9]
+
+def hour_from_timeID(timeID):
+    return timeID[10:12]
+
+def datetimeObject_from_timeID(timeID, include_subsecond=True):
+
+    year = year_from_timeID(timeID)
+    month = month_from_timeID(timeID)
+    day = day_from_timeID(timeID)
+    hour = hour_from_timeID(timeID)
+    minute = timeID[12:14]
+    second = timeID[14:16]
+
+    milliseconds = 0
+    if ('.' in timeID) and datetime:
+        milliseconds = timeID[17:20]
+
+    return datetime(int(year), int(month), int(day), int(hour), int(minute), int(second), microsecond = 1000*int(milliseconds))
+    
+
 
 def raw_data_dir(timeID, data_loc=None):
     """gives path to the raw data folder for a particular timeID, given location of data structure. Defaults to  default_raw_data_loc"""
@@ -174,8 +305,8 @@ def raw_data_dir(timeID, data_loc=None):
     return path
 
 
-from LoLIM.LOFARFlashData import TimeID_to_FlashName
-def processed_data_dir(timeID, data_loc=None):
+#from LoLIM.LOFARFlashData import TimeID_to_FlashName
+def processed_data_dir(timeID, data_loc=None, flashName=None):
     """gives path to the analysis folders for a particular timeID, given location of data structure. Defaults to  default_processed_data_loc.
     Throws error is dir does not exist. will check if directory is timeID or flash name"""
     
@@ -185,16 +316,16 @@ def processed_data_dir(timeID, data_loc=None):
             print("ERROR: 'default_processed_data_loc' in utilities is not set.")
             quit()
     
-    path=data_loc + "/" + year_from_timeID(timeID)+"/"+timeID
+    year = year_from_timeID(timeID)
+    path = os.path.join( data_loc, year, timeID)
+    if (not isdir(path)) and (flashName is not None):
+        #flashName = TimeID_to_FlashName( timeID )
+        path = os.path.join( data_loc, year, flashName)
+
     if not isdir(path):
-        flashName = TimeID_to_FlashName( timeID )
-        path=data_loc + "/" + year_from_timeID(timeID)+"/"+flashName
-
-
-        if not isdir(path):
-            print( "Folder '"+path + "' does not exist." )
-            print(  "  in  processed_data_dir")
-            quit()
+        print( "Folder '"+path + "' does not exist." )
+        print(  "  in  processed_data_dir")
+        quit()
 
     return path
 
@@ -284,30 +415,38 @@ SId_to_Sname[208] = "UK608"
 ## this just "inverts" the previous list, discarding unused values
 Sname_to_SId_dict = {name:ID for ID,name in enumerate(SId_to_Sname) if name is not None}
 
-def even_antName_to_odd(even_ant_name):
-    even_num = int(even_ant_name)
-    odd_num = even_num + 1
-    return str( odd_num ).zfill( 9 )
+# def even_antName_to_odd(even_ant_name):
+#     even_num = int(even_ant_name)
+#     odd_num = even_num + 1
+#     return str( odd_num ).zfill( 9 )
 
-def antName_is_even(ant_name):
-    return not int(ant_name)%2
+# def antName_is_even(ant_name):
+#     return not int(ant_name)%2
 
-def odd_antName_to_even(odd_ant_name):
-    odd_num = int(odd_ant_name)
-    even_num = odd_num - 1
-    return str( even_num ).zfill( 9 )
+# def odd_antName_to_even(odd_ant_name):
+#     odd_num = int(odd_ant_name)
+#     even_num = odd_num - 1
+#     return str( even_num ).zfill( 9 )
 
-def antName_to_even(ant_name):
-    if antName_is_even(ant_name):
-        return ant_name
+# def antName_to_even(ant_name):
+#     if antName_is_even(ant_name):
+#         return ant_name
+#     else:
+#         return odd_antName_to_even( ant_name )
+
+# def antName_to_odd(ant_name):
+#     if antName_is_even(ant_name):
+#         return even_antName_to_odd( ant_name )
+#     else:
+#         return ant_name
+
+
+
+def antName_to_station(antName):
+    if antName[0]=='D':
+        return antName[7:12]  ## like DIPOLE_CS001_LBA44Y
     else:
-        odd_antName_to_even( ant_name )
-
-def antName_to_odd(ant_name):
-    if antName_is_even(ant_name):
-        even_antName_to_odd( ant_name )
-    else:
-        return ant_name
+        return SId_to_Sname[ int(antName[:3]) ]
     
 
 #### plotting utilities ####

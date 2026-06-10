@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from scipy.signal import gaussian
-from scipy.signal import hann
+
+try:
+    from scipy.signal.windows import gaussian
+except:
+    from scipy.signal import gaussian
+
+try:
+    from scipy.signal.windows import hann
+except:
+    from scipy.signal import hann
+
 from scipy import fftpack
 
 from matplotlib import pyplot as plt
@@ -34,8 +43,9 @@ def block_bandpass(frequencies, lower_freq=30.0E6, upper_freq=80.0E6):
 
 
     
-def half_hann_window(length, half_percent=None, hann_window_length=None):
-    """produce a half-hann window. Note that this is different than a Hamming window."""
+def half_hann_window(length, half_percent=None, hann_window_length=None, return_windowSize=False):
+    """produce a half-hann window. Note that this is different than a Hamming window.
+    is actually a Tukey window. """
     if half_percent is not None:
         hann_window_length = int(length*half_percent)
     hann_window = hann(2*hann_window_length)
@@ -44,7 +54,10 @@ def half_hann_window(length, half_percent=None, hann_window_length=None):
     half_hann_widow[:hann_window_length] = hann_window[:hann_window_length]
     half_hann_widow[-hann_window_length:] = hann_window[hann_window_length:]
     
-    return half_hann_widow
+    if return_windowSize:
+        return half_hann_widow, hann_window_length
+    else:
+        return half_hann_widow
 
 
 class upsample_and_correlate:
@@ -639,16 +652,17 @@ def plot_spans(spans, Y=0, T_array=None, color=None):
     
             
 
-def FFT_time_shift(frequencies, FFT_data, dt, out=None):
+def FFT_time_shift(frequencies, FFT_data, dt, tmp_array=None):
     """given some frequency dependent data, apply a positive time-shift dt. Operates
-    on the data in-place """
-    if out is None:
-        A = frequencies*(-2j*np.pi*dt)
-    else:
-        A[:] = frequencies
-        A *= (-2j*np.pi*dt)
+    on the data in-place. tmp_array, if given, needs to be same length and complex-valued; otherwise it is allocated """
 
-    FFT_data *= np.exp( A, out=A )
+    if tmp_array is None:
+        tmp_array = np.empty(len(tmp_array),dtype=complex)
+
+    tmp_array[:] = frequencies
+    tmp_array *= (-2j*np.pi*dt)
+
+    FFT_data *= np.exp( tmp_array, out=tmp_array )
     
 def make_stokes(X, Y):
     """given complex electric fields in X and Y direction (can be numpy arrays), return I, Q, U, and V"""

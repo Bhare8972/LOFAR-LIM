@@ -153,6 +153,11 @@ class aartfaac_LBA_model:
     
     def get_LNA_filter(self):
         """given the antenna mode, return two things. First is np.array of indecies of LNAs that are on, second is np.array of LNAs that are off"""
+
+
+        if self.antenna_mode == 'all':
+            return range(len(AARFAACC_X_locations)), np.array([], dtype=int)
+
         
         station_ant_positions = []
         for station in ['CS002', 'CS003', 'CS004', 'CS005', 'CS006', 'CS007']:
@@ -373,6 +378,9 @@ class aartfaac_LBA_model:
         elif self.antenna_mode == "LBA_INNER":
             start_i = 0
             end_i = 576
+        elif self.antenna_mode == 'all':
+            start_i = 0
+            end_i = 576*2
         else:
             print("unknown mode:", self.antenna_mode )
     
@@ -657,7 +665,7 @@ class SphHarm_antModel:
 
                 t = J11
                 J11 = J00/det
-                J00 = J11/det
+                J00 = t/det
 
                 J01 *= -1/det
                 J10 *= -1/det
@@ -826,21 +834,102 @@ class tri_linear_model:
                     J10 = return_matrices[fi, 1, 0]
                     J11 = return_matrices[fi, 1, 1]
 
-                    det = J00 * J11 - J01 * J10
+                    det = (J00 * J11) - (J01 * J10)
 
-                    t = J11
-                    J11 = J00 / det
-                    J00 = J11 / det
+                    IJ00 =  J11/det
+                    IJ01 = -J01/det
+                    IJ10 = -J10/det
+                    IJ11 =  J00/det
 
-                    J01 *= -1 / det
-                    J10 *= -1 / det
-
-                    return_matrices[fi, 0, 0] = J00
-                    return_matrices[fi, 0, 1] = J01
-                    return_matrices[fi, 1, 0] = J10
-                    return_matrices[fi, 1, 1] = J11
+                    return_matrices[fi, 0, 0] = IJ00
+                    return_matrices[fi, 0, 1] = IJ01
+                    return_matrices[fi, 1, 0] = IJ10
+                    return_matrices[fi, 1, 1] = IJ11
 
         return return_matrices
+
+
+def JonesMatrix_3D( antModel,  frequencies, source_XYZ_relAnt, inverse=False, out=None, ret2D_antFunc=False):
+    """ return a 3x3 matrix (called AF) as a function of frequency (shape = len(frequencies), 3, 3, dtype=complex), such that AF*(E_x, E_y, E_z) = (A_x, A_y, zero). That is, if the matrix is dotted with the 3D E-field, 
+    it returns the voltage on the x antenna, Y antenna, and zeros."""
+
+    ant_to_source_XYZ = np.array( source_XYZ_relAnt )
+
+    ### first get ant function
+    if out is None:
+        out = np.zeros( (len(frequencies),3,3), dtype=complex )
+    else:
+        out[:] = 0.0
+    sub_mat = out[:,:2,:2]
+
+    rho = np.sqrt( ant_to_source_XYZ[0]**2  +  ant_to_source_XYZ[1]**2 )
+    zenith = np.arctan2(rho , ant_to_source_XYZ[2] )
+    azimuth = np.arctan2( ant_to_source_XYZ[1], ant_to_source_XYZ[0] )
+
+    antModel.Jones_Matrices(frequencies, zenith*RTD, azimuth*RTD, freq_fill=0.0, invert=inverse, out=sub_mat)
+    ## out:  when dotted with E [zenith, azimuth, zero], will return [V_x, V_y, zero]
+
+    if ret2D_antFunc:
+        AntFunc2D = np.array(sub_mat)
+
+        # print('ze az', zenith*RTD, azimuth*RTD, inverse)
+        # fi = np.argmin(np.abs( frequencies-58e6 ))
+        # print('f', frequencies[fi])
+        # print(sub_mat[fi])
+
+
+        # antModel.Jones_Matrices(frequencies, zenith*RTD, azimuth*RTD, freq_fill=0.0, invert=not inverse, out=sub_mat)
+        # print('no inverse')
+        # print(sub_mat[fi])
+        # print('COND', np.linalg.cond(sub_mat[fi]))
+        # print(np.linalg.inv(sub_mat[fi]) )
+
+        # quit()
+    
+
+    ## now convert   ze, az, r   to   northing, easting , up
+    ## I don't know how to do this, so we do it the hard way and construct it from unit vectors
+    r_hat = ant_to_source_XYZ/np.linalg.norm( ant_to_source_XYZ )
+    z_hat = np.array([0,0,1])
+    az_hat = np.cross(z_hat, r_hat)
+    az_hat = az_hat/np.linalg.norm(az_hat)
+    ze_hat = np.cross(az_hat, r_hat)
+    ze_hat = ze_hat/np.linalg.norm(ze_hat)
+
+    if not (np.all( np.isfinite(az_hat) ) and np.all( np.isfinite(ze_hat) ) ):
+        #az_hat = np.array([1.0,0,  0])
+        #ze_hat = np.array([0,1.0,  0])
+        az_hat = np.array([0,1.0,  0])
+        ze_hat = np.array([1.0,0,  0])
+
+    M = np.array( [ ze_hat, az_hat, r_hat ] )
+    ## when dotted with E-field in terms of [northing, easting, altitude], will return [zentih, azimuth,radius]
+
+
+    if inverse:
+        M_inv = np.linalg.inv(M)
+
+    for fi in range(len(frequencies)):
+
+        if inverse:
+            out[fi,:,:] = np.dot( M_inv, out[fi], out=out[fi] )
+            #out[fi,:,:] = np.linalg.pinv( out[fi,:,:] )
+        else:
+            out[fi,:,:] = np.dot(out[fi], M, out=out[fi])
+
+
+    if ret2D_antFunc:
+        return AntFunc2D, out
+    else:
+        return out
+
+
+
+
+
+
+
+
 
 # class calibrated_AARTFAAC_model:
 #     """returns the AARTFAAC model multiplied by katies cal."""

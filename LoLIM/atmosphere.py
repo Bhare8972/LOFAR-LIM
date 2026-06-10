@@ -13,6 +13,22 @@ class base_atmosphere:
         """given an emission location, and antenna location, give effective speed of light. If antenna_XYZs is 2D[i,j], than i should be an antenna index, and j should be 0,1,2 (x,y,z)"""
         return C
 
+    @staticmethod
+    def from_JSONable_object( jsonable_dictionary ):
+        atmo_type = jsonable_dictionary['atmo_type']
+
+        if atmo_type == 'simple':
+            return simple_atmosphere.simpleAtmo_from_JSONable_object( jsonable_dictionary )
+        elif atmo_type == 'corsika':
+            return corsika_atmosphere.corsikaAtmo_from_JSONable_object( jsonable_dictionary )
+        else:
+            raise NotImplementedError("Atmosphere type unknown: "+atmo_type)
+
+
+    def to_JSONable_object(self):
+        raise NotImplementedError("Atmosphere object not yet jsonable")
+
+
 class simple_atmosphere( base_atmosphere ):
     """ a constant speed of light."""
     def __init__(self, v_air):
@@ -22,10 +38,17 @@ class simple_atmosphere( base_atmosphere ):
         """given an emission location, and antenna location, give effective speed of light."""
         return self.v_air
 
+    @staticmethod
+    def simpleAtmo_from_JSONable_object( jsonable_dictionary ):
+        return simple_atmosphere( jsonable_dictionary['v_air'] )
+
+    def to_JSONable_object(self):
+        return {'atmo_type':'simple', 'v_air':self.v_air}
+
+
+
 default_atmosphere = simple_atmosphere( C/1.000293 )
 olaf_constant_atmosphere = simple_atmosphere( 299792458.0/1.0003 )
-
-
 
 
 class corsika_atmosphere( base_atmosphere ):
@@ -103,6 +126,13 @@ class corsika_atmosphere( base_atmosphere ):
        #   RefracIndex=xi(i)*(i+1.-hi) + xi(i+1)*(hi-i)
        # Else
        #   RefracIndex=Xi(0)
+
+    @staticmethod
+    def corsikaAtmo_from_JSONable_object( jsonable_dictionary ):
+        return corsika_atmosphere(  )
+
+    def to_JSONable_object(self):
+        return {'atmo_type':'corsika'}
 
 
 

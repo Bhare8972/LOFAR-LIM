@@ -291,7 +291,40 @@ def convertPhase_to_Timing(phase_calibration, sample_time=5.0e-9):
     delays = (phases[:, 1] - phases[:, 0]) * (1024 / (2*np.pi)) * sample_time ## this just finds the slope from the first two points. Are there better methods?
     ### TODO: add a conditional that takes different points if the slope is too large
     return delays
+
+import matplotlib.pyplot as plt
     
+def convertPhase_to_Timing_LinFit(phase_calibration):
+    """Given the phase calibration of the 512 LOFAR subbands, such as the output of getStationPhaseCalibration, return the timing callibration of each antenna. 
+    Not sure how well this works with HBA antennas. Sample time should be seconds per sample. Default is 5 ns.
+    Slightly more complex than convertPhase_to_Timing in that it does a linear fit. It returns phase at frequency zero in units of radians, and delay in units of s."""
+
+    df = 195312.5  ## offset between subbands in [Hz]
+    f0 = 0  ## lowest frequency is 0 Mhz  This will not always be true
+
+
+    phases = np.unwrap( np.angle(phase_calibration) )
+
+    F = np.arange(len(phase_calibration), dtype=float)
+    F *= df 
+    F += f0
+
+    fitVals, residuals, rank, singular_values, cond = np.polyfit(F, phases, deg=1, rcond=None, full=True, w=None, cov=False)
+
+
+    if residuals[0]>1e-8:  ## if sum of square residuals is large, we have a problem
+        print('problem in md.convertPhase_to_Timing_LinFit')
+        quit()
+
+    return fitVals[1], fitVals[0]/(2*np.pi)   ## 0-frequency offset in [radians], and the slope in [s]
+
+
+
+
+
+
+
+    #return delays
 
 
 #def getStationGainCalibration(station, antennaset, file_location=None):
@@ -703,7 +736,7 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     ================== ==============================================
     Argument           Description
     ================== ==============================================
-    *itrfpos*          an ITRF position as 1D numpy array, or list of positions as a 2D array
+    *itrfpos*          a single ITRF position as 1D numpy array, or list of positions as a 2D array
     *phase_center*     the origin of the coordinate system, in ITRF. Default is CS002.
     *reflatlon*        the rotation of the coordinate system. Is the [lat, lon] (in degrees) on the Earth which defines "UP"
     
@@ -730,6 +763,19 @@ def convertITRFToLocal(itrfpos, phase_center=ITRFCS002, reflatlon=latlonCS002, o
     ret += np.outer(itrfpos[...,2]-phase_center[2], arg2 )
     
     return ret
+
+def get_ITRFToLocal_matrix(reflatlon=latlonCS002):
+    """return the transformation matrix used by convertITRFToLocal. That if dotted with ITRF XYZ vector (after subtracing off phase center) will return local coordinates"""
+
+
+    lat = reflatlon[0]/RTD
+    lon = reflatlon[1]/RTD
+
+    return np.array([
+        [-np.sin(lon),                np.cos(lon),               0.0],
+        [-np.sin(lat)*np.cos(lon),   -np.sin(lat)*np.sin(lon),   np.cos(lat)],
+        [ np.cos(lat)*np.cos(lon),    np.cos(lat)*np.sin(lon),   np.sin(lat)],
+        ], dtype=float) 
     
 def geoditic_to_ITRF(latLonAlt):
     """for a latLonAlt in degrees, (can be list of three numpy arrays), convert to ITRF coordinates. Using information at: https://en.wikipedia.org/wiki/Geographic_coordinate_conversion#Geodetic_to/from_ENU_coordinates and 

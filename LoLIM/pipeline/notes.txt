@@ -1,0 +1,30 @@
+ou open your long-running process and keep a pipe to it. So you expect to talk to it. When yor launcher script exits, you can no longer talk to it. The long-running process receives a SIGPIPE and exits.
+
+The following just worked for me (Linux, Python 2.7).
+
+Create a long-running executable:
+
+$ echo "sleep 100" > ~/tmp/sleeper.sh
+Run Python REPL:
+
+$ python
+>>>
+
+import subprocess
+import os
+p = subprocess.Popen(['/bin/sh', os.path.expanduser('~/tmp/sleeper.sh')])
+# look ma, no pipes!
+print p.pid
+# prints 29893
+Exit the REPL and see the process still running:
+
+>>> ^D
+$ ps ax | grep sleeper
+29893 pts/0    S      0:00 /bin/sh .../tmp/sleeper.sh
+29917 pts/0    S+     0:00 grep --color=auto sleeper
+If you want to first communicate to the started process and then leave it alone to run further, you have a few options:
+
+Handle SIGPIPE in your long-running process, do not die on it. Live without stdin after the launcher process exits.
+Pass whatever you wanted using arguments, environment, or a temporary file.
+If you want bidirectional communication, consider using a named pipe (man mkfifo) or a socket, or writing a proper server.
+Make the long-running process fork after the initial bi-direcional communication phase is done.

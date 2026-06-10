@@ -34,6 +34,14 @@ cdef extern from "gsl/gsl_vector.h" nogil:
     void gsl_vector_set_all(void* v, double x)
     
 cdef extern from "gsl/gsl_matrix.h" nogil:
+
+    ctypedef struct gsl_matrix:
+        size_t size1   ##num rows
+        size_t size2   ## num collums
+        size_t tda
+        double* data
+        void* block
+        int owner
     
     void* gsl_matrix_alloc(size_t n1, size_t n2)
     void gsl_matrix_free(void* m)
@@ -42,14 +50,37 @@ cdef extern from "gsl/gsl_matrix.h" nogil:
     void gsl_matrix_set(void* m, const size_t i, const size_t j, double x)
     
     void gsl_matrix_set_all(void* m, double x)
+
+    ctypedef struct gsl_matrix_view:
+        gsl_matrix matrix
+
+    gsl_matrix_view gsl_matrix_view_array(double *base, size_t n1, size_t n2)
     
 cdef extern from "gsl/gsl_fft_complex.h" nogil:
     int gsl_fft_complex_radix2_forward(double* data, size_t stride, size_t n)
     int gsl_fft_complex_radix2_inverse(double* data, size_t stride, size_t n)
     
 cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
-    int GSL_SUCCESS
     
+### SOME STRUCTS
+        
+    ctypedef struct gsl_multilarge_nlinear_fdtype:
+        pass 
+        
+    ctypedef struct gsl_multifit_nlinear_parameters:
+        #pass
+        const void *trs                             # /* trust region subproblem method */
+        const void *scale                           # /* scaling method */
+        const void *solver                          # /* solver method */   Default is gsl_multifit_nlinear_solver_qr.  
+        gsl_multilarge_nlinear_fdtype fdtype        # /* finite difference method */
+        double factor_up                            # /* factor for increasing trust radius */
+        double factor_down                          # /* factor for decreasing trust radius */
+        double avmax                                # /* max allowed |a|/|v| */
+        double h_df                                 # /* step size for finite difference Jacobian */
+        double h_fvv                                # /* step size for finite difference fvv */
+        size_t max_iter                             # /* maximum iterations for trs method */
+        double tol                                  # /* tolerance for solving trs */
+
     ctypedef struct gsl_multifit_nlinear_fdf:
         int (* f) ( const void* x, void* params, void* residuals)
         int (* df) ( const void* x, void * params, void* jaccobian)
@@ -60,11 +91,21 @@ cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
         size_t nevalf # counts num function evalutions, set by init
         size_t nevaldf # counts df evaluations, set by init
         size_t nevalfvv # counts fvv evaluations, set by init
-        
-        
-    ctypedef struct gsl_multifit_nlinear_parameters:
-        pass
+
+### BUILT-IN VARIABLES
+    int GSL_SUCCESS
+
+    gsl_multilarge_nlinear_fdtype GSL_MULTIFIT_NLINEAR_CTRDIFF
+    gsl_multilarge_nlinear_fdtype GSL_MULTIFIT_NLINEAR_FWDIFF
+
+    ## these are solvers for gsl_multifit_nlinear_parameters.solver
+    void* gsl_multifit_nlinear_solver_qr   
+    void* gsl_multifit_nlinear_solver_svd
+
+
     
+
+## FUNCTIONS
     gsl_multifit_nlinear_parameters gsl_multifit_nlinear_default_parameters()
  
     void* gsl_multifit_nlinear_trust ## type of minimizer
@@ -82,12 +123,27 @@ cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
     
     size_t gsl_multifit_nlinear_niter(const void* workspace)
 
-cdef double c_air_inverse = 1.000293/299792458.0
+    gsl_matrix *gsl_multifit_nlinear_jac(const void *w)
 
-def set_c_air_inverse(double IN):
-    """Set the internal variable: 1/(speed of light in air)"""
-    global c_air_inverse
-    c_air_inverse = IN
+    int gsl_multifit_nlinear_covar(const gsl_matrix *J, const double epsrel, gsl_matrix *covar)
+
+
+    
+cdef extern from "gsl/gsl_errno.h" nogil:
+    void* gsl_set_error_handler_off()
+    const char* gsl_strerror( int gsl_errno)
+
+def GSL_error_to_string(gsl_errNo):
+    cdef bytes py_string = gsl_strerror( gsl_errNo )
+    return py_string.decode('UTF-8')
+
+#cdef double c_air_inverse = 1.000293/299792458.0
+
+#def set_c_air_inverse(double IN):
+#    """Set the internal variable: 1/(speed of light in air)"""
+#    global c_air_inverse
+#    c_air_inverse = IN
+
 
 #### helper functions
 cdef int argmax(double* data, int first, int last):
@@ -111,6 +167,10 @@ cdef int argmax(double* data, int first, int last):
     
 
 #### parabola fitter #####
+
+
+
+
 cdef struct parabolic_fitter_struct:
     int num_points_to_fit
     int half_num_points
@@ -218,19 +278,19 @@ cdef class autoadjusting_upsample_and_correlate:
             self.current_input_length = input_length
             self.output_length = 2*input_length*self.upsample_factor
             
-            self.workspace_input = np.zeros(2*input_length, dtype=np.complex)
+            self.workspace_input = np.zeros(2*input_length, dtype=complex)
             if old_input is not None:
                 self.workspace_input[:len(old_input)]  = old_input
                 
-            self.workspace_ref = np.zeros(2*input_length, dtype=np.complex)
+            self.workspace_ref = np.zeros(2*input_length, dtype=complex)
             if old_ref is not None:
                 self.workspace_ref[:len(old_ref)]  = old_ref
                 
-            self.workspace_ref_tmp = np.zeros(2*input_length, dtype=np.complex)
+            self.workspace_ref_tmp = np.zeros(2*input_length, dtype=complex)
             if old_ref_tmp is not None:
                 self.workspace_ref_tmp[:len(old_ref_tmp)]  = old_ref_tmp
             
-            self.output = np.empty(self.output_length, dtype=np.complex)
+            self.output = np.empty(self.output_length, dtype=complex)
         else:
             
             if old_input is not None:
@@ -330,6 +390,8 @@ cdef struct planewave_locate_struct:
     long total_cross_correlation_length
     double CC_sample_time ## to be 5.0E-9/upsample_factor
 #    double half_window_length
+
+    double c_air_inverse
     
     double* cross_correlation_data## 2D antennas X cross-correlation, assume is HE 
     double* relative_antennas_locations    ## 2D antennas X (xyz) (relative to referance antenna)
@@ -342,7 +404,7 @@ cdef struct planewave_locate_struct:
     
     parabolic_fitter_struct* parabolic_fitter
     
-cdef void set_planewave_model(double Zenith, double Azimuth, planewave_locate_struct* data_struct) nogil:
+cdef void set_planewave_model(double Zenith, double Azimuth, planewave_locate_struct* data_struct) noexcept nogil:
     """calculates the arrival dt for each antenna, stores result in data_struct.current_workspace """
     cdef double cos_Ze = cos( Zenith )
     cdef double sin_Ze = sin( Zenith )
@@ -354,7 +416,7 @@ cdef void set_planewave_model(double Zenith, double Azimuth, planewave_locate_st
         data_struct.current_workspace[ ant_i ] = cos_Ze*data_struct.relative_antennas_locations[ ant_i*3 + 2 ]
         data_struct.current_workspace[ ant_i ] += sin_Ze*cos_Az*data_struct.relative_antennas_locations[ ant_i*3 + 0 ]
         data_struct.current_workspace[ ant_i ] += sin_Ze*sin_Az*data_struct.relative_antennas_locations[ ant_i*3 + 1 ]
-        data_struct.current_workspace[ ant_i ] *= -c_air_inverse
+        data_struct.current_workspace[ ant_i ] *= -data_struct.c_air_inverse
         
 cdef double image(double Zenith, double Azimuth, planewave_locate_struct* data_struct):
     """returns sum of hilbert envelopes of cross corelation. (envelope becouse less sensative)"""
@@ -375,7 +437,7 @@ cdef double image(double Zenith, double Azimuth, planewave_locate_struct* data_s
             continue
         
         predicted_dt = data_struct.current_workspace[ant_i] - data_struct.antenna_delays[ant_i]
-        predict_i = long( predicted_dt / data_struct.CC_sample_time )
+        predict_i = <long>  ( predicted_dt / data_struct.CC_sample_time )
         
         if predict_i < 0:
             predict_i += data_struct.used_CC_length[ant_i]
@@ -412,7 +474,8 @@ cdef void measure_close_dt(double Zenith, double Azimuth, planewave_locate_struc
             continue
         
         predicted_dt = data_struct.current_workspace[ant_i] - data_struct.antenna_delays[ant_i]
-        current_i = long( predicted_dt / data_struct.CC_sample_time )
+        #current_i = long( predicted_dt / data_struct.CC_sample_time )
+        current_i = <long> ( predicted_dt / data_struct.CC_sample_time )
         CC = &data_struct.cross_correlation_data[ data_struct.total_cross_correlation_length*ant_i ]
         
         looping = True
@@ -497,7 +560,7 @@ cdef void measure_peak_dt(planewave_locate_struct* data_struct):
         data_struct.measured_dt[ant_i] = peak_location
         data_struct.current_workspace[ant_i] -= peak_location 
 
-cdef int planewave_residuals(const void* ZeAz, void* data_struct_void, void* out_residuals) nogil:
+cdef int planewave_residuals(const void* ZeAz, void* data_struct_void, void* out_residuals) noexcept nogil:
     
     cdef planewave_locate_struct* data_struct = <planewave_locate_struct*>data_struct_void
     
@@ -520,6 +583,7 @@ cdef class planewave_locator_helper:
     
     cdef parabolic_fitter parabolic_peak_fitter
     cdef double upsample_factor
+    cdef double sample_time
     cdef double[:,:] ZeAz_test_points
     
     ## non-linear fitting params
@@ -529,13 +593,16 @@ cdef class planewave_locator_helper:
     cdef void* vector_ZeAz
     cdef void* vector_residuals
     
-    def __init__(self, double upsample_factor, long num_antennas, long max_CC_length, int axis_itters):
+    def __init__(self, double upsample_factor, long num_antennas, long max_CC_length, int axis_itters, double v_air, double sample_time):
         self.parabolic_peak_fitter = parabolic_fitter()
         self.upsample_factor = upsample_factor
+        self.sample_time = sample_time
         
         self.planewave_data.total_cross_correlation_length = max_CC_length
         self.planewave_data.num_antennas = num_antennas
-        self.planewave_data.CC_sample_time = 5.0E-9/upsample_factor
+        self.planewave_data.CC_sample_time = self.sample_time/upsample_factor
+
+        self.planewave_data.c_air_inverse = 1.0/v_air
         
         self.planewave_data.parabolic_fitter = &self.parabolic_peak_fitter.fitter_data
         
@@ -627,6 +694,7 @@ cdef class planewave_locator_helper:
         cdef int ret
         ret = gsl_multifit_nlinear_driver(max_itters, xtol, gtol, ftol, 
                                           NULL,NULL , &info, self.fit_workspace)
+
         
         guess_ZeAz[0] = gsl_vector_get(self.vector_ZeAz, 0)
         guess_ZeAz[1] = gsl_vector_get(self.vector_ZeAz, 1)
@@ -643,7 +711,7 @@ cdef class planewave_locator_helper:
                 temp = gsl_vector_get(self.vector_residuals, i)
                 total += temp*temp
         
-        return ret==GSL_SUCCESS, sqrt( total/N )
+        return ret, sqrt( total/N )
     
     def get_num_iters(self):
         return gsl_multifit_nlinear_niter( self.fit_workspace )
@@ -662,84 +730,177 @@ cdef struct pointsource_data_struct:
     double* measured_times        ## 1D antennas, relative to referance antenna
     double* weights              ## 1D antennas
     long* mask                    ## 1D antennas
+
+    double* antenna_v_air_inverses ## 1D over number of antennas
+
+    int ignore_mask               ## if true than caluclate all residuals and jacobian elements irrespective of mask. Default is false 
     
-cdef double relative_arrival_time(long ant_i, double* XYZc, pointsource_data_struct* data_struct) nogil:
-    """return arrival time on antenna i, if source is at XYZc, relative to the referance antenna"""
-    cdef long ref_i = data_struct.ref_ant_i
-    cdef double* ref_XYZ = &data_struct.antennas_locations[3*ref_i]
+# cdef double relative_arrival_time(long ant_i, double* XYZc, pointsource_data_struct* data_struct) nogil:
+#     """return arrival time on antenna i, if source is at XYZc, relative to the referance antenna"""
+#     cdef long ref_i = data_struct.ref_ant_i
+#     cdef double* ref_XYZ = &data_struct.antennas_locations[3*ref_i]
+#     cdef double* ant_XYZ = &data_struct.antennas_locations[3*ant_i]
+    
+#     cdef double dX = XYZc[0] - ant_XYZ[0]
+#     cdef double dY = XYZc[1] - ant_XYZ[1]
+#     cdef double dZ = XYZc[2] - ant_XYZ[2]
+#     cdef double dt = sqrt( dX*dX + dY*dY + dZ*dZ )
+    
+#     ## this isn't necisary. Could do this before hand, would save computation power
+#     dX = XYZc[0] - ref_XYZ[0]
+#     dY = XYZc[1] - ref_XYZ[1]
+#     dZ = XYZc[2] - ref_XYZ[2]
+#     dt -= sqrt( dX*dX + dY*dY + dZ*dZ )
+    
+#     return dt*c_air_inverse + XYZc[3]
+
+cdef double arrival_time(long ant_i, double* XYZ, pointsource_data_struct* data_struct) nogil:
+    """return arrival time on antenna i, if source is at XYZ.
+        this is NOT relative to reference antenna!! and does NOT add the 'c' adjustment"""
+
     cdef double* ant_XYZ = &data_struct.antennas_locations[3*ant_i]
     
-    cdef double dX = XYZc[0] - ant_XYZ[0]
-    cdef double dY = XYZc[1] - ant_XYZ[1]
-    cdef double dZ = XYZc[2] - ant_XYZ[2]
+    cdef double dX = XYZ[0] - ant_XYZ[0]
+    cdef double dY = XYZ[1] - ant_XYZ[1]
+    cdef double dZ = XYZ[2] - ant_XYZ[2]
     cdef double dt = sqrt( dX*dX + dY*dY + dZ*dZ )
     
-    ## this isn't necisary. Could do this before hand, would save computation power
-    dX = XYZc[0] - ref_XYZ[0]
-    dY = XYZc[1] - ref_XYZ[1]
-    dZ = XYZc[2] - ref_XYZ[2]
-    dt -= sqrt( dX*dX + dY*dY + dZ*dZ )
-    
-    return dt*c_air_inverse + XYZc[3]
+    return dt*data_struct.antenna_v_air_inverses[ ant_i ]
 
-cdef int pointsource_residuals(const void* XYZc, void* data_struct_void, void* out_residuals) nogil:
+
+cdef void arrival_time_derivative(long ant_i, double* XYZ, double* dXYZ_out, pointsource_data_struct* data_struct) nogil:
+    """return derivative of 'arival_time' with respect to X, Y, and Z. Outputs are placed into dXYZ_out[0], dXYZ_out[1] and dXYZ_out[2]"""
+
+    cdef double* ant_XYZ = &data_struct.antennas_locations[3*ant_i]
+    
+    cdef double dX = XYZ[0] - ant_XYZ[0]
+    cdef double dY = XYZ[1] - ant_XYZ[1]
+    cdef double dZ = XYZ[2] - ant_XYZ[2]
+    cdef double dt = sqrt( dX*dX + dY*dY + dZ*dZ )
+
+    cdef double factor = data_struct.antenna_v_air_inverses[ ant_i ]/dt
+
+    dXYZ_out[0] = dX*factor
+    dXYZ_out[1] = dY*factor
+    dXYZ_out[2] = dZ*factor
+
+
+
+
+cdef int pointsource_residuals(const void* XYZc, void* data_struct_void, void* out_residuals) noexcept nogil:
     
     cdef pointsource_data_struct* data_struct = <pointsource_data_struct*>data_struct_void
     cdef double* XYZc_p = gsl_vector_ptr( XYZc, 0 )
     
+    ## ref antenna
+    cdef double T0_offset = arrival_time( data_struct.ref_ant_i , XYZc_p, data_struct)
+    T0_offset -= XYZc_p[3] ## negative becouse of negaitve below
+
     cdef double TMP
     cdef int ant_i
     for ant_i in range( data_struct.num_antennas ):
-        if data_struct.mask[ant_i] == 0:
+        if (data_struct.mask[ant_i] == 0) and not (data_struct.ignore_mask):
             gsl_vector_set(out_residuals, ant_i, 0)
             continue
         
-        TMP = relative_arrival_time( ant_i, XYZc_p, data_struct) - data_struct.measured_times[ ant_i ]
-        gsl_vector_set(out_residuals,ant_i, TMP/data_struct.weights[ ant_i ])
+        #TMP = relative_arrival_time( ant_i, XYZc_p, data_struct) - data_struct.measured_times[ ant_i ]
+
+        TMP = arrival_time( ant_i, XYZc_p, data_struct) - data_struct.measured_times[ ant_i ]
+        TMP -= T0_offset
+
+        gsl_vector_set(out_residuals, ant_i, TMP/data_struct.weights[ ant_i ])
         
     return GSL_SUCCESS
 
-cdef int pointsource_jacobian(const void* XYZc, void* data_struct_void, void* jacobian_matrix) nogil:
+
+
+cdef int pointsource_jacobian(const void* XYZc, void* data_struct_void, void* jacobian_matrix) noexcept nogil:
+
+## The Jacobian matrix at the current position J(x), size n-by-p (only for gsl_multifit_nlinear interface).
+##    n is length residuals, p is length parameters (4)
+
+    cdef double[3] ref_arrivalTime_derivative_vsXYZ
+    cdef double[3] cur_arrivalTime_derivative_vsXYZ
     
     cdef pointsource_data_struct* data_struct = <pointsource_data_struct*>data_struct_void
-#    cdef double* XYZc_p = gsl_vector_ptr( XYZc, 0 )
-    
-    cdef long ref_i = data_struct.ref_ant_i
-    cdef double refX = gsl_vector_get(XYZc, 0) - data_struct.antennas_locations[3*ref_i + 0]
-    cdef double refY = gsl_vector_get(XYZc, 1) - data_struct.antennas_locations[3*ref_i + 1]
-    cdef double refZ = gsl_vector_get(XYZc, 2) - data_struct.antennas_locations[3*ref_i + 2]
-    cdef double refNorm = sqrt( refX*refX + refY*refY + refZ*refZ )
-    refX /= refNorm
-    refY /= refNorm
-    refZ /= refNorm
-    
-    cdef double antX
-    cdef double antY
-    cdef double antZ
-    cdef double antNorm
+    cdef double* XYZc_p = gsl_vector_ptr( XYZc, 0 )
+
+
+## caluclation = ( arrival_time(antenna) - arrival_time(ref) + c )/data_struct.weights[ ant_i ]
+
+
+    ### ref antenna
+    arrival_time_derivative(data_struct.ref_ant_i,   XYZc_p,   ref_arrivalTime_derivative_vsXYZ,    data_struct)
+
+
+    ## loop over each antenna
+    cdef double iW
     cdef int ant_i
     for ant_i in range( data_struct.num_antennas ):
-        if data_struct.mask[ant_i] == 0:
-            gsl_matrix_set(jacobian_matrix, ant_i, 0, 0)
-            gsl_matrix_set(jacobian_matrix, ant_i, 1, 0)
-            gsl_matrix_set(jacobian_matrix, ant_i, 2, 0)
-            gsl_matrix_set(jacobian_matrix, ant_i, 3, 0)
-            continue
-        
-        antX = gsl_vector_get(XYZc, 0) - data_struct.antennas_locations[3*ant_i + 0]
-        antY = gsl_vector_get(XYZc, 1) - data_struct.antennas_locations[3*ant_i + 1]
-        antZ = gsl_vector_get(XYZc, 2) - data_struct.antennas_locations[3*ant_i + 2]
-        antNorm = sqrt( antX*antX + antY*antY + antZ*antZ )
-        antX /= antNorm
-        antY /= antNorm
-        antZ /= antNorm
-        
-        gsl_matrix_set(jacobian_matrix, ant_i, 0, (antX-refX)*c_air_inverse/data_struct.weights[ ant_i ] )  
-        gsl_matrix_set(jacobian_matrix, ant_i, 1, (antY-refY)*c_air_inverse/data_struct.weights[ ant_i ])
-        gsl_matrix_set(jacobian_matrix, ant_i, 2, (antZ-refZ)*c_air_inverse/data_struct.weights[ ant_i ])
-        gsl_matrix_set(jacobian_matrix, ant_i, 3, 1.0/data_struct.weights[ ant_i ])
-        
+        if (data_struct.mask[ant_i] == 0) and not (data_struct.ignore_mask):
+            gsl_matrix_set(jacobian_matrix, ant_i,  0,  0)
+            gsl_matrix_set(jacobian_matrix, ant_i,  1,  0)
+            gsl_matrix_set(jacobian_matrix, ant_i,  2,  0)
+            gsl_matrix_set(jacobian_matrix, ant_i,  3,  0)
+            
+        else:
+
+            iW = 1.0/data_struct.weights[ ant_i ]
+            arrival_time_derivative(ant_i,   XYZc_p,   cur_arrivalTime_derivative_vsXYZ,    data_struct)
+
+            gsl_matrix_set(jacobian_matrix, ant_i,  0,  (cur_arrivalTime_derivative_vsXYZ[0] - ref_arrivalTime_derivative_vsXYZ[0])*iW  )
+            gsl_matrix_set(jacobian_matrix, ant_i,  1,  (cur_arrivalTime_derivative_vsXYZ[1] - ref_arrivalTime_derivative_vsXYZ[1])*iW  )
+            gsl_matrix_set(jacobian_matrix, ant_i,  2,  (cur_arrivalTime_derivative_vsXYZ[2] - ref_arrivalTime_derivative_vsXYZ[2])*iW  )
+            gsl_matrix_set(jacobian_matrix, ant_i,  3,  iW  )
+
     return GSL_SUCCESS
+
+    
+    # cdef long ref_i = data_struct.ref_ant_i
+    # cdef double refX = gsl_vector_get(XYZc, 0) - data_struct.antennas_locations[3*ref_i + 0]
+    # cdef double refY = gsl_vector_get(XYZc, 1) - data_struct.antennas_locations[3*ref_i + 1]
+    # cdef double refZ = gsl_vector_get(XYZc, 2) - data_struct.antennas_locations[3*ref_i + 2]
+
+    # cdef double refNorm = sqrt( refX*refX + refY*refY + refZ*refZ )
+    # refNorm = data_struct.antenna_v_air_inverses[ref_i ] / refNorm
+
+    # refX *= refNorm
+    # refY *= refNorm
+    # refZ *= refNorm
+    
+    # cdef double antX
+    # cdef double antY
+    # cdef double antZ
+    # cdef double antNorm
+    # cdef double iweight
+    # cdef int ant_i
+    # for ant_i in range( data_struct.num_antennas ):
+    #     if data_struct.mask[ant_i] == 0:
+    #         gsl_matrix_set(jacobian_matrix, ant_i, 0, 0)
+    #         gsl_matrix_set(jacobian_matrix, ant_i, 1, 0)
+    #         gsl_matrix_set(jacobian_matrix, ant_i, 2, 0)
+    #         gsl_matrix_set(jacobian_matrix, ant_i, 3, 0)
+    #         continue
+        
+    #     antX = gsl_vector_get(XYZc, 0) - data_struct.antennas_locations[3*ant_i + 0]
+    #     antY = gsl_vector_get(XYZc, 1) - data_struct.antennas_locations[3*ant_i + 1]
+    #     antZ = gsl_vector_get(XYZc, 2) - data_struct.antennas_locations[3*ant_i + 2]
+
+    #     antNorm = sqrt( antX*antX + antY*antY + antZ*antZ )
+    #     antNorm = data_struct.antenna_v_air_inverses[ant_i ] / antNorm
+
+    #     antX *= antNorm
+    #     antY *= antNorm
+    #     antZ *= antNorm
+
+    #     iweight = 1.0/data_struct.weights[ ant_i ]
+        
+    #     gsl_matrix_set(jacobian_matrix, ant_i, 0, (antX-refX)*iweight )  
+    #     gsl_matrix_set(jacobian_matrix, ant_i, 1, (antY-refY)*iweight )
+    #     gsl_matrix_set(jacobian_matrix, ant_i, 2, (antZ-refZ)*iweight )
+    #     gsl_matrix_set(jacobian_matrix, ant_i, 3, iweight)
+        
+    # return GSL_SUCCESS
     
 cdef class pointsource_locator:
     
@@ -764,11 +925,28 @@ cdef class pointsource_locator:
     
     def __init__(self, num_antennas):
         self.data_struct.num_antennas = num_antennas
+        self.data_struct.ignore_mask = False
         
+        gsl_set_error_handler_off()
         self.fit_parameters = gsl_multifit_nlinear_default_parameters()
+
+
+        #self.fit_parameters.h_df = 0.01
+        #self.fit_parameters.fdtype = GSL_MULTIFIT_NLINEAR_CTRDIFF    ## defaault is forward differences
+        #self.fit_parameters.solver = gsl_multifit_nlinear_solver_svd ## default is QR decomp
+        
+
         
         self.fit_function.f = &pointsource_residuals
-        self.fit_function.df = NULL #&pointsource_jacobian
+
+        #if jacobian_setting == 'numerical':
+        self.fit_function.df = NULL
+        #elif jacobian_setting == 'analytic':
+        #    self.fit_function.df = &pointsource_jacobian
+        #else:
+        #    print('BAD JACOBIAN SETTING! :', jacobian_setting)
+        #    quit()
+
         self.fit_function.fvv = NULL
         self.fit_function.n = num_antennas
         self.fit_function.p = 4
@@ -783,17 +961,21 @@ cdef class pointsource_locator:
     def __dealloc(self):
         gsl_multifit_nlinear_free( self.fit_workspace )
     
-    def set_memory(self, np.ndarray[double, ndim=2] antenna_locs, np.ndarray[double, ndim=1] measured_times, np.ndarray[long, ndim=1] mask, np.ndarray[double, ndim=1] weights ):
+    def set_memory(self, np.ndarray[double, ndim=2] antenna_locs, np.ndarray[double, ndim=1] measured_times, np.ndarray[long, ndim=1] mask, np.ndarray[double, ndim=1] weights,
+     np.ndarray[double, ndim=1] v_air_inverses ):
         self.data_struct.antennas_locations = &antenna_locs[0,0]
         self.data_struct.measured_times = &measured_times[0]
         self.data_struct.mask = &mask[0]
         self.data_struct.weights = &weights[0]
+
+        self.data_struct.antenna_v_air_inverses = &v_air_inverses[0]
     
     def set_ref_antenna(self, long ref_ant_i):
         self.data_struct.ref_ant_i = ref_ant_i
     
     def relative_arrival_time(self, long ant_i, np.ndarray[double, ndim=1] XYZc):
-        return relative_arrival_time( ant_i, &XYZc[0], &self.data_struct )
+        #return relative_arrival_time( ant_i, &XYZc[0], &self.data_struct )
+        return arrival_time( ant_i, &XYZc[0], &self.data_struct ) - arrival_time( self.data_struct.ref_ant_i, &XYZc[0], &self.data_struct ) + XYZc[3]
     
     def run_minimizer(self, np.ndarray[double, ndim=1] guess_XYZc, int max_itters, double xtol, double gtol, double ftol):
         
@@ -824,7 +1006,7 @@ cdef class pointsource_locator:
                 tmp = gsl_vector_get(self.vector_weighted_residuals, ant_i)
                 chi_squared += tmp*tmp
                 
-        return ret==GSL_SUCCESS, chi_squared/(N-4)
+        return ret, chi_squared/(N-4)
     
     def get_num_iters(self):
         return gsl_multifit_nlinear_niter( self.fit_workspace )
@@ -832,6 +1014,9 @@ cdef class pointsource_locator:
     def get_RMS(self):
         
         cdef double* XYZc_p = gsl_vector_ptr( self.vector_XYZc, 0 )
+
+        cdef double T0_offset = arrival_time( self.data_struct.ref_ant_i , XYZc_p, &self.data_struct)
+        T0_offset -= XYZc_p[3] ## negative becouse of negaitve below
     
         cdef double TMP
         cdef double RMS = 0
@@ -841,212 +1026,345 @@ cdef class pointsource_locator:
             if self.data_struct.mask[ant_i] == 0:
                 continue
             
-            TMP = relative_arrival_time( ant_i, XYZc_p, &self.data_struct) - self.data_struct.measured_times[ ant_i ]
+            #TMP = relative_arrival_time( ant_i, XYZc_p, &self.data_struct) - self.data_struct.measured_times[ ant_i ]
+            TMP = arrival_time( ant_i, XYZc_p, &self.data_struct) - self.data_struct.measured_times[ ant_i ]
+            TMP -= T0_offset
             RMS += TMP*TMP
             N += 1
             
         return sqrt( RMS/N )
+
+
+    def get_covariance_matrix(self, np.ndarray[double, ndim=2] cov_out=None):
+        """  multiply_by_chi2 : whether to multiply the covariance matrix by reduced chi-squared."""
+
+        if not self.fit_workspace:
+            print('fitter is not initialized! call reset first')
+            return None
+
+        if cov_out is None:
+            cov_out = np.empty( (4,4) )
+
+        cov_out[:,:] = 1
+
+        cdef gsl_matrix *J = gsl_multifit_nlinear_jac( self.fit_workspace )
+
+
+        cdef gsl_matrix_view MV = gsl_matrix_view_array( &cov_out[0,0], 4,4)
+
+        cdef gsl_matrix* covMat = &MV.matrix
     
-    def load_covariance_matrix(self, np.ndarray[double, ndim=1] guess_XYZc, np.ndarray[double, ndim=2] covariance_out ):
+        cdef int R = gsl_multifit_nlinear_covar(J, 0.0, covMat)
+
+
+        if R != GSL_SUCCESS:
+            print('could not calculate covariance matrix!')#' Consider increasing epsrel')
+            return None
+
+        return cov_out
+
+    def get_used_jacobian(self, np.ndarray[double, ndim=2] jacobian_out=None):
+        if jacobian_out is None:
+            jacobian_out = np.empty( (self.fit_function.n,4) )
+
+
+        cdef gsl_matrix *J = gsl_multifit_nlinear_jac( self.fit_workspace )
+
+        cdef int ant_i
+        for ant_i in range(self.fit_function.n):
+            jacobian_out[ant_i, 0] = gsl_matrix_get(J, ant_i,  0)
+            jacobian_out[ant_i, 1] = gsl_matrix_get(J, ant_i,  1)
+            jacobian_out[ant_i, 2] = gsl_matrix_get(J, ant_i,  2)
+            jacobian_out[ant_i, 3] = gsl_matrix_get(J, ant_i,  3)
+
+        return jacobian_out
+
+
+    def get_timing_error_estimate(self, np.ndarray[double, ndim=2] cov_out, np.ndarray[double, ndim=1] out):
+        """given the last iteration, estimate the 1 std timing error on every antenna and place value in output array. Also returns covariance matrix, placed into appropriate out-array"""
+
+
+        ## first we need the covariance matrix
+        self.get_covariance_matrix( cov_out )
+
+        ## next we need a jacobian, but for ALL antennas
+        cdef gsl_matrix *JacWorkspace = gsl_multifit_nlinear_jac( self.fit_workspace ) ## we need a jacobian workspace
+        self.data_struct.ignore_mask = True                                           ## calculate jac for all antennas
+        pointsource_jacobian(self.vector_XYZc,  &self.data_struct, JacWorkspace)     ## now do it
+        self.data_struct.ignore_mask = False
+
+
+        ## some convvience variables so we don't need to keep doing lookups
+        cdef double cov00 = cov_out[0,0]
+        cdef double cov01 = cov_out[0,1]
+        cdef double cov02 = cov_out[0,2]
+        cdef double cov03 = cov_out[0,3]
+
+        cdef double cov10 = cov_out[1,0]
+        cdef double cov11 = cov_out[1,1]
+        cdef double cov12 = cov_out[1,2]
+        cdef double cov13 = cov_out[1,3]
+
+        cdef double cov20 = cov_out[2,0]
+        cdef double cov21 = cov_out[2,1]
+        cdef double cov22 = cov_out[2,2]
+        cdef double cov23 = cov_out[2,3]
+
+        cdef double cov30 = cov_out[3,0]
+        cdef double cov31 = cov_out[3,1]
+        cdef double cov32 = cov_out[3,2]
+        cdef double cov33 = cov_out[3,3]
+
+        cdef double jac0, jac1, jac2, jac3
+        cdef double R0, R1, R2, R3
+
+
+
+        ## now we preform the calculation
+        ## which is:  Jac  cov  Jac^T
+        ## we only calculate the diagonal elements
+
+        cdef int ant_i
+        for ant_i in range(self.fit_function.n):
+            jac0 = gsl_matrix_get(JacWorkspace, ant_i,  0)
+            jac1 = gsl_matrix_get(JacWorkspace, ant_i,  1)
+            jac2 = gsl_matrix_get(JacWorkspace, ant_i,  2)
+            jac3 = gsl_matrix_get(JacWorkspace, ant_i,  3)
+
+            R0 = cov00*jac0 + cov01*jac1 + cov02*jac2 + cov03*jac3
+            R1 = cov10*jac0 + cov11*jac1 + cov12*jac2 + cov13*jac3
+            R2 = cov20*jac0 + cov21*jac1 + cov22*jac2 + cov23*jac3
+            R3 = cov30*jac0 + cov31*jac1 + cov32*jac2 + cov33*jac3
+
+            out[ant_i] = R0*jac0 + R1*jac1 + R2*jac2 + R2*jac3
+
+        np.sqrt(out, out=out) ## turn covarience into std
+
+
+
+
+    def get_analytical_jacobian(self, np.ndarray[double, ndim=1] XYZc, np.ndarray[double, ndim=2] jacobian_out=None):
+
+
+        if jacobian_out is None:
+            jacobian_out = np.empty( (self.fit_function.n,4) )
+
+
+        gsl_vector_set(self.vector_XYZc, 0, XYZc[0])
+        gsl_vector_set(self.vector_XYZc, 1, XYZc[1])
+        gsl_vector_set(self.vector_XYZc, 2, XYZc[2])
+        gsl_vector_set(self.vector_XYZc, 3, XYZc[3])
+
+
+        cdef gsl_matrix_view JC = gsl_matrix_view_array( &jacobian_out[0,0], self.fit_function.n,4)
+        cdef gsl_matrix* jacMat = &JC.matrix
+
+        pointsource_jacobian(self.vector_XYZc, &self.data_struct, jacMat)
+
+        return jacobian_out
+
+
+    
+    # def load_covariance_matrix(self, np.ndarray[double, ndim=1] guess_XYZc, np.ndarray[double, ndim=2] covariance_out ):
             
 
-        cdef double inverse_norm
-        cdef double inverse_norm_cubed
+    #     cdef double inverse_norm
+    #     cdef double inverse_norm_cubed
         
-        #### first, ref antenna bit
-        cdef double refX = guess_XYZc[0]
-        cdef double refY = guess_XYZc[1]
-        cdef double refZ = guess_XYZc[2]
+    #     #### first, ref antenna bit
+    #     cdef double refX = guess_XYZc[0]
+    #     cdef double refY = guess_XYZc[1]
+    #     cdef double refZ = guess_XYZc[2]
         
-        refX -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 0 ]
-        refY -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 1 ]
-        refZ -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 2 ]
+    #     refX -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 0 ]
+    #     refY -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 1 ]
+    #     refZ -= self.data_struct.antennas_locations[ 3*self.data_struct.ref_ant_i + 2 ]
         
-        cdef double ref_norm = sqrt( refX*refX + refY*refY + refZ*refZ )
-        inverse_norm = 1.0/ref_norm
-        inverse_norm_cubed = inverse_norm*inverse_norm*inverse_norm
+    #     cdef double ref_norm = sqrt( refX*refX + refY*refY + refZ*refZ )
+    #     inverse_norm = 1.0/ref_norm
+    #     inverse_norm_cubed = inverse_norm*inverse_norm*inverse_norm
         
-        cdef double refHess_00 = -refX*refX*inverse_norm_cubed
-        cdef double refHess_01 = -refX*refY*inverse_norm_cubed
-        cdef double refHess_02 = -refX*refZ*inverse_norm_cubed
-        cdef double refHess_10 = -refY*refX*inverse_norm_cubed
-        cdef double refHess_11 = -refY*refY*inverse_norm_cubed
-        cdef double refHess_12 = -refY*refZ*inverse_norm_cubed
-        cdef double refHess_20 = -refZ*refX*inverse_norm_cubed
-        cdef double refHess_21 = -refZ*refY*inverse_norm_cubed
-        cdef double refHess_22 = -refZ*refZ*inverse_norm_cubed
+    #     cdef double refHess_00 = -refX*refX*inverse_norm_cubed
+    #     cdef double refHess_01 = -refX*refY*inverse_norm_cubed
+    #     cdef double refHess_02 = -refX*refZ*inverse_norm_cubed
+    #     cdef double refHess_10 = -refY*refX*inverse_norm_cubed
+    #     cdef double refHess_11 = -refY*refY*inverse_norm_cubed
+    #     cdef double refHess_12 = -refY*refZ*inverse_norm_cubed
+    #     cdef double refHess_20 = -refZ*refX*inverse_norm_cubed
+    #     cdef double refHess_21 = -refZ*refY*inverse_norm_cubed
+    #     cdef double refHess_22 = -refZ*refZ*inverse_norm_cubed
         
-        refHess_00 += inverse_norm
-        refHess_11 += inverse_norm
-        refHess_22 += inverse_norm
+    #     refHess_00 += inverse_norm
+    #     refHess_11 += inverse_norm
+    #     refHess_22 += inverse_norm
         
-        refX *= inverse_norm
-        refY *= inverse_norm
-        refZ *= inverse_norm
+    #     refX *= inverse_norm
+    #     refY *= inverse_norm
+    #     refZ *= inverse_norm
         
         
-        cdef double antX
-        cdef double antY
-        cdef double antZ
+    #     cdef double antX
+    #     cdef double antY
+    #     cdef double antZ
         
-        cdef double ant_norm
+    #     cdef double ant_norm
     
-        cdef double antMat_00
-        cdef double antMat_01
-        cdef double antMat_02
-        cdef double antMat_10
-        cdef double antMat_11
-        cdef double antMat_12
-        cdef double antMat_20
-        cdef double antMat_21
-        cdef double antMat_22
+    #     cdef double antMat_00
+    #     cdef double antMat_01
+    #     cdef double antMat_02
+    #     cdef double antMat_10
+    #     cdef double antMat_11
+    #     cdef double antMat_12
+    #     cdef double antMat_20
+    #     cdef double antMat_21
+    #     cdef double antMat_22
     
-        cdef double TOA_measurment
-        cdef double weight
+    #     cdef double TOA_measurment
+    #     cdef double weight
         
-        cdef double HessOut_00 = 0.0
-        cdef double HessOut_01 = 0.0
-        cdef double HessOut_02 = 0.0
-        cdef double HessOut_10 = 0.0
-        cdef double HessOut_11 = 0.0
-        cdef double HessOut_12 = 0.0
-        cdef double HessOut_20 = 0.0
-        cdef double HessOut_21 = 0.0
-        cdef double HessOut_22 = 0.0
+    #     cdef double HessOut_00 = 0.0
+    #     cdef double HessOut_01 = 0.0
+    #     cdef double HessOut_02 = 0.0
+    #     cdef double HessOut_10 = 0.0
+    #     cdef double HessOut_11 = 0.0
+    #     cdef double HessOut_12 = 0.0
+    #     cdef double HessOut_20 = 0.0
+    #     cdef double HessOut_21 = 0.0
+    #     cdef double HessOut_22 = 0.0
         
-        for ant_i in range(  self.data_struct.num_antennas  ):
-            if not self.data_struct.mask[ ant_i ]:
-                continue
+    #     for ant_i in range(  self.data_struct.num_antennas  ):
+    #         if not self.data_struct.mask[ ant_i ]:
+    #             continue
             
-            #### now, the measurment antenna bit
-            antX = guess_XYZc[0]
-            antY = guess_XYZc[1]
-            antZ = guess_XYZc[2]
+    #         #### now, the measurment antenna bit
+    #         antX = guess_XYZc[0]
+    #         antY = guess_XYZc[1]
+    #         antZ = guess_XYZc[2]
             
-            antX -= self.data_struct.antennas_locations[ 3*ant_i + 0 ]
-            antY -= self.data_struct.antennas_locations[ 3*ant_i + 1 ]
-            antZ -= self.data_struct.antennas_locations[ 3*ant_i + 2 ]
+    #         antX -= self.data_struct.antennas_locations[ 3*ant_i + 0 ]
+    #         antY -= self.data_struct.antennas_locations[ 3*ant_i + 1 ]
+    #         antZ -= self.data_struct.antennas_locations[ 3*ant_i + 2 ]
             
-            ant_norm = sqrt( antX*antX + antY*antY + antZ*antZ )
-            inverse_norm = 1.0/ant_norm
-            inverse_norm_cubed = inverse_norm*inverse_norm*inverse_norm
+    #         ant_norm = sqrt( antX*antX + antY*antY + antZ*antZ )
+    #         inverse_norm = 1.0/ant_norm
+    #         inverse_norm_cubed = inverse_norm*inverse_norm*inverse_norm
             
-            antMat_00 = -antX*antX*inverse_norm_cubed
-            antMat_01 = -antX*antY*inverse_norm_cubed
-            antMat_02 = -antX*antZ*inverse_norm_cubed
-            antMat_10 = -antY*antX*inverse_norm_cubed
-            antMat_11 = -antY*antY*inverse_norm_cubed
-            antMat_12 = -antY*antZ*inverse_norm_cubed
-            antMat_20 = -antZ*antX*inverse_norm_cubed
-            antMat_21 = -antZ*antY*inverse_norm_cubed
-            antMat_22 = -antZ*antZ*inverse_norm_cubed
+    #         antMat_00 = -antX*antX*inverse_norm_cubed
+    #         antMat_01 = -antX*antY*inverse_norm_cubed
+    #         antMat_02 = -antX*antZ*inverse_norm_cubed
+    #         antMat_10 = -antY*antX*inverse_norm_cubed
+    #         antMat_11 = -antY*antY*inverse_norm_cubed
+    #         antMat_12 = -antY*antZ*inverse_norm_cubed
+    #         antMat_20 = -antZ*antX*inverse_norm_cubed
+    #         antMat_21 = -antZ*antY*inverse_norm_cubed
+    #         antMat_22 = -antZ*antZ*inverse_norm_cubed
             
-            antMat_00 += inverse_norm
-            antMat_11 += inverse_norm
-            antMat_22 += inverse_norm
-            
-            
-            #### take differance of hessians , multiple, add to total hessian
-            
-            antMat_00 -= refHess_00
-            antMat_01 -= refHess_01
-            antMat_02 -= refHess_02
-            antMat_10 -= refHess_10
-            antMat_11 -= refHess_11
-            antMat_12 -= refHess_12
-            antMat_20 -= refHess_20
-            antMat_21 -= refHess_21
-            antMat_22 -= refHess_22
-            
-            TOA_measurment = (ant_norm - ref_norm)*c_air_inverse            
-            TOA_measurment -= self.data_struct.measured_times[ ant_i ] - guess_XYZc[3]
-            weight= 1.0/(self.data_struct.weights[ ant_i ]*self.data_struct.weights[ ant_i ])
-            
-            antMat_00 *= c_air_inverse*TOA_measurment*weight
-            antMat_01 *= c_air_inverse*TOA_measurment*weight
-            antMat_02 *= c_air_inverse*TOA_measurment*weight
-            antMat_10 *= c_air_inverse*TOA_measurment*weight
-            antMat_11 *= c_air_inverse*TOA_measurment*weight
-            antMat_12 *= c_air_inverse*TOA_measurment*weight
-            antMat_20 *= c_air_inverse*TOA_measurment*weight
-            antMat_21 *= c_air_inverse*TOA_measurment*weight
-            antMat_22 *= c_air_inverse*TOA_measurment*weight
-            
-            HessOut_00 += antMat_00
-            HessOut_01 += antMat_01
-            HessOut_02 += antMat_02
-            HessOut_10 += antMat_10
-            HessOut_11 += antMat_11
-            HessOut_12 += antMat_12
-            HessOut_20 += antMat_20
-            HessOut_21 += antMat_21
-            HessOut_22 += antMat_22
+    #         antMat_00 += inverse_norm
+    #         antMat_11 += inverse_norm
+    #         antMat_22 += inverse_norm
             
             
-            #### now calculate the single derivative component and add to total hessian
+    #         #### take differance of hessians , multiple, add to total hessian
+            
+    #         antMat_00 -= refHess_00
+    #         antMat_01 -= refHess_01
+    #         antMat_02 -= refHess_02
+    #         antMat_10 -= refHess_10
+    #         antMat_11 -= refHess_11
+    #         antMat_12 -= refHess_12
+    #         antMat_20 -= refHess_20
+    #         antMat_21 -= refHess_21
+    #         antMat_22 -= refHess_22
+            
+    #         TOA_measurment = (ant_norm - ref_norm)*c_air_inverse            
+    #         TOA_measurment -= self.data_struct.measured_times[ ant_i ] - guess_XYZc[3]
+    #         weight= 1.0/(self.data_struct.weights[ ant_i ]*self.data_struct.weights[ ant_i ])
+            
+    #         antMat_00 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_01 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_02 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_10 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_11 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_12 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_20 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_21 *= c_air_inverse*TOA_measurment*weight
+    #         antMat_22 *= c_air_inverse*TOA_measurment*weight
+            
+    #         HessOut_00 += antMat_00
+    #         HessOut_01 += antMat_01
+    #         HessOut_02 += antMat_02
+    #         HessOut_10 += antMat_10
+    #         HessOut_11 += antMat_11
+    #         HessOut_12 += antMat_12
+    #         HessOut_20 += antMat_20
+    #         HessOut_21 += antMat_21
+    #         HessOut_22 += antMat_22
+            
+            
+    #         #### now calculate the single derivative component and add to total hessian
 
-            antX *= inverse_norm
-            antY *= inverse_norm
-            antZ *= inverse_norm
-            antX -= refX
-            antY -= refY
-            antZ -= refZ
-            antX *= c_air_inverse
-            antY *= c_air_inverse
-            antZ *= c_air_inverse
+    #         antX *= inverse_norm
+    #         antY *= inverse_norm
+    #         antZ *= inverse_norm
+    #         antX -= refX
+    #         antY -= refY
+    #         antZ -= refZ
+    #         antX *= c_air_inverse
+    #         antY *= c_air_inverse
+    #         antZ *= c_air_inverse
             
-            antMat_00 = antX*antX*weight
-            antMat_01 = antX*antY*weight
-            antMat_02 = antX*antZ*weight
-            antMat_10 = antY*antX*weight
-            antMat_11 = antY*antY*weight
-            antMat_12 = antY*antZ*weight
-            antMat_20 = antZ*antX*weight
-            antMat_21 = antZ*antY*weight
-            antMat_22 = antZ*antZ*weight
+    #         antMat_00 = antX*antX*weight
+    #         antMat_01 = antX*antY*weight
+    #         antMat_02 = antX*antZ*weight
+    #         antMat_10 = antY*antX*weight
+    #         antMat_11 = antY*antY*weight
+    #         antMat_12 = antY*antZ*weight
+    #         antMat_20 = antZ*antX*weight
+    #         antMat_21 = antZ*antY*weight
+    #         antMat_22 = antZ*antZ*weight
             
-            HessOut_00 += antMat_00
-            HessOut_01 += antMat_01
-            HessOut_02 += antMat_02
-            HessOut_10 += antMat_10
-            HessOut_11 += antMat_11
-            HessOut_12 += antMat_12
-            HessOut_20 += antMat_20
-            HessOut_21 += antMat_21
-            HessOut_22 += antMat_22
+    #         HessOut_00 += antMat_00
+    #         HessOut_01 += antMat_01
+    #         HessOut_02 += antMat_02
+    #         HessOut_10 += antMat_10
+    #         HessOut_11 += antMat_11
+    #         HessOut_12 += antMat_12
+    #         HessOut_20 += antMat_20
+    #         HessOut_21 += antMat_21
+    #         HessOut_22 += antMat_22
             
             
-        #### now we invert  ####
-        # first we calculate the norm
-        cdef double hessNorm = HessOut_00*norm( HessOut_11, HessOut_12,
-                                                HessOut_21, HessOut_22 )
-        hessNorm -= HessOut_01*norm( HessOut_10, HessOut_12,
-                                     HessOut_20, HessOut_22 )
-        hessNorm += HessOut_02*norm( HessOut_10, HessOut_11,
-                                     HessOut_20, HessOut_21 )
-        hessNorm = 1.0/hessNorm
+    #     #### now we invert  ####
+    #     # first we calculate the norm
+    #     cdef double hessNorm = HessOut_00*norm( HessOut_11, HessOut_12,
+    #                                             HessOut_21, HessOut_22 )
+    #     hessNorm -= HessOut_01*norm( HessOut_10, HessOut_12,
+    #                                  HessOut_20, HessOut_22 )
+    #     hessNorm += HessOut_02*norm( HessOut_10, HessOut_11,
+    #                                  HessOut_20, HessOut_21 )
+    #     hessNorm = 1.0/hessNorm
         
-        # then the little fiddly bits, using the symetry property
-        covariance_out[0,0] = hessNorm*norm( HessOut_11, HessOut_12,
-                                             HessOut_21, HessOut_22  )
-        covariance_out[0,1] = hessNorm*norm( HessOut_02, HessOut_01,
-                                             HessOut_22, HessOut_21  )
-        covariance_out[0,2] = hessNorm*norm( HessOut_01, HessOut_02,
-                                             HessOut_11, HessOut_12  )
+    #     # then the little fiddly bits, using the symetry property
+    #     covariance_out[0,0] = hessNorm*norm( HessOut_11, HessOut_12,
+    #                                          HessOut_21, HessOut_22  )
+    #     covariance_out[0,1] = hessNorm*norm( HessOut_02, HessOut_01,
+    #                                          HessOut_22, HessOut_21  )
+    #     covariance_out[0,2] = hessNorm*norm( HessOut_01, HessOut_02,
+    #                                          HessOut_11, HessOut_12  )
         
-        covariance_out[1,0] = covariance_out[0,1]
+    #     covariance_out[1,0] = covariance_out[0,1]
         
-        covariance_out[1,1] = hessNorm*norm( HessOut_00, HessOut_02,
-                                             HessOut_20, HessOut_22  )
-        covariance_out[1,2] = hessNorm*norm( HessOut_02, HessOut_00,
-                                             HessOut_12, HessOut_10  )
+    #     covariance_out[1,1] = hessNorm*norm( HessOut_00, HessOut_02,
+    #                                          HessOut_20, HessOut_22  )
+    #     covariance_out[1,2] = hessNorm*norm( HessOut_02, HessOut_00,
+    #                                          HessOut_12, HessOut_10  )
         
-        covariance_out[2,0] = covariance_out[0,2]
+    #     covariance_out[2,0] = covariance_out[0,2]
         
-        covariance_out[2,1] = covariance_out[1,2]
+    #     covariance_out[2,1] = covariance_out[1,2]
         
-        covariance_out[2,2] = hessNorm*norm( HessOut_00, HessOut_01,
-                                             HessOut_10, HessOut_11  )
+    #     covariance_out[2,2] = hessNorm*norm( HessOut_00, HessOut_01,
+    #                                          HessOut_10, HessOut_11  )
     
     
 cdef inline double norm(double A, double B, double C, double D):

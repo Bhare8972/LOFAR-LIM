@@ -12,7 +12,7 @@ from os import path
 
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.signal import gaussian
+from scipy.signal.windows import gaussian
 
 from LoLIM.utilities import processed_data_dir
 from LoLIM.signal_processing import half_hann_window, num_double_zeros
@@ -56,6 +56,8 @@ def FindRFI(TBB_in_file, block_size, initial_block, num_blocks, max_blocks=None,
         "phase_variance":a numpy array containing the phase variance of each frequency channel
         "dirty_channels": an array of indeces indicating the channels that are contaminated with RFI
     """
+
+    print("WARNING! findRFI is being depreciated! (use findRFI_adv)")
 
     if max_blocks is None:
         max_blocks = num_blocks

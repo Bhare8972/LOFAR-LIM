@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import numpy as np
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from scipy.signal import resample
 from scipy.optimize import least_squares, brute
 
@@ -19,6 +19,8 @@ class planewave_fitter:
                     positive_saturation = 2046, negative_saturation = -2047, saturation_post_removal_length = 50, saturation_half_hann_length = 50, verbose=True):
     
         self.parabolic_fitter = parabolic_fitter()
+
+        self.verbose = verbose
         
         self.polarization = polarization
         self.TBB_data = TBB_data
@@ -31,6 +33,8 @@ class planewave_fitter:
         self.num_found_planewaves = 0
         if num_antenna_pairs < min_num_antennas:
             return
+
+        print('WARNING: planewave_fitter doesnt work with new RFI filters')
     
         RFI_filter = window_and_filter(timeID=timeID, sname=TBB_data.get_station_name(), blocksize=(blocksize if timeID is None else None) )
         block_size = RFI_filter.blocksize
@@ -42,11 +46,17 @@ class planewave_fitter:
         for block in range(initial_block, initial_block+number_of_blocks):
             if self.num_found_planewaves >= max_num_planewaves:
                 break
+
+            if verbose:
+                print('searching:', (block-initial_block)/number_of_blocks )
             
             #### open and filter data
 #            print('open block', block)
             for pair_i in range(num_antenna_pairs):
                 ant_i = pair_i*2 + polarization
+
+                if not TBB_data.has_antenna( antenna_index=ant_i ):
+                    continue
                 
                 data[pair_i,:] = TBB_data.get_data(block*block_size, block_size, antenna_index=ant_i)
                 remove_saturation(data[pair_i,:], positive_saturation, negative_saturation, saturation_post_removal_length, saturation_half_hann_length)
@@ -56,6 +66,7 @@ class planewave_fitter:
             #### loop over finding planewaves
             i = 0
             while i < pulses_per_block:
+
                 if self.num_found_planewaves >= max_num_planewaves:
                     break
                 
@@ -64,9 +75,14 @@ class planewave_fitter:
                 
                 ## find highest peak
                 for pair_i, HE in enumerate(data):
+
+                    ant_i = pair_i*2 + polarization
+                    if not TBB_data.has_antenna( antenna_index=ant_i ):
+                        continue
+
                     loc = np.argmax( HE )
                     amp = HE[ loc ]
-                    
+
                     if amp > pulse_amplitude:
                         pulse_amplitude = amp
                         pulse_location = loc
@@ -74,13 +90,28 @@ class planewave_fitter:
                 ## check if is strong enough
                 if pulse_amplitude < min_amplitude:
                     break
+
                 
                 ## get
                 
                 newPW_data = np.full( num_antenna_pairs, np.nan, dtype=np.double )
                 newPW_derivatives = np.full( num_antenna_pairs, np.nan, dtype=np.double )
+
+
+        ## HE
+                ##offset = 0
                 for pair_i, HE in enumerate(data):
-#                    ant_i = pair_i*2 + polarization
+
+                    ant_i = pair_i*2 + polarization
+                    if not TBB_data.has_antenna( antenna_index=ant_i ):
+                        continue
+
+        ## HE
+                    #plt.plot(HE+offset)
+                    #maxHE = np.max(HE)
+                    #plt.plot([pulse_location-left_pulse_length,pulse_location-left_pulse_length], [offset, offset+maxHE], c='g')
+                    #plt.plot([pulse_location+right_pulse_length,pulse_location+right_pulse_length], [offset, offset+maxHE], c='r')
+
                     
                     signal = np.array( HE[ pulse_location-left_pulse_length : pulse_location+right_pulse_length] )
                     if num_double_zeros(signal, threshold=0.1) == 0:
@@ -94,6 +125,15 @@ class planewave_fitter:
                         newPW_derivatives[pair_i] = self.parabolic_fitter.second_derivative()*sample_time
                         
                     HE[ pulse_location-left_pulse_length : pulse_location+right_pulse_length] = 0.0
+
+
+        ## HE
+
+                    #plt.plot([newPW_data[ pair_i ]/(5.0E-9) +pulse_location-left_pulse_length, newPW_data[ pair_i ]/(5.0E-9) +pulse_location-left_pulse_length], [offset, offset+maxHE], c='b')
+                    #offset += np.max(maxHE)
+                #plt.show()
+
+
                 if np.sum( np.isfinite(newPW_data)) >= min_num_antennas:
                     self.planewave_data.append( newPW_data )
                     self.planewave_second_derivatives.append( newPW_derivatives )
@@ -117,6 +157,14 @@ class planewave_fitter:
             
             ret[ant_i] = -dr/utils.v_air
         return ret
+
+    def antenna_names(self):
+        ant_names = self.TBB_data.get_antenna_names()
+
+        ret = [  ant_names[pair_i*2 + self.polarization]  for pair_i in range(int(len(ant_names)/2)) ] 
+
+        return ret
+
     
     def residuals(self, ZA):
         model = self.model_arrival(ZA)
@@ -153,6 +201,11 @@ class planewave_fitter:
         antenna_SSqE = np.zeros( len(self.antenna_locations), dtype=np.double )
         antenna_num = np.zeros( len(self.antenna_locations), dtype=int )
         for pw_i,PW_data in enumerate(self.planewave_data):
+
+            if self.verbose:
+                print('fitting:', pw_i/len(self.planewave_data) )
+
+
 #            print(pw_i)
             self.pulse_times = PW_data-antenna_delays
             self.filter = np.isfinite( PW_data )

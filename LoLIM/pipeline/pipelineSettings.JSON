@@ -1,0 +1,152 @@
+{
+
+"flashDatabase_location" : "/project/lli/Public/flashDatabase.json",   
+"stormDatabase_location" : "/project/lli/Public/stormDatabase.json",
+
+"raw_data_loc" : "" ,
+"processed_data_loc" : "" ,
+
+"inject_LTA_locations": "/home/hare/pipeline/inject_LTA_locations",
+
+"processor_uses_slurm":false, 
+"slurm_user":"lli-bhare",
+"maxAllowedProcesses":4,
+
+"maxDatabaseBackup_Days":30,
+"minNumDatabaseBackups":1,
+
+
+"ready_download_data":{
+
+	"output_folderName" : "ready_download_data",
+	"log_folderName"    : "logs",
+	"log_fileName"    : "log",  
+	"succesfulCompletion_FileName":"COMPLETE",
+	"minNumProcesses" : 1,
+	"maxNumProcesses" : 1,
+	"maxCPU_perProcess":1,
+	
+	"slurm_settings":{
+		"run_time": "#SBATCH -t 10:00",
+		"partition":"#SBATCH -p normal",
+		"nodes": "#SBATCH -N 1",
+		"extras":[]
+	},
+	
+	"settingsFileName":"settings.JSON", 
+	"settings":{
+	},
+	
+	
+	"dataFileTableName":"dataFiles.json"
+},
+
+"download_data":{
+	"LTA_locations_folder" : "",
+	"LTA_locations_folder_organized_byYear" : true,
+	"wgetRC_file" : "",
+
+	"output_folderName" : "rawDataDownloading",
+	"log_folderName"    : "logs",
+	"log_fileName"    : "log",  
+	"succesfulCompletion_FileName":"COMPLETE",
+	"minNumProcesses" : 1,
+	"maxNumProcesses" : 10,
+	"maxCPU_perProcess":1,
+	
+	"slurm_settings":{
+		"run_time": "#SBATCH -t 24:00:00",
+		"partition":"#SBATCH -p normal",
+		"nodes": "#SBATCH -N 1",
+		"extras":[]
+	},
+	
+	"settingsFileName":"settings.JSON", 
+	"settings":{
+		"LTA_loc_prefix":"https://lofar-download.grid.surfsara.nl/lofigrid/SRMFifoGet.py?surl="
+	}
+},
+
+
+"initial_statistics":{
+
+	"output_folderName" : "initialStatistics",
+	"log_folderName"    : "logs",
+	"log_fileName"    : "log",  
+	"succesfulCompletion_FileName":"COMPLETE",
+	"minNumProcesses" : 1,
+	"maxNumProcesses" : 10,
+	"maxCPU_perProcess":1,
+	
+	"slurm_settings":{
+		"run_time": "#SBATCH -t 24:00:00",
+		"partition":"#SBATCH -p normal",
+		"nodes": "#SBATCH -N 1",
+		"extras":[]
+	},
+	
+	"settingsFileName":"settings.JSON", 
+	"settings":{
+		"blockSize":65536
+	}
+},
+
+
+"find_RFI":{
+
+	"output_folderName" : "find_RFI",
+	"log_folderName"    : "logs",
+	"log_fileName"    : "log",  
+	"succesfulCompletion_FileName":"COMPLETE",
+	"minNumProcesses" : 1,
+	"maxNumProcesses" : 10,
+	"maxCPU_perProcess":1,
+	
+	"slurm_settings":{
+		"run_time": "#SBATCH -t 24:00:00",
+		"partition":"#SBATCH -p normal",
+		"nodes": "#SBATCH -N 1",
+		"extras":[]
+	},
+	
+	"settingsFileName":"settings.JSON", 
+	"settings":{
+		"num_blocks":10,
+		"useRFIData_fromAnoutherFlash":null,
+		"use_userDefinedBlocks_forRFI":false,
+		"userSet_startBlock":null,
+		"userSet_endBlock":null,
+		"auto_numBins":150,
+		"auto_noiseMax":1000,
+		"auto_thresholdF":0.25,
+		"min_consective_blocks":20
+	}
+},
+
+"impulsive_imager":{
+
+	"output_folderName" : "impulsive_imager",
+	"log_folderName"    : "logs",
+	"log_fileName"    : "log",  
+	"succesfulCompletion_FileName":"COMPLETE",
+	"minNumProcesses" : 1,
+	"maxNumProcesses" : 10,
+	"maxCPU_perProcess":1,
+	
+	"slurm_settings":{
+		"run_time": "#SBATCH -t 24:00:00",
+		"partition":"#SBATCH -p normal",
+		"nodes": "#SBATCH -N 1",
+		"extras":[]
+	},
+	
+	"settingsFileName":"settings.JSON", 
+	"settings":{
+		"num_consecutive_blocks":100,
+		"skip_blocks_done":true
+		}
+}
+
+
+}
+

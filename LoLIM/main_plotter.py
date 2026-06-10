@@ -1,3 +1,8 @@
 #!/usr/bin/env python3
 
-from LoLIM.GLP.plotter import *
+
+try:
+	from LoLIM.GLP.plotter import *
+except Exception as e: 
+	print('WARNING: cannot import LoLIM.main_plotter')
+	print(e)

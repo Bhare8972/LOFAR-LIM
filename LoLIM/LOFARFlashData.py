@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
+from LoLIM.pipeline import database as LoDB 
+
 ### some DB information, do not accses directly as implementations may change
+
+#### WARNING: This is not to include any more flashes after 2023. That should be added via the pipeline!
+
 __FlashNameToTimeIDDict__ = {
 
 '16A-1': 'D20160712T173455.100Z',
@@ -161,24 +166,69 @@ __FlashNameToTimeIDDict__ = {
 
 ### can use stuff below
 
-def FlashName_to_TimeID(name):
-    ret = __FlashNameToTimeIDDict__[name]
-    if '.' not in ret:
-        print('WARNING: flash name',name,'timeID:',ret,'is incomplete')
+def FlashName_to_TimeID(name, flashDatabase_location=None):
 
-    return ret
+    if name in __FlashNameToTimeIDDict__:
+
+        ret = __FlashNameToTimeIDDict__[name]
+        if '.' not in ret:
+            #raise Exception('flash name '+name+' timeID: '+ret+' is incomplete')
+            print('WARNING: flash name '+name+' timeID: '+ret+' is incomplete')
+
+        return ret
+
+    elif flashDatabase_location is not None:
+
+        ## open database
+        with LoDB.database_manager(flashDatabase_location) as dbIN:
+            db = dbIn.read_database()
+
+        if name in db.loc:
+            return db.loc[name]['TimeID']
+        
+    raise Exception('flash not exist: '+name)
+
+        ## filter
+        #year = utilties.year_from_timeID
+        #db_with_year = db[ db['year']==year ]
+        #db_with_timeID = 
+
+
 
 __TimeIDToFlashNameDict__ = None
-def TimeID_to_FlashName(TimeID):
+def TimeID_to_FlashName(TimeID, flashDatabase_location=None):
     global __TimeIDToFlashNameDict__
     if __TimeIDToFlashNameDict__ is None:
         __TimeIDToFlashNameDict__ = {}
         for name,tid in __FlashNameToTimeIDDict__.items():
-            tidCut = tid.split('.')[0]
-            __TimeIDToFlashNameDict__[tidCut] = name
-
+            #tidCut = tid.split('.')[0]
+            __TimeIDToFlashNameDict__[tid] = name
 
     TimeIDCut = TimeID.split('.')[0]
-    ret = __TimeIDToFlashNameDict__[TimeIDCut]
 
-    return ret
+    if TimeIDCut in __TimeIDToFlashNameDict__:
+        return __TimeIDToFlashNameDict__[TimeIDCut]
+
+    elif TimeID in __TimeIDToFlashNameDict__:
+        return __TimeIDToFlashNameDict__[TimeIDCut]
+
+    elif flashDatabase_location is not None:
+
+        ## open database
+        with LoDB.database_manager(flashDatabase_location) as dbIN:
+            db = dbIn.read_database()
+
+        ## filter
+        year = utilties.year_from_timeID( TimeID )
+        db_with_year = db[ db['year']==year ]
+        db_with_timeID = db.loc[ db_with_year['TimeID']==TimeID ]
+
+        #if name in db.loc:
+        #    return db.loc[name]['TimeID']
+        
+    raise Exception('flash not exist: '+name)
+
+        ## filter
+        #year = utilties.year_from_timeID
+        #db_with_year = db[ db['year']==year ]
+        #db_with_timeID = 

@@ -86,9 +86,40 @@ cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
         size_t nevaldf # counts df evaluations, set by init
         size_t nevalfvv # counts fvv evaluations, set by init
         
+    ctypedef struct gsl_multifit_nlinear_fdtype:
+        pass
         
     ctypedef struct gsl_multifit_nlinear_parameters:
-        pass
+        const void* trs        #trust region subproblem method */   gsl_multifit_nlinear_trs
+        const void* scale    # scaling method */   gsl_multifit_nlinear_scale
+        const void* solver  # solver method */   gsl_multifit_nlinear_solver
+        gsl_multifit_nlinear_fdtype fdtype         # finite difference method */
+        double factor_up                           # factor for increasing trust radius */
+        double factor_down                         # factor for decreasing trust radius */
+        double avmax                               # max allowed |a|/|v| */
+        double h_df                                # step size for finite difference Jacobian */
+        double h_fvv                               # step size for finite difference fvv */
+
+    ## trs options
+    const void* gsl_multifit_nlinear_trs_lm  ## This selects the Levenberg-Marquardt algorithm.
+    const void* gsl_multifit_nlinear_trs_lmaccel  ## This selects the Levenberg-Marquardt algorithm with geodesic acceleration.
+    const void* gsl_multifit_nlinear_trs_dogleg ##This selects the dogleg algorithm.
+    const void* gsl_multifit_nlinear_trs_ddogleg  #This selects the double dogleg algorithm.
+    const void* gsl_multifit_nlinear_trs_subspace2D  #This selects the 2D subspace algorithm.
+    ## scale
+    const void* gsl_multifit_nlinear_scale_more      ## scale invarient
+    const void* gsl_multifit_nlinear_scale_levenberg   ## NOT scale invarient
+    const void* gsl_multifit_nlinear_scale_marquardt   ## scale invarient,  but often inferior
+    ## solver 
+    const void* gsl_multifit_nlinear_solver_qr   ## reliable but slow
+    const void* gsl_multifit_nlinear_solver_cholesky ## faster but maybe instable
+    const void* gsl_multifit_nlinear_solver_mcholesky  ## suitable for dogleg methods
+    const void* gsl_multifit_nlinear_solver_svd  ## most reliable, but slowest
+    #fdtype
+    gsl_multifit_nlinear_fdtype GSL_MULTIFIT_NLINEAR_FWDIFF  ## forward finite differences (is cheaper than centered)
+    gsl_multifit_nlinear_fdtype GSL_MULTIFIT_NLINEAR_CTRDIFF ## centered. twice as expense
+
+
     
     gsl_multifit_nlinear_parameters gsl_multifit_nlinear_default_parameters()
  
@@ -106,6 +137,7 @@ cdef extern from "gsl/gsl_multifit_nlinear.h" nogil:
     
 
     int gsl_multifit_nlinear_iterate(void *w)
+    int gsl_multifit_nlinear_test(const double xtol, const double gtol, const double ftol, int *info, const void* workspace)
 
     int gsl_multifit_nlinear_driver(const size_t maxiter, const double xtol, const double gtol, const double ftol, void* callback, void* callback_params, int* info, void* workspace)
     
@@ -164,7 +196,9 @@ cdef int call_df ( const gsl_vector * x,    void* data,   gsl_matrix* J) noexcep
 
 
     try:
+
         LSI.jacobian( X_array,  J_array, LSI.additional_info)
+
     except Exception as e:
         print('exception in jacobian')
         print('  ', e)
@@ -180,6 +214,25 @@ cdef copy_GSLVector_toNumpyArray(gsl_vector* A, np.ndarray[double, ndim=1] B):
     for i in range(len(B)):
         B[i] = gsl_vector_get(A,  i)
 
+
+
+
+cdef copy_GSLMatrix_toNumpyArray(gsl_matrix* A, np.ndarray[double, ndim=2] B):
+
+    cdef int X_size = A.size1
+    cdef int Y_size = A.size2
+    
+    cdef int i
+    cdef int j
+    for i in range(X_size):
+        for j in xrange(Y_size):
+
+            B[i,j] = gsl_matrix_get(A,  i,j)
+
+    return B
+
+
+
 cdef copy_NumpyArray_to_GSLVector(np.ndarray[double, ndim=1] A, gsl_vector* B):
     
     cdef int i
@@ -190,6 +243,52 @@ cdef copy_NumpyArray_to_GSLVector(np.ndarray[double, ndim=1] A, gsl_vector* B):
 cdef gsl_vector get_GLSVector_view_of_NumpyArray( np.ndarray[double, ndim=1] A ):
     cdef gsl_vector_view VV = gsl_vector_view_array( &A[0], len(A) )
     return VV.vector
+
+
+cdef get_trs_name(const void* trs):
+    """given a trust region subproblem method, return a string of the name"""
+
+    if trs==gsl_multifit_nlinear_trs_lm:
+        return 'gsl_multifit_nlinear_trs_lm'
+    elif trs==gsl_multifit_nlinear_trs_lmaccel:
+        return 'gsl_multifit_nlinear_trs_lmaccel'
+    elif trs==gsl_multifit_nlinear_trs_dogleg:
+        return 'gsl_multifit_nlinear_trs_dogleg'
+    elif trs==gsl_multifit_nlinear_trs_ddogleg:
+        return 'gsl_multifit_nlinear_trs_ddogleg'
+    elif trs==gsl_multifit_nlinear_trs_subspace2D:
+        return 'gsl_multifit_nlinear_trs_subspace2D'
+    else:
+        return "unknown"
+
+
+cdef get_scaling_method_name(const void* scale):
+    """given a scaling method, return name"""
+
+    if scale==gsl_multifit_nlinear_scale_more:
+        return 'gsl_multifit_nlinear_scale_more'
+    elif scale==gsl_multifit_nlinear_scale_levenberg:
+        return 'gsl_multifit_nlinear_scale_levenberg'
+    elif scale==gsl_multifit_nlinear_scale_levenberg:
+        return 'gsl_multifit_nlinear_scale_levenberg'
+    elif scale==gsl_multifit_nlinear_scale_marquardt:
+        return 'gsl_multifit_nlinear_scale_marquardt'
+    else:
+        return 'unknown'
+
+cdef get_solver_method_name(const void* solver):
+    """given a solving method, return name"""
+
+    if solver==gsl_multifit_nlinear_solver_qr:
+        return 'gsl_multifit_nlinear_solver_qr'
+    elif solver==gsl_multifit_nlinear_solver_cholesky:
+        return 'gsl_multifit_nlinear_solver_cholesky'
+    elif solver==gsl_multifit_nlinear_solver_mcholesky:
+        return 'gsl_multifit_nlinear_solver_mcholesky'
+    elif solver==gsl_multifit_nlinear_solver_svd:
+        return 'gsl_multifit_nlinear_solver_svd'
+    else:
+        return 'unknown'
 
 
 
@@ -255,7 +354,76 @@ cdef class GSL_LeastSquares:
 
         
         # self.vector_F = gsl_multifit_nlinear_residual( self.fit_workspace )
-        
+
+    def set_TrustRegionMethod(self, method):
+        """ 1: gsl_multifit_nlinear_trs_lm   ## This selects the Levenberg-Marquardt algorithm.
+        2: gsl_multifit_nlinear_trs_lmaccel  ## This selects the Levenberg-Marquardt algorithm with geodesic acceleration.
+        3: gsl_multifit_nlinear_trs_dogleg   ##This selects the dogleg algorithm.
+        4: gsl_multifit_nlinear_trs_ddogleg  #This selects the double dogleg algorithm.
+        5: gsl_multifit_nlinear_trs_subspace2D  #This selects the 2D subspace algorithm."""
+
+        if method == 1:
+            self.fit_parameters.trs = gsl_multifit_nlinear_trs_lm
+        elif method == 2:
+            self.fit_parameters.trs = gsl_multifit_nlinear_trs_lmaccel
+        elif method == 3:
+            self.fit_parameters.trs = gsl_multifit_nlinear_trs_dogleg
+        elif method == 4:
+            self.fit_parameters.trs = gsl_multifit_nlinear_trs_ddogleg
+        elif method == 5:
+            self.fit_parameters.trs = gsl_multifit_nlinear_trs_subspace2D
+        else:
+            print('ERROR in set_TrustRegionMethod. method is not known:', method)
+
+
+    def set_ScalingMethod(self, method):
+        """
+            1 gsl_multifit_nlinear_scale_more      ## scale invarient
+            2 gsl_multifit_nlinear_scale_levenberg   ## NOT scale invarient
+            3 gsl_multifit_nlinear_scale_marquardt   ## scale invarient,  but often inferior"""
+
+        if method == 1:
+            self.fit_parameters.scale = gsl_multifit_nlinear_scale_more
+        elif method == 2:
+            self.fit_parameters.scale = gsl_multifit_nlinear_scale_levenberg
+        elif method == 3:
+            self.fit_parameters.scale = gsl_multifit_nlinear_scale_marquardt
+        else:
+            print('ERROR in set_ScalingMethod. method is not known:', method)
+
+
+    def set_SolvingMethod(self, method):
+        """
+        1 gsl_multifit_nlinear_solver_qr   ## reliable but slow
+        2 gsl_multifit_nlinear_solver_cholesky ## faster but maybe instable
+        3 gsl_multifit_nlinear_solver_mcholesky  ## suitable for dogleg methods
+        4 gsl_multifit_nlinear_solver_svd  ## most reliable, but slowest"""
+
+        if method == 1:
+            self.fit_parameters.solver = gsl_multifit_nlinear_solver_qr
+        elif method == 2:
+            self.fit_parameters.solver = gsl_multifit_nlinear_solver_cholesky
+        elif method == 3:
+            self.fit_parameters.solver = gsl_multifit_nlinear_solver_mcholesky
+        elif method == 4:
+            self.fit_parameters.solver = gsl_multifit_nlinear_solver_svd
+        else:
+            print('ERROR in set_SolvingMethod. method is not known:', method)
+
+
+
+
+
+    def print_parameters(self):
+        print('trs:   ', get_trs_name(self.fit_parameters.trs) )
+        print('scale :', get_scaling_method_name(self.fit_parameters.scale) )
+        print('solver:', get_solver_method_name(self.fit_parameters.solver) )
+        print('fdtype:', '?')
+        print('factor_up:', self.fit_parameters.factor_up)
+        print('factor_down:', self.fit_parameters.factor_down)
+        print('avmax:', self.fit_parameters.avmax)
+        print('h_df:', self.fit_parameters.h_df)
+        print('h_fvv:', self.fit_parameters.h_fvv)
 
 
     def __dealloc__(self):
@@ -333,30 +501,65 @@ cdef class GSL_LeastSquares:
         for i in range(min_itters):
             ret = gsl_multifit_nlinear_iterate( self.fit_workspace )
 
+            if ret != 0:
+                if ret==GSL_ENOPROG:
+                    continue
+                else:
+                    return 6, "unknown problem: "+str(ret)
+
+        i=0
+        cdef int info=0
+        for i in range( max_itters-min_itters ):
+            ret = gsl_multifit_nlinear_iterate( self.fit_workspace )
+
+            if ret != 0:
+                if ret==GSL_ENOPROG:
+                    return 5, 'fitter cannot progress' 
+                else:
+                    return 6, "unknown problem: "+str(ret)
+
+            ret = gsl_multifit_nlinear_test(xtol, gtol, ftol, &info, self.fit_workspace)
+
+            if ret==GSL_SUCCESS:
+                if info==1:
+                    return 1, "xtol met"
+                elif info==2:
+                    return 2, "gtol met"
+                elif info==3:
+                    return 3, "ftol met"
+                else:
+                    return 7, "unknown test result: "+str(info)
+            else:
+                return 6, "unknown problem: "+str(ret)
+
+
+
+        return 4, 'max iterations reached'
+
                     
                 
-        cdef int info=0
-        ret = gsl_multifit_nlinear_driver(max_itters, xtol, gtol, ftol, 
-                                          NULL,NULL , &info, self.fit_workspace)
+        #cdef int info=0
+        #ret = gsl_multifit_nlinear_driver(max_itters, xtol, gtol, ftol, 
+         #                                 NULL,NULL , &info, self.fit_workspace)
 
-        if ret==GSL_SUCCESS:
-            if info == 0:
-                return 0, "unknown result"
-            elif info == 1: 
-                return 1, "xtol met"
-            elif info == 2: 
-                return 2, "gtol met"
-            elif info == 3: 
-                return 3, "ftol met"
-            else:
-                return 6, 'unknown result'
+        # if ret==GSL_SUCCESS:
+        #     if info == 0:
+        #         return 0, "unknown result"
+        #     elif info == 1: 
+        #         return 1, "xtol met"
+        #     elif info == 2: 
+        #         return 2, "gtol met"
+        #     elif info == 3: 
+        #         return 3, "ftol met"
+        #     else:
+        #         return 6, 'unknown result'
 
-        elif ret==GSL_EMAXITER:
-            return 4, 'max iterations reached'
-        elif ret==GSL_ENOPROG:
-            return 5, 'fitter cannot progress'
-        else:
-            return 6, 'unknown result'
+        # elif ret==GSL_EMAXITER:
+        #     return 4, 'max iterations reached'
+        # elif ret==GSL_ENOPROG:
+        #     return 5, 'fitter cannot progress'
+        # else:
+        #     return 6, 'unknown result'
 
     def get_num_iters(self):
         """ get number of iterations """
@@ -399,6 +602,27 @@ cdef class GSL_LeastSquares:
         cdef gsl_vector* vector_F = gsl_multifit_nlinear_residual( self.fit_workspace )
         copy_GSLVector_toNumpyArray( vector_F, F)
         return F
+
+
+
+    def get_Jacobian(self, np.ndarray[double, ndim=2] Jac=None):
+
+        if not self.fit_workspace:
+            print('fitter is not initialized! call reset first')
+            return None
+
+        cdef gsl_matrix *J = gsl_multifit_nlinear_jac( self.fit_workspace )
+
+        if Jac is None:
+            Jac = np.empty( (J.size1, J.size2), dtype=np.double )
+
+
+        copy_GSLMatrix_toNumpyArray(J, Jac)
+
+        return Jac
+
+
+
 
     def get_reduced_chi_squared(self):
 

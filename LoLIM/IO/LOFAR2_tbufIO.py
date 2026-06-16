@@ -374,8 +374,8 @@ class LOFAR2_tbuf_reader:
             metadata = self.antenna_metadata[ ant_i ]
 
             if metadata is not None:
-                print('WARNING: hack implimented where data_length is divded by 2')
-                self.data_lengths[ant_i] = int(metadata['DATA_LENGTH']/2)  
+                #print('WARNING: hack implimented where data_length is divded by 2')
+                self.data_lengths[ant_i] = int(metadata['DATA_LENGTH'])  
                 self.sample_numbers[ant_i] = metadata['SAMPLE_NUMBER']
 
 

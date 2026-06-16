@@ -27,6 +27,8 @@ from matplotlib.figure import Figure
 from matplotlib.widgets import SpanSelector, RectangleSelector
 import matplotlib.colors as colors
 
+import matplotlib.colors as mcolors
+
 ## mine
 
 def gen_cmap(cmap_name, minval,maxval, num=100):
@@ -890,21 +892,38 @@ def SPSF_to_DataSet(SPSF_file, name, cmap, marker='s', marker_size=5, color_mode
                                        )
     return new_dataset
 
+
+## color_mode is a string. If it starts with a '*' then it is assumed that the rest of the string is a matplotlib color.
+##    for example  color_mode='*r' means color all points red. while color_mode='time' means to color by time
+
+## marker_size is also a string (or number). It is a string and starts with a '*' then it is assumed to be a value in markerSize_options
+##      for example,  marker_size=5 or marker_size='5' both make a marker size of 5. However marker_size='*STI20' uses the value 'STI20' from markerSize_options
+
+## marker is a bit complex. Normally it can just be a matplotlib marker style string.
+##     However. if marker is longer than 2 charectors and starts sith a *, then it is an open marker.
+##     for example,  if marker_size=='o' or marker_size='*' then it behaves if sent to matplotlib.
+##                   if marker_size=='*o' or marker_size='**' then the face of the marker is open.
+
 class DataSet_generic_PSE(DataSet_Type):
     
     def __init__(self, X_array, Y_array, Z_array, T_array, 
                  marker, marker_size, color_mode, name, cmap,
-                 min_filters={}, max_filters={}, color_options={}, print_info={}, source_IDs = None, txtOut_info={}):
+                 min_filters={}, max_filters={}, color_options={}, markerSize_options = {}, print_info={}, source_IDs = None, txtOut_info={},
+                 max_marker_size=1000, min_marker_size=5, makerSize_value_cut = 0):
         
         self.marker = marker
-        self.marker_size = marker_size
-        self.color_mode = color_mode
+        self.size_mode = str(marker_size)
+        self.color_mode = str(color_mode)
         self.cmap = cmap
         self.name = name
         self._ignore_time = False
         self.ignore_time_bounds = None
         self.display = True
 
+
+        self.max_marker_size     = max_marker_size
+        self.min_marker_size     = min_marker_size
+        self.makerSize_value_cut = makerSize_value_cut
 
     ### check lengths of things
         L = len(X_array)
@@ -929,6 +948,10 @@ class DataSet_generic_PSE(DataSet_Type):
             if len(data)!=L:
                 print('data:', name, 'in color_options is wrong length' )
                 quit()
+        for name,data in markerSize_options.items():
+            if len(data)!=L:
+                print('data:', name, 'in markerSize_options is wrong length' )
+                quit()
         for name,data in print_info.items():
             if len(data)!=L:
                 print('data:', name, 'in print_info is wrong length' )
@@ -943,6 +966,7 @@ class DataSet_generic_PSE(DataSet_Type):
         self.min_filters = min_filters
         self.max_filters = max_filters
         self.color_options = color_options
+        self.markerSize_options = markerSize_options
         self.print_data = print_info
         self.txtOut_info = txtOut_info
         
@@ -1130,9 +1154,11 @@ class DataSet_generic_PSE(DataSet_Type):
         
         
     def get_all_properties(self):
-        ret =  {"marker size":str(self.marker_size),  "color mode":str(self.color_mode), 'name':self.name,
+        ret =  {"marker size":str(self.size_mode),  "color mode":str(self.color_mode), 'name':self.name,
                 "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
-                "T offset":self.T_offset, 'marker':self.marker, 'max points':self.max_num_points}
+                "T offset":self.T_offset, 'marker':self.marker, 'max points':self.max_num_points,
+                "min. marker size":str(self.min_marker_size), "max. marker size":str(self.max_marker_size), "makerSize_value_cut":str(self.makerSize_value_cut)
+                }
         
         for name, value in self.min_parameters.items():
             ret['min ' + name] = value
@@ -1147,7 +1173,7 @@ class DataSet_generic_PSE(DataSet_Type):
         
         try:
             if name == "marker size":
-                self.marker_size = int(str_value)
+                self.size_mode = str_value
                 
             elif name == "color mode":
                 self.color_mode = str_value
@@ -1179,6 +1205,15 @@ class DataSet_generic_PSE(DataSet_Type):
                 
             elif name[:3]=='max' and (name[4:] in self.max_parameters):
                 self.set_max_param( name[4:], float(str_value) )
+
+            elif name == "min. marker size":
+                self.min_marker_size = float( str_value )
+
+            elif name == "max. marker size":
+                self.max_marker_size = float( str_value )
+
+            elif name == "makerSize_value_cut":
+                self.makerSize_value_cut = float( str_value )
                 
             else:
                 print("do not have property:", name)
@@ -1216,10 +1251,18 @@ class DataSet_generic_PSE(DataSet_Type):
     
         if self.color_mode in self.color_options:
             color = self.color_options[ self.color_mode ][self.total_mask] ## should fix this to not make memory
+
+        if self.size_mode[0] == "*":
+            size_mode_type = 'variable'
+            size = self.markerSize_options[ self.size_mode[1:] ][self.total_mask]
+        else:
+            size_mode_type = 'number'
+            size = int(self.size_mode)
+
             
     
             
-        #### set cuts and transforms
+    #### set cuts and transforms
         self.X_TMP[:] = self.X_array  
         self.Y_TMP[:] = self.Y_array  
         self.Z_TMP[:] = self.Z_array  
@@ -1254,29 +1297,62 @@ class DataSet_generic_PSE(DataSet_Type):
             print(self.name, "not display. have:", len(plotX))
             return
         
-        ### get color!
+    ### get color!
         if self.color_mode == "time":
+            color_mode_type = 'variable'
             color = plotT
             ARG = coordinate_system.get_plotT()
             color_min = ARG[0]
             color_max = ARG[1]
             
         elif self.color_mode[0] == '*':
+            color_mode_type = 'constant'
             color = self.color_mode[1:]
             color_min = None
             color_max = None
             
         elif self.color_mode in self.color_options:
+            color_mode_type = 'variable'
             color = color[self.total_mask[:N]]
             color_min = np.min( color )
             color_max = np.max( color )
             
         else:
             print("bad color mode. This should be interesting!")
+            color_mode_type = 'constant'
             color = self.color_mode
             color_min = None
             color_max = None
-            
+
+    ## set size
+
+        if size_mode_type == 'variable':
+            ## this isn't very efficent...
+
+            size = size[self.total_mask[:N]]
+
+
+            min_size = self.min_marker_size
+            max_size = self.max_marker_size
+            size_cut = self.makerSize_value_cut
+
+            max_size_value = np.max(size)
+
+            min_size_value = max( size_cut, np.min(size) )
+            min_filter = size<min_size_value
+
+            m = (max_size-min_size)/( max_size_value-min_size_value )
+            b = min_size - m*min_size_value
+
+            size *= m
+            size += b
+
+            size[ min_filter ] = min_size
+
+
+
+
+    ## handle decimation
         N_before = len(plotX)
         if self.max_num_points>0 and self.max_num_points<N_before:
             decimation_factor = self.max_num_points/float(N_before)
@@ -1297,28 +1373,54 @@ class DataSet_generic_PSE(DataSet_Type):
             plotT = plotT[mask]
             
             
-            try:
+            if color_mode_type=='variable':
                 B4 = color[mask]
                 color = B4 ## hope this works?
-            except:
-                pass
+
+
+            if size_mode_type == 'variable':
+                size = np.array( size[mask] )
+
+
+            #except:
+              #  pass
             
+
         print(self.name, "plotting", len(plotX), "have:", N_before)
+
+    ## setup marker type and variable color
+        if color_mode_type == 'variable':
+            norm = mcolors.Normalize(vmin=color_min, vmax=color_max)
+            EC = self.cmap(norm(color))
+        else:
+            EC = color
+
+        maker_to_use = self.marker
+        facecolor = EC
+        if len(self.marker)>=2 and self.marker[0]=='*':
+            maker_to_use = self.marker[1:]
+            facecolor = 'none'
+
+
+    ## finally plot!
         
         try:
             if not self._ignore_time:
-                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, c=color, marker=self.marker, s=self.marker_size, 
-                                                        cmap=self.cmap, vmin=color_min, vmax=color_max, zorder=zorder)
+                self.AltVsT_paths = AltVsT_axes.scatter(x=plotT, y=plotZt, marker=maker_to_use, s=size, 
+                                                        zorder=zorder, fc=facecolor, edgecolors=EC)
                 
-            self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, c=color, marker=self.marker, s=self.marker_size, 
-                                                        cmap=self.cmap, vmin=color_min, vmax=color_max, zorder=zorder)
+            self.AltVsEw_paths = AltVsEw_axes.scatter(x=plotX, y=plotZ, marker=maker_to_use, s=size, 
+                                                        zorder=zorder, fc=facecolor, edgecolors=EC)
             
-            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
-                                                        cmap=self.cmap, vmin=color_min, vmax=color_max, zorder=zorder)
+            self.NsVsEw_paths = NsVsEw_axes.scatter(x=plotX, y=plotY, marker=maker_to_use, s=size, 
+                                                         zorder=zorder, fc=facecolor, edgecolors=EC)
             
-            self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, c=color, marker=self.marker, s=self.marker_size, 
-                                                        cmap=self.cmap, vmin=color_min, vmax=color_max, zorder=zorder)
-        except Exception as e: print(e)
+            self.NsVsAlt_paths = NsVsAlt_axes.scatter(x=plotZ, y=plotY, marker=maker_to_use, s=size, 
+                                                         zorder=zorder, fc=facecolor, edgecolors=EC)
+        except Exception as e: 
+            print(e)
+            #print('len size:', len(size), 'len x', len(plotX))
+            #print('size', size)
         
 
 #    def get_viewed_events(self):

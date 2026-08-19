@@ -197,7 +197,14 @@ class TBBData_Dal1:
         if self.have_metadata:# and not self.forcemetadata_delays:
             
             for i,dipole in enumerate(self.dipoleNames):
-                self.calibrationDelays[i] = self.file[ self.stationKey ][dipole].attrs['DIPOLE_CALIBRATION_DELAY_VALUE']
+                try:
+                    self.calibrationDelays[i] = self.file[ self.stationKey ][dipole].attrs['DIPOLE_CALIBRATION_DELAY_VALUE']
+                except:
+                    A = self.file[ self.stationKey ][dipole].attrs['DIPOLE_CALIBRATION_DELAY_VALUE']
+                    if len(A)==1:
+                        self.calibrationDelays[i] = A[0]
+                    else:
+                        raise "no clue what's going on here"
             
         
         

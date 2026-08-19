@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """ this is a command-line tool to explore HDF5 files."""
-
-import h5py
 import sys
+import os
+
+
+os.environ["HDF5_EXTFILE_PREFIX"]='${ORIGIN}'  ## need this for raw files to be relative location to header files
+import h5py
+
+try:
+	import matplotlib.pyplot as plt
+	has_plotting = True
+except:
+	print('plotting not available')
+	has_plotting = False
 
 def continuation(key, list):
 	ret = []
@@ -20,6 +30,8 @@ if __name__=="__main__":
 
 	print('opening file:', sys.argv[1])
 	file = h5py.File(sys.argv[1], "r")
+	directory = os.path.dirname(sys.argv[1])
+	print('   at directory', directory)
 	current_obj = file
 
 	while True:
@@ -102,6 +114,56 @@ if __name__=="__main__":
 				current_obj = file
 				print('am now at file level')
 
+			elif words[0] == 'type':
+				try:
+					S = current_obj.shape
+					dt = current_obj.dtype
+					print('is dataset of size:', S, 'and type', dt)
+				except:
+					try:
+						t = current_obj.keys()
+						print('is a group')
+					except:
+						print('I don"t know, got an error')
+
+			elif words[0] == 'plot1D':
+
+				CWD = os.getcwd()
+
+				#os.chdir(directory)
+
+				S = current_obj.shape
+				if len(S)!=1:
+					print('Can only plot 1D dataset')
+					continue
+
+				if len(words)==2:
+					start = int(words[1])
+					L = 1000
+
+					if start+L > S[0]:
+						L = S[0]-start
+
+				elif len(words)==3:
+					start = int(words[1])
+					L = int(words[2])
+
+
+				print('data from', start, 'to', start+L)
+				DATA = current_obj[start:start+L]
+
+				#os.chdir(CWD)
+				print('  len data read:', len(DATA))
+
+				plt.plot( DATA )
+				plt.savefig('./out.pdf')
+				plt.show()
+				print('plotting complete')
+
+
+
+				
+
 			elif words[0] == 'help':
 				print('This is a simple command-line script to explore the structure of HDF5 files')
 				print('  attr [name] [c]')
@@ -120,6 +182,10 @@ if __name__=="__main__":
 				print('    Make the parent the current object')
 				print('  goto_file')
 				print('    Undo all progression. Make the original file object the current object.')
+				print('  type')
+				print('      prints "dataset" or "group", depending on what current object is. If dataset, also give shape and dtype')
+				print('  plot1D (stat_index) [number]')
+				print('      if this is a datset, and that dataset is 1D, plot some data. first argument is an integer, and is the starting index. Second argument is optional, and is an integer. It is the number of datapoints. It defaults to 1000 (or max of datset)')
 				print('  exit')
 				print('    It is very difficult to describe what this command does.')
 

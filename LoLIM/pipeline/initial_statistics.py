@@ -31,7 +31,7 @@ class initialStatistics_jobInterface(standard_jobInterface):
 
 
 
-def stationStatsCore(fileList, blockSize):
+def stationStatsCore(fileList, blockSize, max_blocks=None):
 
     #TBB_data = MultiFile_Dal1( filename_list=fileList )
 
@@ -43,6 +43,9 @@ def stationStatsCore(fileList, blockSize):
     saturation_max, saturation_min = TBB_data.getSaturationValues()
 
     num_blocks = int( np.min(TBB_data.get_nominal_data_lengths()) /blockSize ) ### note that this throws away the last partial data block
+
+    if (not max_blocks is None) and (num_blocks>max_blocks):
+        num_blocks = max_blocks
 
     maxOverBlocks = np.empty(num_blocks, dtype=int)          
     fracSaturation_perAntenna = {n:0 for n in ant_names}
@@ -64,6 +67,7 @@ def stationStatsCore(fileList, blockSize):
         for antenna_i in range(num_antennas):
                     
             data = TBB_data.get_data( block_i*blockSize, blockSize, antenna_index=antenna_i, out=data )
+
             num_saturation, num_dbl_zeros, maximum = cytool.rawDataStatistics(data, satMax=saturation_max, satMin=saturation_min)
 
             if maximum > blockMax:

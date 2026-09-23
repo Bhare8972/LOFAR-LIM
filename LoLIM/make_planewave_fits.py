@@ -177,7 +177,7 @@ class planewave_fitter:
         residuals *= residuals
         return np.sum( residuals )
     
-    def go_fit(self, max_RMS = None, antenna_time_calibrations=None):
+    def go_fit(self, max_RMS = None, antenna_time_calibrations=None, return_antenna_averages=False):
         """ fit all planewaves. Re-opens the antenna calibrations every time, so is useful for testing different calibration files. Returns four arrays:
             RMS fit values,  zenithal fits, azimuthal fits, and the RMS per antenna (in order of antennas in the station, according to the polarization)
             max_RMS controls which fits are used to calculate RMS per antenna, does not affect the RMS, zenith or azimuth return arrays."""
@@ -199,6 +199,7 @@ class planewave_fitter:
         Zeniths = np.empty( self.num_found_planewaves, dtype=np.double )
         Azimuths = np.empty( self.num_found_planewaves, dtype=np.double )
         antenna_SSqE = np.zeros( len(self.antenna_locations), dtype=np.double )
+        antenna_averages = np.zeros( len(self.antenna_locations), dtype=np.double )
         antenna_num = np.zeros( len(self.antenna_locations), dtype=int )
         for pw_i,PW_data in enumerate(self.planewave_data):
 
@@ -238,6 +239,7 @@ class planewave_fitter:
             ret = least_squares( self.residuals, X, bounds=[[0,0],[np.pi/2,2*np.pi]], ftol=3e-16, xtol=3e-16, gtol=3e-16, x_scale='jac' )
             
             res = np.array( ret.fun )
+            res_n_sq = np.array(res)
             res *= res
 #            N = len( res )
             RMSs[ pw_i ] = np.sqrt( np.sum(res)/N )
@@ -249,13 +251,19 @@ class planewave_fitter:
             
             if max_RMS is None or RMSs[ pw_i ]<max_RMS:
                 antenna_SSqE[ self.filter ] += res # note that res is squared
+                antenna_averages[ self.filter ] += res_n_sq
                 antenna_num += self.filter
         
         antenna_SSqE /= antenna_num
+        antenna_averages /= antenna_num
 
         antenna_RMS = np.sqrt( antenna_SSqE, out=antenna_SSqE )
         
-        return RMSs, Zeniths, Azimuths, antenna_RMS
+        if return_antenna_averages:
+            return RMSs, Zeniths, Azimuths, antenna_RMS, antenna_averages
+        else:
+            return RMSs, Zeniths, Azimuths, antenna_RMS
+            
     
     def get_second_derivatives(self, planewave_RMSs=None,  max_RMS=None):
         """returns the average second derivative for each antenna. Can cut on planewave goodness of fit if given the RMS fits and cut value"""

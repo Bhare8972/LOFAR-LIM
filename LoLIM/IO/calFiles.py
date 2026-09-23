@@ -223,6 +223,22 @@ class total_cal_object:
 
         return out_dict
 
+    def writeToFile(self, output_fname, method='json'):
+        """write this cal object to file so that it can be read by read_cal_file.
+        Method can be 'json' or 'txt'. 
+            method 'json', uses teh method 'to_JSONable_object' and then the python jso.dump to save the data.
+            method 'txt'  writes it out in a more human-readable format. However it is not implemented at the moment
+            """
+
+        if method=='txt':
+            print('method txt is currently not implemented')
+            quit()
+
+        elif method == 'json':
+            with open(output_fname, 'w') as fout:
+                fout.write('J1\n')
+                json.dump( self.to_JSONable_object(), fp=fout,  cls=util.JSON_CustomEncoder, indent=4) 
+
     @staticmethod 
     def from_JSONable_object( jsonable_dictionary ):
         ret_cal = total_cal_object()

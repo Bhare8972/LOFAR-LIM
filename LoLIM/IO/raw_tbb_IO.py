@@ -13,6 +13,7 @@ import datetime
 import json
 
 import numpy as np
+os.environ["HDF5_EXTFILE_PREFIX"]='${ORIGIN}'  ## need this for raw files to be relative location to header files
 import h5py
 
 import LoLIM.IO.metadata as md

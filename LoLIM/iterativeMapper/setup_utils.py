@@ -12,7 +12,7 @@ ext = Extension("cython_utils", ["cython_utils.pyx"],
     include_dirs=[np.get_include(), 
                   GSL_include()],
     library_dirs=[GSL_library_dir()],
-    libraries=["gsl", 'blas']
+    libraries=["gsl"]
 )
  
 setup(ext_modules=[ext],

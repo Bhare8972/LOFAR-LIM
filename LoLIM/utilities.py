@@ -306,7 +306,7 @@ def raw_data_dir(timeID, data_loc=None):
 
 
 #from LoLIM.LOFARFlashData import TimeID_to_FlashName
-def processed_data_dir(timeID, data_loc=None, flashName=None):
+def processed_data_dir(timeID, data_loc=None, flashName=None, makeIfNE=False):
     """gives path to the analysis folders for a particular timeID, given location of data structure. Defaults to  default_processed_data_loc.
     Throws error is dir does not exist. will check if directory is timeID or flash name"""
     
@@ -321,6 +321,9 @@ def processed_data_dir(timeID, data_loc=None, flashName=None):
     if (not isdir(path)) and (flashName is not None):
         #flashName = TimeID_to_FlashName( timeID )
         path = os.path.join( data_loc, year, flashName)
+
+    if makeIfNE and not isdir(path):
+        mkdir(path)
 
     if not isdir(path):
         print( "Folder '"+path + "' does not exist." )

@@ -301,7 +301,11 @@ def convertPhase_to_Timing_LinFit(phase_calibration):
 
     df = 195312.5  ## offset between subbands in [Hz]
     f0 = 0  ## lowest frequency is 0 Mhz  This will not always be true
+    expected_length = 512
 
+    if len(phase_calibration)!=expected_length:
+        print('data is wrong length! in metadata.convertPhase_to_Timing_LinFit')
+        quit()
 
     phases = np.unwrap( np.angle(phase_calibration) )
 

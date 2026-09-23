@@ -7,6 +7,7 @@ import json
 from copy import copy
 
 import numpy as np
+os.environ["HDF5_EXTFILE_PREFIX"]='${ORIGIN}'  ## need this for raw files to be relative location to header files
 import h5py
 
 import LoLIM.IO.metadata as md
@@ -231,97 +232,98 @@ class LOFAR2_tbuf_reader:
         xant_DataGroup = []
         yant_DataGroup = []
         for file in self.files:
-            for G_l1 in file.values():
-                for antenna_field in G_l1.values():
+            for G_l1 in file.values():   ## eg /ANTENNA_FIELD_CS301_LBA
+                ## attributes:
+                ## ['ANTENNA_FIELD_NAME', 'ANTENNA_FIELD_POSITION', 'ANTENNA_FIELD_POSITION_EPOCH', 'ANTENNA_FIELD_POSITION_FRAME', 'ANTENNA_FIELD_POSITION_UNIT', 'ANTENNA_SET', 'CLOCK_SOURCE', 'GROUPTYPE', 'SAMPLE_FREQUENCY', 'SAMPLE_FREQUENCY_UNIT', 'STATION_NAME']
+                ## childs
+                ## e.g. ['DIPOLE_CS301_LBA81X', 'DIPOLE_CS301_LBA81Y', 'DIPOLE_CS301_LBA82X', 'DIPOLE_CS301_LBA82Y', 'DIPOLE_CS301_LBA83X', 'DIPOLE_CS301_LBA83Y', 'DIPOLE_CS301_LBA84X', 'DIPOLE_CS301_LBA84Y', 'DIPOLE_CS301_LBA85X', 'DIPOLE_CS301_LBA85Y', 'DIPOLE_CS301_LBA86X', 'DIPOLE_CS301_LBA86Y', 'DIPOLE_CS301_LBA87X', 'DIPOLE_CS301_LBA87Y', 'DIPOLE_CS301_LBA88X', 'DIPOLE_CS301_LBA88Y']
+
+                if G_l1.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
+                    pass ## we good
+                elif G_l1.attrs['ANTENNA_FIELD_NAME'] != 'LBA':
+                    print('HBA currently not supported by LOFAR2_tbuf_reader')
+                    quit()
+                else:
+                    ## we not good
+                    continue
+
+
+                if self.station_name is None:
+                    self.station_name = G_l1.attrs['STATION_NAME']
+                    self.SampleFrequency = G_l1.attrs['SAMPLE_FREQUENCY']*freq_to_s( G_l1.attrs['SAMPLE_FREQUENCY_UNIT'] )
+                else:
+                    if self.station_name != G_l1.attrs['STATION_NAME']:
+                        print('ERROR! all files/antenna groups must be from same station;', self.station_name)
+
+
+
+                if self.available_antenna_type is None:
+                    self.available_antenna_type = G_l1.attrs['ANTENNA_FIELD_NAME'] ## is this correct for HBA? which has different filters
+                elif self.available_antenna_type == 'multiple':
+                    pass  ## I guess it's alright then!
+                elif self.available_antenna_type != G_l1.attrs['ANTENNA_FIELD_NAME']:
+                    self.available_antenna_type = 'multiple'
+                    self.filter = None
+
+
+                for dipoleName, dipoleDataset in G_l1.items():
+                    ## is dataset
                     ## attributes:
-                    ## ['ANTENNA_FIELD_NAME', 'ANTENNA_FIELD_POSITION', 'ANTENNA_FIELD_POSITION_EPOCH', 'ANTENNA_FIELD_POSITION_FRAME', 'ANTENNA_FIELD_POSITION_UNIT', 'ANTENNA_SET', 'CLOCK_SOURCE', 'GROUPTYPE', 'SAMPLE_FREQUENCY', 'SAMPLE_FREQUENCY_UNIT', 'STATION_NAME']>
-                    ## childs:
-                    ## ['dipoles', 'dipoles_data']
+                    ## ['ANTENNA_ID', 'ANTENNA_NORMAL_VECTOR', 'ANTENNA_POSITION', 'ANTENNA_POSITION_EPOCH', 'ANTENNA_POSITION_FRAME', 'ANTENNA_POSITION_UNIT', 'ANTENNA_ROTATION_MATRIX', 'CABLE_DELAY', 'CABLE_DELAY_UNIT', 'CABLE_LOSS', 'CABLE_LOSS_UNIT', 'CLOCK_OFFSET_DELAY', 'CLOCK_OFFSET_DELAY_UNIT', 'CLOCK_OFFSET_PHASE_ZERO', 'CLOCK_OFFSET_PHASE_ZERO_UNIT', 'DATA_LENGTH', 'DIPOLE_CALIBRATION_GAIN_CURVE', 'DIPOLE_CALIBRATION_GAIN_CURVE_CROSSTALK', 'FILTER_SELECTION', 'GROUPTYPE', 'NYQUIST_ZONE', 'POLARIZATION', 'SAMPLES_PER_FRAME', 'SAMPLE_NUMBER', 'STATION_NAME', 'TIME']
 
-                    if antenna_field.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
-                        pass ## we good
-                    elif antenna_field.attrs['ANTENNA_FIELD_NAME'] != 'LBA':
-                        print('HBA currently not supported by LOFAR2_tbuf_reader')
+
+                    ### skip bad antennas
+                    if dipoleName in self.total_cal.bad_antenna_data:
+                        continue ## skip this antenna
+
+                    ## chk metadata things
+
+                    if self.Time is None:
+                        self.Time = dipoleDataset.attrs['TIME']
+                    elif self.Time != dipoleDataset.attrs['TIME']:
+                        print('ERROR: differetn antennas have different TIME attribute. Immorality has been detected, and you are now being reported to the Pope.')
                         quit()
-                    else:
-                        ## we not good
-                        continue
 
 
-                    if self.station_name is None:
-                        self.station_name = antenna_field.attrs['STATION_NAME']
-                        self.SampleFrequency = antenna_field.attrs['SAMPLE_FREQUENCY']*freq_to_s( antenna_field.attrs['SAMPLE_FREQUENCY_UNIT'] )
-                    else:
-                        if self.station_name != antenna_field.attrs['STATION_NAME']:
-                            print('ERROR! all files/antenna groups must be from same station;', self.station_name)
-
-
-                    if self.available_antenna_type is None:
-                        self.available_antenna_type = antenna_field.attrs['ANTENNA_FIELD_NAME'] ## is this correct for HBA? which has different filters
-                    elif self.available_antenna_type == 'multiple':
-                        pass  ## I guess it's alright then!
-                    elif self.available_antenna_type != antenna_field.attrs['ANTENNA_FIELD_NAME']:
-                        self.available_antenna_type = 'multiple'
-                        self.filter = None
-
-
-                    metaDataGroup = antenna_field['dipoles']
-                    DataGroup = antenna_field['dipoles_data']
-                    
-                    for dipoleName, dipoleMetaGroup in metaDataGroup.items():
-
-                        #antenna_field['dipoles_data'][dipoleName].attrs.keys()
-                        # is 
-                        # ['ADC2VOLTAGE', 'ANTENNA_ID', 'ANTENNA_NORMAL_VECTOR', 'ANTENNA_POSITION', 'ANTENNA_POSITION_EPOCH', 'ANTENNA_POSITION_FRAME', 'ANTENNA_POSITION_UNIT', 'ANTENNA_ROTATION_MATRIX', 'CABLE_DELAY', 'CABLE_DELAY_UNIT', 'CABLE_LOSS', 'CABLE_LOSS_UNIT', 'CLOCK_OFFSET_DELAY', 'CLOCK_OFFSET_DELAY_UNIT', 'CLOCK_OFFSET_PHASE_ZERO', 'CLOCK_OFFSET_PHASE_ZERO_UNIT', 'DATA_LENGTH', 'DIPOLE_CALIBRATION_GAIN_CURVE', 'DIPOLE_CALIBRATION_GAIN_CURVE_CROSSTALK', 'FILTER_SELECTION', 'NYQUIST_ZONE', 'POLARIZATION', 'SAMPLES_PER_FRAME', 'SAMPLE_NUMBER', 'STATION_NAME', 'TIME']
-
-                        ### skip bad antennas
-                        if dipoleName in self.total_cal.bad_antenna_data:
-                            continue ## skip this antenna
-
-                        ## chk metadata things
-
-                        if self.Time is None:
-                            self.Time = dipoleMetaGroup.attrs['TIME']
-                        elif self.Time != dipoleMetaGroup.attrs['TIME']:
-                            print('ERROR: differetn antennas have different TIME attribute. Immorality has been detected, and you are now being reported to the Pope.')
+                    if self.available_antenna_type != 'multiple':
+                        if self.filter is None:
+                            self.filter = dipoleDataset.attrs['FILTER_SELECTION']
+                        elif self.filter != dipoleDataset.attrs['FILTER_SELECTION']:
+                            print('antennas have different filters! this is not understood, we are now paniking.')
                             quit()
 
 
-                        if self.available_antenna_type != 'multiple':
-                            if self.filter is None:
-                                self.filter = dipoleMetaGroup.attrs['FILTER_SELECTION']
-                            elif self.filter != dipoleMetaGroup.attrs['FILTER_SELECTION']:
-                                print('antennas have different filters! this is not understood, we are now paniking.')
-                                quit()
+                    ## append info to correct arrays
+                    polFreeName = dipoleName[:-1]
 
+                    if polFreeName in polFreeAntNames:
+                        anti = polFreeAntNames.index( polFreeName )
+                    else:
+                        polFreeAntNames.append( polFreeName )
+                        xant_metadata.append( None )
+                        yant_metadata.append( None )
+                        xant_DataGroup.append( None )
+                        yant_DataGroup.append( None )
+                        anti = len(polFreeAntNames)-1
 
-                        ## append info to correct arrays
-                        polFreeName = dipoleName[:-1]
+                    if dipoleName[-1]=='X':
+                        if not xant_metadata[anti] is None:
+                            print('Odd err A in LOFAR2_tbuf_reader. This should not happen')
+                            quit()
 
-                        if polFreeName in polFreeAntNames:
-                            anti = polFreeAntNames.index( polFreeName )
-                        else:
-                            polFreeAntNames.append( polFreeName )
-                            xant_metadata.append( None )
-                            yant_metadata.append( None )
-                            xant_DataGroup.append( None )
-                            yant_DataGroup.append( None )
-                            anti = len(polFreeAntNames)-1
+                        xant_metadata[anti] = dict(dipoleDataset.attrs)
+                        xant_DataGroup[anti] = dipoleDataset
+                    else:
+                        if not yant_metadata[anti] is None:
+                            print('Odd err B in LOFAR2_tbuf_reader. This should not happen')
+                            quit()
 
-                        if dipoleName[-1]=='X':
-                            if not xant_metadata[anti] is None:
-                                print('Odd err A in LOFAR2_tbuf_reader. This should not happen')
-                                quit()
+                        yant_metadata[anti] = dict(dipoleDataset.attrs) 
+                        yant_DataGroup[anti] =  dipoleDataset 
 
-                            xant_metadata[anti] = dict(dipoleMetaGroup.attrs)
-                            xant_DataGroup[anti] = DataGroup[dipoleName]
-                        else:
-                            if not yant_metadata[anti] is None:
-                                print('Odd err B in LOFAR2_tbuf_reader. This should not happen')
-                                quit()
+                        
 
-                            yant_metadata[anti] = dict(dipoleMetaGroup.attrs) 
-                            yant_DataGroup[anti] =  DataGroup[dipoleName] 
+                        
 
         ## now we sort antenna names
         self.antenna_names = []
@@ -600,14 +602,18 @@ class LOFAR2_tbuf_reader:
         return out
     
     
-    def get_timing_callibration_delays(self, out=None):
-        """return the timing callibration of the anntennas, as a 1D np array.
-        For now, this only extracts the antenna-level delays from the frequency dependent phase that is in the TBuf file.
-        This also includes all known station delays. 
-        Returns a 0 for non-existent antennas."""
+    def get_timing_callibration_delays(self, out=None, recalculate=False):
+        """return the timing callibration of the anntennas, as a 1D np array. 
+        This extracts the antenna-level delays from the frequency dependent phase that is in the TBuf file.
+        If the antenna delay exists in the totalCal, than that is used instead.
+        Delay is set to zero if antenna does not exist.
+
+        out can be a numpy array of np.float that is of length len( get_antenna_names ).
+        If recalculate is false, than this call can return a previously cached result. If recalculate is true than a re-calculation is forced. 
+        """
 
 
-        if self.antennaTimings is None:
+        if (self.antennaTimings is None) or recalculate:
 
             num_ants = len(self.antenna_names)
 
@@ -620,29 +626,39 @@ class LOFAR2_tbuf_reader:
                 if metadata is None:
                     continue
 
-                cal_curve = metadata["DIPOLE_CALIBRATION_GAIN_CURVE"]
+                antName = self.antenna_names[ ant_i ]
 
-                zeroFreqPhase, timing = md.convertPhase_to_Timing_LinFit(cal_curve)
+                if antName in self.total_cal.ant_delays:
+                    zeroFreqPhase = 0
+                    timing = self.total_cal.ant_delays[antName]
+                else:
+                    ## calculate from calibraiton gain curve
+                    cal_curve = metadata["DIPOLE_CALIBRATION_GAIN_CURVE"]
+                    zeroFreqPhase, timing = md.convertPhase_to_Timing_LinFit(cal_curve)
+
+
+                # cal_curve = metadata["DIPOLE_CALIBRATION_GAIN_CURVE"]
+                # zeroFreqPhase, timing = md.convertPhase_to_Timing_LinFit(cal_curve)
+
+
+                # if antName in self.total_cal.ant_delays:
+                #     zeroFreqPhase = 0
+                #     timing += self.total_cal.ant_delays[antName]
+
 
                 self.antennaTimings[ant_i] = timing
                 self.zeroFreqPhases[ant_i] = zeroFreqPhase
 
 
-                ## now add in totalcal
-                antName = self.antenna_names[ ant_i ]
-                if antName in self.total_cal.ant_delays:
-                    self.antennaTimings[ant_i] += self.total_cal.ant_delays[antName]
+            #     ## add in field clock cal  WARNING: I don't know the sign of this!
+            #     self.antennaTimings[ant_i] -= metadata['CLOCK_OFFSET_DELAY']
+            #     if metadata['CLOCK_OFFSET_DELAY_UNIT'] != 's':
+            #         print('ERROR:', 'CLOCK_OFFSET_DELAY_UNIT is not s. in get_timing_callibration_delays')
+            #         quit()
 
-
-                ## add in field clock cal  WARNING: I don't know the sign of this!
-                self.antennaTimings[ant_i] -= metadata['CLOCK_OFFSET_DELAY']
-                if metadata['CLOCK_OFFSET_DELAY_UNIT'] != 's':
-                    print('ERROR:', 'CLOCK_OFFSET_DELAY_UNIT is not s. in get_timing_callibration_delays')
-                    quit()
-
-            ## finally, station delay in total cal
-            if self.station_name in self.total_cal.station_delays:
-                self.antennaTimings += self.total_cal.station_delays[self.station_name]
+            # ## finally, station delay in total cal
+            # if self.station_name in self.total_cal.station_delays:
+            #     self.antennaTimings += self.total_cal.station_delays[self.station_name]
 
 
         if out is None:
@@ -655,7 +671,9 @@ class LOFAR2_tbuf_reader:
 
     def get_zeroFreq_phases(self, out=None, addStationPhase=False):
         """return the calibrated phase per antenna at frequnecy 0. Is 0 if antenna doesn't exist. 
-        if addStationPhase is True (currently not implemented), the phase of the entire station is added"""
+        if addStationPhase is True (currently not implemented), the phase of the entire station is added.
+        This is highly experemental and currently doesn't interact with total cal. 
+        """
 
 
         if self.antennaTimings is None:
@@ -689,7 +707,22 @@ class LOFAR2_tbuf_reader:
         
         delays = self.get_timing_callibration_delays(out)
         delays -= self.get_nominal_sample_number()*(1/self.get_sample_frequency())
-        
+
+        ## updating station delays is anoying
+        if self.station_name in self.total_cal.station_delays:
+            delays += self.total_cal.station_delays[self.station_name]
+        else:
+            print('WARNING! the sign of CLOCK_OFFSET_DELAY is not understood')
+
+            for ant_i in range(num_ants):
+                metadata = self.antenna_metadata[ant_i]
+                if metadata is None:
+                    continue
+                delays[ant_i] += metadata['CLOCK_OFFSET_DELAY']
+                if metadata['CLOCK_OFFSET_DELAY_UNIT'] != 's':
+                    print('ERROR:', 'CLOCK_OFFSET_DELAY_UNIT is not s. in get_timing_callibration_delays')
+                    quit()
+
         return delays
     
     def get_time_from_second(self, out=None):

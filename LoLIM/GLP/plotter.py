@@ -188,8 +188,10 @@ class typical_transform( coordinate_transform ):
         
         self.x_label = "Easting [km]"
         self.y_label = "Northing [km]"
-        self.z_label = "Altitude [km]"
-        self.zt_label = "Altitude [km]"
+        #self.z_label = "Altitude [km]"
+        #self.zt_label = "Altitude [km]"
+        self.z_label = "Height [km]"
+        self.zt_label = "Height [km]"
 
         if t_unit == 'milli':
             self.t_factor = 1000.0
@@ -924,6 +926,7 @@ class DataSet_generic_PSE(DataSet_Type):
         self.max_marker_size     = max_marker_size
         self.min_marker_size     = min_marker_size
         self.makerSize_value_cut = makerSize_value_cut
+        self.markerSize_value_max = None
 
     ### check lengths of things
         L = len(X_array)
@@ -1157,7 +1160,8 @@ class DataSet_generic_PSE(DataSet_Type):
         ret =  {"marker size":str(self.size_mode),  "color mode":str(self.color_mode), 'name':self.name,
                 "X offset":self.X_offset, "Y offset":self.Y_offset,"Z offset":self.Z_offset, 
                 "T offset":self.T_offset, 'marker':self.marker, 'max points':self.max_num_points,
-                "min. marker size":str(self.min_marker_size), "max. marker size":str(self.max_marker_size), "makerSize_value_cut":str(self.makerSize_value_cut)
+                "min. marker size":str(self.min_marker_size), "max. marker size":str(self.max_marker_size), "makerSize_value_cut":str(self.makerSize_value_cut),
+                "markerSize_value_max":str(self.markerSize_value_max)
                 }
         
         for name, value in self.min_parameters.items():
@@ -1214,6 +1218,13 @@ class DataSet_generic_PSE(DataSet_Type):
 
             elif name == "makerSize_value_cut":
                 self.makerSize_value_cut = float( str_value )
+
+            elif name == "markerSize_value_max":
+                try:
+                    self.markerSize_value_max = float( str_value )
+                except ValueError:
+                    print('markerSize_value_max is not a float' )
+                    self.markerSize_value_max = None
                 
             else:
                 print("do not have property:", name)
@@ -1336,7 +1347,10 @@ class DataSet_generic_PSE(DataSet_Type):
             max_size = self.max_marker_size
             size_cut = self.makerSize_value_cut
 
-            max_size_value = np.max(size)
+            if self.markerSize_value_max is None:
+                max_size_value = np.max(size)
+            else:
+                max_size_value = float(self.markerSize_value_max)
 
             min_size_value = max( size_cut, np.min(size) )
             min_filter = size<min_size_value
@@ -3694,6 +3708,11 @@ class DataSet_span(DataSet_Type):
         return self._ignore_time
     
     
+
+
+
+
+
         
 #class DataSet_arrow(DataSet_Type):
 #    """This represents a set of simple dual-polarized point sources"""
@@ -5150,7 +5169,9 @@ class Active3DPlotter(QtWidgets.QMainWindow):
 
 
     def set_labelSize_callback(self):
+
         inputTXT = self.variable_txtBox.text().strip()
+
         try:
             num = float(inputTXT)
         except:
@@ -5429,22 +5450,29 @@ class Active3DPlotter(QtWidgets.QMainWindow):
         self.DSvariable_get()
         self.position_get()
         
-    def setPositionPressed(self):
-        try:
-            xmin = float( self.Xmin_txtBox.text() )
-            xmax = float( self.Xmax_txtBox.text() )
-             
-            ymin = float( self.Ymin_txtBox.text() )
-            ymax = float( self.Ymax_txtBox.text() )
-            
-            zmin = float( self.Zmin_txtBox.text() )
-            zmax = float( self.Zmax_txtBox.text() )
-            
-            tmin = float( self.Tmin_txtBox.text() )
-            tmax = float( self.Tmax_txtBox.text() )
-        except:
-            print("bad input")
-            return
+    def setPositionPressed(self, limits=None):
+
+        if not (limits is None):
+            xmin, xmax = limits[0]
+            ymin, ymax = limits[1]
+            zmin, zmax = limits[2]
+            tmin, tmax = limits[3]
+        else:
+            try:
+                xmin = float( self.Xmin_txtBox.text() )
+                xmax = float( self.Xmax_txtBox.text() )
+                 
+                ymin = float( self.Ymin_txtBox.text() )
+                ymax = float( self.Ymax_txtBox.text() )
+                
+                zmin = float( self.Zmin_txtBox.text() )
+                zmax = float( self.Zmax_txtBox.text() )
+                
+                tmin = float( self.Tmin_txtBox.text() )
+                tmax = float( self.Tmax_txtBox.text() )
+            except:
+                print("bad input")
+                return
         
         self.figure_space.coordinate_system.set_displayLimits( [xmin,xmax], [ymin,ymax], [zmin,zmax], [tmin,tmax] )
         

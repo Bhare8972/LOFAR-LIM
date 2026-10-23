@@ -2,7 +2,7 @@
 
 import os
 import datetime
-import json
+import logging
 
 from copy import copy
 
@@ -12,9 +12,9 @@ import h5py
 
 import LoLIM.IO.metadata as md
 import LoLIM.utilities as util
-import LoLIM.atmosphere as atmo
 
-
+logging.basicConfig()
+logger = logging.getLogger(__name__)
 
 from LoLIM.IO.calFiles import total_cal_object, read_cal_file
 
@@ -159,9 +159,10 @@ def freq_to_s( freq_unit ):
 
 class LOFAR2_tbuf_reader:
     """A class for reading the data from one station from multiple files"""
-    def __init__(self, file_list,  total_cal=None,
-                 only_complete_pairs=True, pol_flips_are_bad=False,
-                 antenna_mode='all'):
+    def __init__(
+            self, file_list,  total_cal=None,
+            only_complete_pairs=True, pol_flips_are_bad=False,
+            antenna_mode='all'):
         """file_list:  list of filenames for this station for this event, or list of already-opened h5py file objects
 
             total_cal              - ...many behaviors. If a string, then assumes total_cal is file name, and is opened by read_cal_file. Else, should be output of read_cal_file.
@@ -232,18 +233,23 @@ class LOFAR2_tbuf_reader:
         xant_DataGroup = []
         yant_DataGroup = []
         for file in self.files:
+            logger.debug("Opening file %s", file.name)
             for G_l1 in file.values():   ## eg /ANTENNA_FIELD_CS301_LBA
+                logger.debug('Opening group %s', G_l1.name)
                 ## attributes:
                 ## ['ANTENNA_FIELD_NAME', 'ANTENNA_FIELD_POSITION', 'ANTENNA_FIELD_POSITION_EPOCH', 'ANTENNA_FIELD_POSITION_FRAME', 'ANTENNA_FIELD_POSITION_UNIT', 'ANTENNA_SET', 'CLOCK_SOURCE', 'GROUPTYPE', 'SAMPLE_FREQUENCY', 'SAMPLE_FREQUENCY_UNIT', 'STATION_NAME']
                 ## childs
                 ## e.g. ['DIPOLE_CS301_LBA81X', 'DIPOLE_CS301_LBA81Y', 'DIPOLE_CS301_LBA82X', 'DIPOLE_CS301_LBA82Y', 'DIPOLE_CS301_LBA83X', 'DIPOLE_CS301_LBA83Y', 'DIPOLE_CS301_LBA84X', 'DIPOLE_CS301_LBA84Y', 'DIPOLE_CS301_LBA85X', 'DIPOLE_CS301_LBA85Y', 'DIPOLE_CS301_LBA86X', 'DIPOLE_CS301_LBA86Y', 'DIPOLE_CS301_LBA87X', 'DIPOLE_CS301_LBA87Y', 'DIPOLE_CS301_LBA88X', 'DIPOLE_CS301_LBA88Y']
-
-                if G_l1.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
+                if not 'ANTENNA_FIELD_NAME' in G_l1.attrs: # looking at trigger group or other non-antenna-field group
+                    logger.info(f'Group {G_l1.name} is not an antenna field group')
+                    continue
+                elif G_l1.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
+                    logger.info(f'Reading LBA antenna field: {G_l1.name}')
                     pass ## we good
                 elif G_l1.attrs['ANTENNA_FIELD_NAME'] != 'LBA':
-                    print('HBA currently not supported by LOFAR2_tbuf_reader')
-                    quit()
+                    raise TypeError('HBA currently not supported by LOFAR2_tbuf_reader')
                 else:
+                    logger.warning(f"Congratulations! You managed to reach an unreachable edge case! Skipping...")
                     ## we not good
                     continue
 
@@ -274,6 +280,7 @@ class LOFAR2_tbuf_reader:
 
                     ### skip bad antennas
                     if dipoleName in self.total_cal.bad_antenna_data:
+                        logger.debug("Skipping bad dipole: %s", dipoleName)
                         continue ## skip this antenna
 
                     ## chk metadata things
@@ -366,11 +373,9 @@ class LOFAR2_tbuf_reader:
 
     #### need to handle sample numbers and data lengths   ####
 
-        self.data_lengths = np.empty(len(self.antenna_names), dtype=int)
-        self.data_lengths[:] = -1
+        self.data_lengths = - np.ones(len(self.antenna_names), dtype=int)
 
-        self.sample_numbers = np.empty(len(self.antenna_names), dtype=int)
-        self.sample_numbers[:] = -1
+        self.sample_numbers = -np.ones(len(self.antenna_names), dtype=int)
 
         for ant_i in range(len(self.antenna_names)):
             metadata = self.antenna_metadata[ ant_i ]
@@ -380,13 +385,10 @@ class LOFAR2_tbuf_reader:
                 self.data_lengths[ant_i] = int(metadata['DATA_LENGTH'])  
                 self.sample_numbers[ant_i] = metadata['SAMPLE_NUMBER']
 
+        if len(self.antenna_names) == 0:
+            logger.warning('station %s has no antennas.', self.station_name)
 
         self.nominal_sample_number = np.max( self.sample_numbers )
-
-
-        if len(self.antenna_names) == 0:
-            print('WARNING!: station', self.station, 'has no antennas.')
-
 
         self.station_delay = 0.0
         if self.station_name in self.total_cal.station_delays:

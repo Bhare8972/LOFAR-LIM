@@ -2,7 +2,7 @@
 
 import os
 import datetime
-import json
+import logging
 
 from copy import copy
 
@@ -12,9 +12,9 @@ import h5py
 
 import LoLIM.IO.metadata as md
 import LoLIM.utilities as util
-import LoLIM.atmosphere as atmo
 
-
+logging.basicConfig()
+logger = logging.getLogger(__name__)
 
 from LoLIM.IO.calFiles import total_cal_object, read_cal_file
 
@@ -159,21 +159,26 @@ def freq_to_s( freq_unit ):
 
 class LOFAR2_tbuf_reader:
     """A class for reading the data from one station from multiple files"""
-    def __init__(self, file_list,  total_cal=None,
-                 only_complete_pairs=True, pol_flips_are_bad=False,
-                 antenna_mode='all'):
-        """file_list:  list of filenames for this station for this event, or list of already-opened h5py file objects
-
-            total_cal              - ...many behaviors. If a string, then assumes total_cal is file name, and is opened by read_cal_file. Else, should be output of read_cal_file.
-
-            only_complete_pairs    -if True, discards antenna if the other in pair is not present or is bad. If False, keeps all good antennas.
-                                      If False, needs to use 'has_antenna' method. To make sure antenna actually exists! (see doc for method).
-                                      Currently it is expected L2 will always have both pairs, thus this setting only matters if one dipole is considered "bad"
-            pol_flips_are_bad      -if True, antennas that are in pol-flips are included in 'bad_antennas' 
-
-            antenna_mode           -values can be 'LBA', or 'all' (currently).  Indicates which antenna types can be read. Needs to be improved for HBA, but needs to indicate HBA bands, which I don't remember at moment.
+    def __init__(
+            self, file_list,  total_cal=None,
+            only_complete_pairs=True, pol_flips_are_bad=False,
+            antenna_mode='all'):
         """
-
+        Parameters
+        ----------
+        file_list : list
+            list of filenames for this station for this event, or list of already-opened h5py file objects
+        total_cal : str or total_cal_object, optional
+            many behaviors. If a string, then assumes total_cal is file name, and is opened by read_cal_file. Else, should be output of read_cal_file.
+        only_complete_pairs : bool, optional
+            if True (default), discards antenna if the other in pair is not present or is bad. If False, keeps all good antennas.
+            If False, needs to use 'has_antenna' method. To make sure antenna actually exists! (see doc for method).
+            Currently it is expected L2 will always have both pairs, thus this setting only matters if one dipole is considered "bad"
+        pol_flips_are_bad : bool, optional
+            if True, antennas that are in pol-flips are included in 'bad_antennas'. Default: False
+        antenna_mode : "LBA", "all"; default "all"
+            Indicates which antenna types can be read. Needs to be improved for HBA, but needs to indicate HBA bands, which I don't remember at moment.
+        """
 
         self.file_list = file_list
         self.files = [ filename if isinstance(filename,h5py.File) else h5py.File(filename, "r") for filename in file_list]
@@ -212,10 +217,7 @@ class LOFAR2_tbuf_reader:
         self.antenna_mode = antenna_mode
 
         if not (self.antenna_mode in ['LBA', 'all']):
-            print('ERROR: antenna_mode must be LBA or all')
-            quit()
-
-
+            raise ValueError("ERROR: antenna_mode must be 'LBA' or 'all'")
 
         self.station_name = None
         self.available_antenna_type = None    ## this indicates if all available antennas are same or different type. Currently values can be LBA or multiple
@@ -232,18 +234,23 @@ class LOFAR2_tbuf_reader:
         xant_DataGroup = []
         yant_DataGroup = []
         for file in self.files:
+            logger.debug("Opening file %s", file.name)
             for G_l1 in file.values():   ## eg /ANTENNA_FIELD_CS301_LBA
+                logger.debug('Opening group %s', G_l1.name)
                 ## attributes:
                 ## ['ANTENNA_FIELD_NAME', 'ANTENNA_FIELD_POSITION', 'ANTENNA_FIELD_POSITION_EPOCH', 'ANTENNA_FIELD_POSITION_FRAME', 'ANTENNA_FIELD_POSITION_UNIT', 'ANTENNA_SET', 'CLOCK_SOURCE', 'GROUPTYPE', 'SAMPLE_FREQUENCY', 'SAMPLE_FREQUENCY_UNIT', 'STATION_NAME']
                 ## childs
                 ## e.g. ['DIPOLE_CS301_LBA81X', 'DIPOLE_CS301_LBA81Y', 'DIPOLE_CS301_LBA82X', 'DIPOLE_CS301_LBA82Y', 'DIPOLE_CS301_LBA83X', 'DIPOLE_CS301_LBA83Y', 'DIPOLE_CS301_LBA84X', 'DIPOLE_CS301_LBA84Y', 'DIPOLE_CS301_LBA85X', 'DIPOLE_CS301_LBA85Y', 'DIPOLE_CS301_LBA86X', 'DIPOLE_CS301_LBA86Y', 'DIPOLE_CS301_LBA87X', 'DIPOLE_CS301_LBA87Y', 'DIPOLE_CS301_LBA88X', 'DIPOLE_CS301_LBA88Y']
-
-                if G_l1.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
+                if not 'ANTENNA_FIELD_NAME' in G_l1.attrs: # looking at trigger group or other non-antenna-field group
+                    logger.info(f'Group {G_l1.name} is not an antenna field group')
+                    continue
+                elif G_l1.attrs['ANTENNA_FIELD_NAME'] == 'LBA' and ( (self.antenna_mode=='LBA') or (self.antenna_mode=='all') ):
+                    logger.info(f'Reading LBA antenna field: {G_l1.name}')
                     pass ## we good
                 elif G_l1.attrs['ANTENNA_FIELD_NAME'] != 'LBA':
-                    print('HBA currently not supported by LOFAR2_tbuf_reader')
-                    quit()
+                    raise TypeError('HBA currently not supported by LOFAR2_tbuf_reader')
                 else:
+                    logger.warning(f"Congratulations! You managed to reach an unreachable edge case! Skipping...")
                     ## we not good
                     continue
 
@@ -274,6 +281,7 @@ class LOFAR2_tbuf_reader:
 
                     ### skip bad antennas
                     if dipoleName in self.total_cal.bad_antenna_data:
+                        logger.debug("Skipping bad dipole: %s", dipoleName)
                         continue ## skip this antenna
 
                     ## chk metadata things
@@ -281,17 +289,13 @@ class LOFAR2_tbuf_reader:
                     if self.Time is None:
                         self.Time = dipoleDataset.attrs['TIME']
                     elif self.Time != dipoleDataset.attrs['TIME']:
-                        print('ERROR: differetn antennas have different TIME attribute. Immorality has been detected, and you are now being reported to the Pope.')
-                        quit()
-
+                        raise ValueError('ERROR: different antennas have different TIME attribute. Immorality has been detected, and you are now being reported to the Pope.')
 
                     if self.available_antenna_type != 'multiple':
                         if self.filter is None:
                             self.filter = dipoleDataset.attrs['FILTER_SELECTION']
                         elif self.filter != dipoleDataset.attrs['FILTER_SELECTION']:
-                            print('antennas have different filters! this is not understood, we are now paniking.')
-                            quit()
-
+                            raise ValueError('antennas have different filters! this is not understood, we are now panicking.')
 
                     ## append info to correct arrays
                     polFreeName = dipoleName[:-1]
@@ -308,22 +312,16 @@ class LOFAR2_tbuf_reader:
 
                     if dipoleName[-1]=='X':
                         if not xant_metadata[anti] is None:
-                            print('Odd err A in LOFAR2_tbuf_reader. This should not happen')
-                            quit()
+                            raise ValueError('Odd err A in LOFAR2_tbuf_reader. This should not happen')
 
                         xant_metadata[anti] = dict(dipoleDataset.attrs)
                         xant_DataGroup[anti] = dipoleDataset
                     else:
                         if not yant_metadata[anti] is None:
-                            print('Odd err B in LOFAR2_tbuf_reader. This should not happen')
-                            quit()
+                            raise ValueError('Odd err B in LOFAR2_tbuf_reader. This should not happen')
 
                         yant_metadata[anti] = dict(dipoleDataset.attrs) 
                         yant_DataGroup[anti] =  dipoleDataset 
-
-                        
-
-                        
 
         ## now we sort antenna names
         self.antenna_names = []
@@ -366,11 +364,9 @@ class LOFAR2_tbuf_reader:
 
     #### need to handle sample numbers and data lengths   ####
 
-        self.data_lengths = np.empty(len(self.antenna_names), dtype=int)
-        self.data_lengths[:] = -1
+        self.data_lengths = - np.ones(len(self.antenna_names), dtype=int)
 
-        self.sample_numbers = np.empty(len(self.antenna_names), dtype=int)
-        self.sample_numbers[:] = -1
+        self.sample_numbers = -np.ones(len(self.antenna_names), dtype=int)
 
         for ant_i in range(len(self.antenna_names)):
             metadata = self.antenna_metadata[ ant_i ]
@@ -380,13 +376,11 @@ class LOFAR2_tbuf_reader:
                 self.data_lengths[ant_i] = int(metadata['DATA_LENGTH'])  
                 self.sample_numbers[ant_i] = metadata['SAMPLE_NUMBER']
 
+        self.num_ants = len(self.antenna_names)
+        if self.num_ants == 0:
+            logger.warning('station %s has no antennas.', self.station_name)
 
         self.nominal_sample_number = np.max( self.sample_numbers )
-
-
-        if len(self.antenna_names) == 0:
-            print('WARNING!: station', self.station, 'has no antennas.')
-
 
         self.station_delay = 0.0
         if self.station_name in self.total_cal.station_delays:
@@ -430,6 +424,7 @@ class LOFAR2_tbuf_reader:
     
     def get_antenna_names(self, name_style=None):
         """return name of antenna as a list of strings.
+
         Note that antenna_id used elsewhere in this class is the index of this list (order stays the same!).
         However, order and such is not garunteed between different class instances, thus if you need to save info, save antenna_name, NOT antenna_ID.
         Even indeces are always Y-oriented dipole.
@@ -485,30 +480,7 @@ class LOFAR2_tbuf_reader:
         Value is antenna_id (index of get_antenna_names). Will be -1 if antenna does not exist
         NOTE: this method may be phased out. As in future, order will always be Y-X"""
 
-        print('get_XYdipole_indeces is depreciated')
-        print('    just like you should be')
-        quit()
-
-        # n_pairs = int(len(self.dipoleNames)/2)
-        # ret = np.full( (n_pairs,2), -1, dtype=np.int)
-        # for pair_i in range(n_pairs):
-        #     #if self.antennaSet == "LBA_OUTER":
-        #     X_index = 2*pair_i + 1
-        #     Y_index = 2*pair_i
-        #     #elif self.antennaSet == "LBA_INNER":
-        #         #X_index = 2*pair_i
-        #         #Y_index = 2*pair_i + 1
-        #     #else:
-        #     #    print('unknown antenna set in get_XYdipole_indeces:', self.antennaSet)
-        #     #    return None
-
-        #     if self.has_antenna(antenna_ID=X_index):
-        #         ret[pair_i, 0] = X_index
-        #     if self.has_antenna(antenna_ID=Y_index):
-        #         ret[pair_i, 1] = Y_index
-
-        # return ret
-
+        raise DeprecationWarning('get_XYdipole_indeces is deprecated')
 
     def get_antenna_set(self):
         """return the antenna set as a string. Currently can be 'LBA' or 'multiple'. Work still needed for HBA """
@@ -615,7 +587,7 @@ class LOFAR2_tbuf_reader:
 
         if (self.antennaTimings is None) or recalculate:
 
-            num_ants = len(self.antenna_names)
+            num_ants = self.num_ants
 
             self.antennaTimings = np.zeros( num_ants, dtype=float )
             self.zeroFreqPhases = np.zeros( num_ants, dtype=float )
@@ -687,7 +659,7 @@ class LOFAR2_tbuf_reader:
         if addStationPhase:
             print('WARNING: station phase not tested. at get_zeroFreq_phases')
 
-            for ant_i in range(num_ants):
+            for ant_i in range(self.num_ants):
 
                 metadata = self.antenna_metadata[ant_i]
                 if metadata is None:
@@ -714,7 +686,7 @@ class LOFAR2_tbuf_reader:
         else:
             print('WARNING! the sign of CLOCK_OFFSET_DELAY is not understood')
 
-            for ant_i in range(num_ants):
+            for ant_i in range(self.num_ants):
                 metadata = self.antenna_metadata[ant_i]
                 if metadata is None:
                     continue
@@ -806,11 +778,9 @@ class LOFAR2_tbuf_reader:
         try:
             if out is None:
                 RET = dataObj[initial_point:final_point]
-                
             else:
                 dataObj.read_direct(out, np.s_[initial_point:final_point], np.s_[0:num_points])
                 RET = out
-
 
             if  (antenna_name in self.total_cal.sign_flips):
                 RET *= -1
